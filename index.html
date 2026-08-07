@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lumenfall</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>" />
+  <link rel="stylesheet" href="./styles/base.css" />
+  <link rel="stylesheet" href="./styles/ui.css" />
+  <link rel="stylesheet" href="./styles/battle.css" />
+  <link rel="stylesheet" href="./styles/menus.css" />
+  <link rel="stylesheet" href="./styles/title.css" />
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./vendor/three.module.js",
+        "three/addons/": "./vendor/addons/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <canvas id="game-canvas"></canvas>
+  <div id="ui-root"></div>
+  <div id="boot-screen">
+    <div class="boot-star">✦</div>
+    <div class="boot-title">LUMENFALL</div>
+    <div class="boot-sub">the world is dreaming&hellip;</div>
+  </div>
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>

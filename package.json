@@ -1,0 +1,26 @@
+{
+  "name": "lumenfall",
+  "version": "0.1.0",
+  "description": "Lumenfall — an original creature-collecting RPG built with Three.js",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "serve": "python3 -m http.server 8080"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Michaelkjoervel/RPG_game.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Michaelkjoervel/RPG_game/issues"
+  },
+  "homepage": "https://github.com/Michaelkjoervel/RPG_game#readme",
+  "type": "module",
+  "devDependencies": {
+    "playwright-core": "^1.62.1",
+    "three": "^0.180.0"
+  }
+}
