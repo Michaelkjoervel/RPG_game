@@ -92,7 +92,7 @@ Ten Aspects + Neutral. Multipliers: strong ×1.6, weak ×0.65, immune ×0 (rare)
 Lumen and Umbra are mutually strong AND mutually weak (high-stakes mirror). Neutral has no
 multipliers. Same-aspect ability bonus (STAB-like): ×1.25, called **Attunement Bonus**.
 
-## 4. The Kindred Roster (45 species — FIXED LIST, ids are canonical)
+## 4. The Kindred Roster (48 species — FIXED LIST, ids are canonical)
 
 Stats: `vigor` (HP), `might`, `ward`, `focus`, `aegis`, `haste`. Stages awaken by level unless
 noted. Silhouette and personality are binding creative direction. Rarity: C common, U uncommon,
