@@ -10,7 +10,7 @@ import { bus } from '../core/events.js';
 import { G, resetState, setFlag, gainItem, gainGlim, markCodex } from '../core/state.js';
 import { game } from './game.js';
 import { STORY_TRIGGERS } from '../data/story.js';
-import { NPCS, ASHE_COUNTER_LINE } from '../data/npcs.js';
+import { NPCS, ASHE_COUNTER_LINE, SQ_SCHOLAR_MURALS } from '../data/npcs.js';
 import { QUESTS } from '../data/quests.js';
 import { startQuest, completeQuest, updateQuests } from './quests.js';
 
@@ -101,15 +101,20 @@ function applyOnWin(cfg) {
 }
 
 async function resolveSide(npcData) {
-  if (npcData.questId && !G.quests[npcData.questId]) startQuest(npcData.questId);
-  if (npcData.id === 'scholar_imre') {
+  const qid = npcData.questId;
+  const alreadyActive = !!(qid && G.quests[qid]); // snapshot BEFORE auto-starting below
+  if (qid && !alreadyActive) startQuest(qid);
+
+  // Imre's mural counter only advances on visits AFTER the introductory one, so "discuss
+  // the murals three times" genuinely means three distinct mural conversations, not two.
+  if (npcData.id === 'scholar_imre' && alreadyActive) {
     const q = G.quests.sq_scholar;
     if (q && !q.done) {
       const step = G.flags.sq_scholar_step ?? 0;
-      if (step < 3) setFlag('sq_scholar_step', step + 1);
+      if (step < SQ_SCHOLAR_MURALS) setFlag('sq_scholar_step', step + 1);
     }
   }
-  const qid = npcData.questId;
+
   if (qid && G.quests[qid] && !G.quests[qid].done && QUESTS[qid]?.steps[0]?.isDone(G)) completeQuest(qid);
 }
 
@@ -244,9 +249,11 @@ SCENES.wwHollowedReveal = async (world) => {
   bus.emit('letterbox', { on: true });
   await say('dlg_ww_hollowed_reveal');
   bus.emit('letterbox', { on: false });
+  // A Hollowed cervalume, specifically — its gentle, Shrine-awakened kin (a dapplyn) makes the
+  // corruption land harder, and quietly sets up Keeper Liora's own lost dapplyn later on.
   await runBattle(world, {
-    team: [{ speciesId: 'duskit', level: 12, hollowed: true }], kind: 'wild', ai: 'basic',
-    canFlee: false, canCatch: false, enemyName: 'Hollowed Duskit',
+    team: [{ speciesId: 'cervalume', level: 14, hollowed: true }], kind: 'wild', ai: 'basic',
+    canFlee: false, canCatch: false, enemyName: 'Hollowed Cervalume',
   });
   world?.player?.setFrozen(false);
   setFlag('ww_hollowed_seen');

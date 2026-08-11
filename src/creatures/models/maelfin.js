@@ -88,7 +88,7 @@ export function build_maelfin(kit = kitDefault) {
     },
     hints: {
       personality: 'eager',
-      locomotion: 'quad',
+      locomotion: 'biped', // only 2 legs (flippers) — alternating paddle gait
       breathAmp: 1.0,
       blinkEvery: 2.8,
     },
