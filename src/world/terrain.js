@@ -59,6 +59,26 @@ function fbm(noise2D, x, z, octaves, freq, amp) {
   return sum;
 }
 
+// Quantizes `h` into flat bands `step` tall, connected by a short cosine ramp
+// (walkable "steps", not sheer cliffs) — used for the ruins' broken terraces.
+// `ramp` is the fraction of each band's width spent easing into the next level.
+function smoothTerrace(h, step, ramp) {
+  const t = h / step;
+  const i = Math.floor(t);
+  const f = t - i;
+  let level;
+  if (f < ramp) {
+    const u = 0.5 - 0.5 * Math.cos(Math.PI * (f / ramp));
+    level = (i - 1) + u;
+  } else if (f > 1 - ramp) {
+    const u = 0.5 - 0.5 * Math.cos(Math.PI * ((f - (1 - ramp)) / ramp));
+    level = i + u;
+  } else {
+    level = i;
+  }
+  return level * step;
+}
+
 // ---------------------------------------------------------------- path helpers
 function distToSeg(x, z, a, b) {
   const dx = b[0] - a[0], dz = b[1] - a[1];
@@ -116,8 +136,8 @@ function shapeHeight(kind, noise2D, x, z, hills, half, zone) {
     }
     case 'ruins': {
       const base = fbm(noise2D, x, z, 3, 0.014, 1.3) * hills;
-      const terraced = Math.round(base / 1.1) * 1.1;
-      return terraced + fbm(noise2D, x * 4, z * 4, 2, 0.08, 0.16) * hills;
+      const terraced = smoothTerrace(base, 0.85, 0.24); // flat plateaus + short walkable ramps
+      return terraced + fbm(noise2D, x * 4, z * 4, 2, 0.08, 0.1) * hills;
     }
     case 'spire':
       return fbm(noise2D, x, z, 2, 0.02, 0.22) * hills;
