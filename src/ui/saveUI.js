@@ -2,7 +2,6 @@
 // double-confirm delete. showSaveMenu() writes to a chosen slot; showLoadMenu() resolves
 // the chosen slot number for the caller to loadGame().
 import { bus } from '../core/events.js';
-import { G } from '../core/state.js';
 import { input } from '../core/input.js';
 import { listSaves, saveGame, deleteSave } from '../core/save.js';
 import { TAU } from '../core/math.js';

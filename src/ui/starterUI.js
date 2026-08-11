@@ -6,7 +6,6 @@
 import * as THREE from 'three';
 import { bus } from '../core/events.js';
 import { input } from '../core/input.js';
-import { TAU } from '../core/math.js';
 import { hashStr, seededRandom } from '../core/rng.js';
 import { ASPECTS } from '../data/aspects.js';
 
