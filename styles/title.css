@@ -1,0 +1,158 @@
+/* LUMENFALL — title.css: title screen + starter-choice cinematic. Uses base.css tokens. */
+
+/* ---------------------------------------------------------------- Title screen */
+.title-root {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  font-family: var(--font-body);
+  animation: fade-in 700ms ease;
+  transition: opacity 260ms ease;
+}
+.title-root.out { opacity: 0; pointer-events: none; }
+
+.title-vignette {
+  position: absolute; inset: 0; pointer-events: none;
+  background:
+    radial-gradient(ellipse at 50% 42%, rgba(11,12,20,0) 0%, rgba(11,12,20,0.55) 78%, rgba(11,12,20,0.85) 100%),
+    linear-gradient(to top, rgba(8,9,15,0.65) 0%, rgba(8,9,15,0) 22%);
+}
+
+.title-wrap {
+  position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center;
+  gap: 6px; margin-top: -4vh;
+}
+
+.title-badge { margin-bottom: 6px; }
+.title-star {
+  font-size: 26px; color: var(--gold); display: inline-block;
+  text-shadow: 0 0 22px rgba(255, 233, 176, 0.75);
+  animation: title-star-float 3.2s ease-in-out infinite;
+}
+@keyframes title-star-float {
+  0%, 100% { transform: translateY(0) scale(1); opacity: 0.85; }
+  50% { transform: translateY(-8px) scale(1.12); opacity: 1; }
+}
+
+.title-logo {
+  font-family: var(--font-display); font-weight: 700; font-size: clamp(46px, 8vw, 88px);
+  letter-spacing: 0.16em; text-indent: 0.16em;
+  background: linear-gradient(115deg, #fff6df 0%, var(--gold) 32%, var(--amber) 55%, var(--gold) 78%, #fff6df 100%);
+  background-size: 220% 100%;
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  filter: drop-shadow(0 6px 28px rgba(0, 0, 0, 0.55));
+  animation: title-shimmer 7s ease-in-out infinite;
+}
+@keyframes title-shimmer {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+.title-tagline {
+  color: var(--ink-dim); font-size: 13.5px; letter-spacing: 0.14em; text-transform: uppercase;
+  font-style: italic; margin-bottom: 34px; text-shadow: 0 2px 10px rgba(0, 0, 0, 0.6);
+}
+
+.title-menu { display: flex; flex-direction: column; align-items: stretch; gap: 4px; min-width: 240px; }
+.title-item {
+  position: relative; display: flex; align-items: center; justify-content: center; gap: 10px;
+  padding: 11px 20px; font-family: var(--font-display); font-size: 19px; letter-spacing: 0.08em;
+  color: var(--ink-dim); border-radius: var(--radius-sm); transition: color var(--trans), transform var(--trans);
+}
+.title-item-mark { opacity: 0; transform: translateX(-6px); transition: opacity var(--trans), transform var(--trans); color: var(--gold); font-size: 13px; }
+.title-item.focused { color: var(--gold); transform: translateX(4px); text-shadow: 0 0 18px rgba(255, 233, 176, 0.5); }
+.title-item.focused .title-item-mark { opacity: 1; transform: translateX(0); }
+.title-item:disabled { color: rgba(185, 178, 163, 0.32); cursor: default; }
+.title-item:disabled .title-item-mark { display: none; }
+
+.title-version {
+  position: absolute; right: 18px; bottom: 14px; font-size: 11px; color: rgba(185, 178, 163, 0.5);
+  letter-spacing: 0.08em;
+}
+
+/* ---------------------------------------------------------------- Shared modal shell */
+.modal-scrim {
+  position: absolute; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center;
+  background: rgba(8, 9, 15, 0.6); backdrop-filter: blur(3px);
+  animation: fade-in 200ms ease; transition: opacity 220ms ease;
+}
+.modal-scrim.out { opacity: 0; }
+
+.name-modal {
+  width: min(380px, 88vw); padding: 26px 26px 22px; display: flex; flex-direction: column; gap: 14px;
+  align-items: stretch; animation: pop-in 260ms cubic-bezier(.2, .8, .3, 1);
+}
+.name-modal-title { font-size: 20px; text-align: center; letter-spacing: 0.04em; }
+.name-input {
+  font-family: var(--font-display); font-size: 20px; text-align: center; color: var(--ink);
+  background: rgba(0, 0, 0, 0.28); border: 1px solid var(--slate-line); border-radius: var(--radius-sm);
+  padding: 11px 14px; letter-spacing: 0.05em; transition: border-color var(--trans), box-shadow var(--trans);
+}
+.name-input:focus-visible, .name-input:focus {
+  outline: none; border-color: var(--gold); box-shadow: 0 0 0 3px rgba(255, 233, 176, 0.16);
+}
+.name-hint { font-size: 11.5px; color: var(--ink-dim); text-align: center; letter-spacing: 0.02em; }
+.modal-actions { display: flex; gap: 10px; margin-top: 4px; }
+.modal-actions > button { flex: 1; }
+
+/* ---------------------------------------------------------------- Starter choice */
+.starter-root {
+  position: absolute; inset: 0; display: flex; flex-direction: column; font-family: var(--font-body);
+  animation: fade-in 700ms ease; transition: opacity 320ms ease;
+}
+.starter-root.out { opacity: 0; pointer-events: none; }
+.starter-vignette {
+  position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(ellipse at 50% 55%, rgba(11,12,20,0) 0%, rgba(11,12,20,0.5) 76%, rgba(11,12,20,0.82) 100%);
+}
+.starter-header { position: relative; z-index: 1; text-align: center; padding-top: 34px; }
+.starter-title { font-family: var(--font-display); font-size: 26px; color: var(--gold); letter-spacing: 0.1em; text-shadow: 0 4px 20px rgba(0,0,0,.55); }
+.starter-sub { font-size: 12.5px; color: var(--ink-dim); letter-spacing: 0.08em; margin-top: 4px; text-transform: uppercase; }
+
+.starter-pedestal-labels { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
+.pedestal-label {
+  position: absolute; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center;
+  gap: 4px; opacity: 0.55; transition: opacity 260ms ease, transform 260ms ease;
+}
+.pedestal-label .pl-name { font-family: var(--font-display); font-size: 15px; color: var(--ink); letter-spacing: 0.06em; text-shadow: 0 2px 10px rgba(0,0,0,.6); }
+.pedestal-label.active { opacity: 1; transform: translate(-50%, -58%); }
+.pedestal-label.active .pl-name { color: var(--gold); }
+
+.starter-info {
+  position: relative; z-index: 1; margin: auto 26px 30px; width: min(430px, 90vw); padding: 20px 22px;
+  animation: rise-in 320ms cubic-bezier(.2,.8,.3,1);
+}
+.starter-info-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
+.starter-info-name { font-family: var(--font-display); font-size: 22px; color: var(--gold); letter-spacing: 0.04em; }
+.starter-info-personality { font-size: 12.5px; font-style: italic; color: var(--ink-dim); margin-bottom: 12px; }
+.starter-info-chips { display: flex; gap: 6px; margin-bottom: 4px; }
+.starter-stats { display: flex; flex-direction: column; gap: 5px; margin-top: 10px; }
+.starter-stat-row { display: grid; grid-template-columns: 46px 1fr 30px; align-items: center; gap: 8px; }
+.starter-stat-label { font-size: 10.5px; color: var(--ink-dim); text-transform: uppercase; letter-spacing: 0.06em; }
+.starter-stat-track { height: 6px; border-radius: 4px; background: rgba(255,255,255,0.08); overflow: hidden; }
+.starter-stat-fill { height: 100%; border-radius: 4px; transform-origin: left center; transition: transform 420ms cubic-bezier(.2,.8,.3,1); }
+.starter-stat-val { font-size: 11px; color: var(--ink-dim); text-align: right; font-variant-numeric: tabular-nums; }
+
+.starter-nav { display: flex; align-items: center; justify-content: center; gap: 22px; margin-top: 18px; }
+.starter-nav-arrow {
+  width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--slate-line);
+  display: flex; align-items: center; justify-content: center; color: var(--ink-dim);
+  transition: all var(--trans);
+}
+.starter-nav-arrow:hover { color: var(--gold); border-color: var(--gold); }
+.starter-dots { display: flex; gap: 8px; }
+.starter-dot { width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,0.18); transition: all var(--trans); }
+.starter-dot.active { background: var(--gold); box-shadow: 0 0 8px rgba(255,233,176,.7); transform: scale(1.25); }
+
+.starter-confirm { display: flex; justify-content: center; margin-top: 16px; }
+.starter-confirm button { min-width: 200px; }
+
+.starter-flash {
+  position: absolute; inset: 0; z-index: 4; background: radial-gradient(circle at 50% 42%, #fff 0%, #ffe9b0 40%, rgba(255,233,176,0) 72%);
+  opacity: 0; pointer-events: none;
+}
+.starter-flash.go { animation: starter-flash-pop 900ms ease-out forwards; }
+@keyframes starter-flash-pop {
+  0% { opacity: 0; }
+  35% { opacity: 1; }
+  100% { opacity: 0; }
+}

@@ -198,3 +198,22 @@ export function fleeChance(myHaste, foeHaste, attempts = 0) {
   const p = 0.35 + 0.35 * ratio + 0.12 * attempts;
   return Math.max(0.2, Math.min(0.95, p));
 }
+
+// ---------------------------------------------------------------- misc combat constants
+// Shared knobs consumed by engine.js / ai.js / game/creatures.js so nobody
+// hardcodes a second copy. See docs/CONTRACTS_ADDENDUM.md for the source.
+export const BURST_CHARGE_MAX = 100;
+export const BURST_CHARGE_ON_DEAL = 18;   // gained by the attacker on landing a hit
+export const BURST_CHARGE_ON_TAKEN = 12;  // gained by the defender on taking a hit
+export const BURST_DREAD_CHARGE_MULT = 0.5; // dread halves burst charge gain
+export const BURST_PRIORITY_BONUS = 1;      // bursts act as priority+1 moves
+
+export const DREAD_AEGIS_STAGE = -1;   // dread lowers aegis by 1 stage on apply
+export const STATUS_DURATION = { root: 3 }; // turns; other statuses persist until cured
+
+// Hollowed variant: +15% might/focus, -15% ward/aegis (bible: "no mechanic
+// beyond stats"). Applied by engine.js when it builds a combat view.
+export const HOLLOWED_STAT_MULTS = { might: 1.15, focus: 1.15, ward: 0.85, aegis: 0.85 };
+
+// Resonance (bond) stat bonus: +2% per level (0..5), applied in game/creatures.js.
+export const RESONANCE_STAT_BONUS_PER_LEVEL = 0.02;
