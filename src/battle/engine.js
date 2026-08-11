@@ -309,7 +309,7 @@ export class BattleEngine {
 
     entries.push({ side: 'p', combatant: pCombatant, action: await this._safeGetPlayerAction(false) });
 
-    const bossTwo = this.ai === 'boss' && this.config.boss?.twoActions
+    const bossTwo = this.ai === 'boss' && (this.config.boss?.twoActions || this.config.twoActions)
       && eCombatant && !eCombatant.fainted && eCombatant.mon.maxHp
       && (eCombatant.mon.hp / eCombatant.mon.maxHp) <= 0.5;
     entries.push({ side: 'e', combatant: eCombatant, action: await this._getEnemyAction(eCombatant, 0) });

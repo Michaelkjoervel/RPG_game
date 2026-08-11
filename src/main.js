@@ -26,4 +26,7 @@ boot().catch((e) => {
 
 // Surface unhandled errors during development.
 window.addEventListener('unhandledrejection', (e) => console.error('[unhandled]', e.reason));
+
+// Debug/test handle (harness + QA drivers). Not referenced by gameplay code.
+import('./core/state.js').then(({ G }) => { window.LF = { game, bus, G }; });
 export { game, bus };

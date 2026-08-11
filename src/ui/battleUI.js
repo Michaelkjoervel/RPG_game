@@ -307,8 +307,10 @@ export function createBattleUI(ctx = {}) {
     const showEff = !!(view.foe?.speciesId && G.codex[view.foe.speciesId] === 'caught');
     els.movesGrid.innerHTML = '';
     const items = [];
-    for (const id of self.moves || []) {
-      const ab = ABILITIES[id];
+    for (const entry of self.moves || []) {
+      // Engine views expose moves as {id, def} entries; tolerate plain id strings too.
+      const id = typeof entry === 'string' ? entry : entry?.id;
+      const ab = (typeof entry === 'object' && entry?.def) || ABILITIES[id];
       const aspect = ab?.aspect || 'neutral';
       const card = document.createElement('button');
       card.type = 'button';

@@ -83,6 +83,9 @@ class Game {
   async enterOverworld(zoneId = G.pos.zone, spawn = null) {
     const { World } = await import('../world/world.js');
     if (!this.overworld) this.overworld = new World(this);
+    // Resuming a save with no explicit spawn: restore the exact saved position
+    // rather than the zone's default entrance.
+    if (!spawn && G.savedAt && zoneId === G.pos.zone) spawn = [G.pos.x, G.pos.z];
     this.mode = 'overworld';
     await this.overworld.loadZone(zoneId, spawn);
     this.setScene(this.overworld);
