@@ -522,4 +522,365 @@ export class BattleEngine {
       default: return this._doAttack(side, combatant, entry.moveDef ?? lookupMove(action.moveId), false);
     }
   }
+
+  // ---------------------------------------------------------------- switch
+  async _doSwitch(side, index, { voluntary = true } = {}) {
+    const team = side === 'p' ? this.pTeam : this.eTeam;
+    if (index == null || index < 0 || index >= team.length || team[index].fainted) {
+      warnOnce('switch:' + side, `[engine] invalid switch target for side "${side}" — ignored`);
+      return;
+    }
+    const curIdx = side === 'p' ? this.pActiveIdx : this.eActiveIdx;
+    if (curIdx === index) return;
+    const cur = team[curIdx];
+    if (cur && !cur.fainted) await this._emit({ type: 'recall', side, mon: cur.mon });
+    if (side === 'p') this.pActiveIdx = index; else this.eActiveIdx = index;
+    const next = team[index];
+    next.guardTurns = 0;
+    if (side === 'p') this._participants.add(next.mon.uid);
+    await this._emit({ type: 'send', side, mon: next.mon });
+    await this._runHook('onSwitchIn', next, { foe: this._active(side === 'p' ? 'e' : 'p') });
+  }
+
+  // ---------------------------------------------------------------- item
+  async _doItem(side, actorCombatant, action) {
+    const team = side === 'p' ? this.pTeam : this.eTeam;
+    const target = action.targetUid ? (team.find((c) => c.mon.uid === action.targetUid) ?? actorCombatant) : actorCombatant;
+    const itemId = action.itemId;
+    if (!itemId) return;
+    if (!spendItem(itemId, 1)) { warnOnce('item-spend:' + itemId, `[engine] tried to use "${itemId}" with none in the bag`); return; }
+    const before = target.mon.hp;
+    const result = applyItemEffect(itemId, target.mon);
+    const healed = target.mon.hp - before;
+    if (healed > 0) await this._emit({ type: 'heal', side, amt: healed });
+    if (result.statusCleared) await this._emit({ type: 'statusApplied', side, status: null });
+    if (result.revived) target.fainted = false;
+  }
+
+  // ---------------------------------------------------------------- flee
+  async _doFlee(side, combatant) {
+    if (side !== 'p' || !this.canFlee || this.kind !== 'wild') {
+      warnOnce('flee-invalid', '[engine] flee attempted outside a fleeable wild battle — ignored');
+      return;
+    }
+    const foe = this._active('e');
+    const myHaste = effectiveStat(this._combatView(combatant), 'haste');
+    const foeHaste = foe ? effectiveStat(this._combatView(foe), 'haste') : myHaste;
+    const chance = fleeChance(myHaste, foeHaste, this.fleeAttempts);
+    this.fleeAttempts++;
+    if (this.rng() < chance) this._finish('flee');
+  }
+
+  // ---------------------------------------------------------------- catch
+  async _doCatch(playerCombatant, action) {
+    if (!this.canCatch || this.kind !== 'wild') {
+      warnOnce('catch-invalid', '[engine] catch attempted outside a catchable wild battle — ignored');
+      return;
+    }
+    const target = this._active('e');
+    if (!target || target.fainted) return;
+    const charmId = action.charmId;
+    if (!charmId || !spendItem(charmId, 1)) {
+      warnOnce('catch-spend:' + charmId, `[engine] no "${charmId}" charm available — catch ignored`);
+      return;
+    }
+    const species = SPECIES?.[target.mon.speciesId];
+    const capTarget = {
+      hp: target.mon.hp, maxHp: target.mon.maxHp, status: target.mon.status,
+      hollowed: !!target.mon.hollowed, rarity: species?.rarity,
+    };
+    const { shakes, success } = attemptCapture(charmId, capTarget, this.rng);
+    await this._emit({ type: 'catchAttempt', shakes, success });
+    if (success) {
+      markCodex(target.mon.speciesId, 'caught');
+      if (G.party.length < 5) G.party.push(target.mon); else G.reserve.push(target.mon);
+      bus.emit('party:changed');
+      this._caught = target.mon;
+      this._finish('caught');
+    }
+  }
+
+  // ---------------------------------------------------------------- attack
+  _trackAspect(side, aspect) {
+    if (!aspect) return;
+    const arr = this._recentAspects[side];
+    arr.push(aspect);
+    if (arr.length > 4) arr.shift();
+  }
+  _gainBurstCharge(combatant, base) {
+    if (combatant.fainted) return;
+    const mult = combatant.mon.status === 'dread' ? BURST_DREAD_CHARGE_MULT : 1;
+    const prev = combatant.mon.burstCharge ?? 0;
+    const next = Math.min(BURST_CHARGE_MAX, prev + base * mult);
+    combatant.mon.burstCharge = next;
+    if (prev < BURST_CHARGE_MAX && next >= BURST_CHARGE_MAX) this._burstReadyQueue.push(combatant.side);
+  }
+  async _flushBurstReady() {
+    while (this._burstReadyQueue.length) {
+      const side = this._burstReadyQueue.shift();
+      await this._emit({ type: 'burstReady', side });
+    }
+  }
+  _auraKind() { return this._tempAura?.kind ?? this._baseAura ?? null; }
+  async _applyAura(kind) {
+    if (!kind || !AURAS[kind]) { warnOnce('aura:' + kind, `[engine] unknown aura kind "${kind}" — ignored`); return; }
+    this._tempAura = { kind, turnsLeft: 5 };
+    await this._emit({ type: 'auraStart', kind });
+  }
+  async _healCombatant(combatant, percent, flatAmt) {
+    if (!combatant || combatant.fainted) return 0;
+    const before = combatant.mon.hp;
+    const amt = flatAmt != null ? flatAmt : Math.round(combatant.mon.maxHp * (percent ?? 0) / 100);
+    combatant.mon.hp = Math.min(combatant.mon.maxHp, combatant.mon.hp + Math.max(0, amt));
+    const healed = combatant.mon.hp - before;
+    if (healed > 0) await this._emit({ type: 'heal', side: combatant.side, amt: healed });
+    return healed;
+  }
+  async _applyStatStage(target, side, stat, stages) {
+    if (!stat || !target || target.fainted) return 0;
+    const cur = target.mon.statStages[stat] ?? 0;
+    const next = clampStage(cur + stages);
+    const delta = next - cur;
+    target.mon.statStages[stat] = next;
+    await this._emit({ type: 'statStage', side, stat, delta });
+    return delta;
+  }
+  async _tryApplyStatus(target, side, status) {
+    if (!status || target.fainted) return false;
+    if (target.mon.status) return false; // one status at a time
+    const trait = this._traitOf(target);
+    if (trait?.hook === 'immuneStatus') {
+      const list = trait.statuses ?? (trait.status ? [trait.status] : null);
+      if (trait.all || !list || list.includes(status)) return false;
+    }
+    let cancel = false;
+    await this._runHook('onStatusApplied', target, { status, cancel: (v) => (cancel = v) });
+    if (cancel) return false;
+    target.mon.status = status;
+    target.statusStacks = 0;
+    target.statusTurns = STATUS_DURATION[status] ?? null;
+    await this._emit({ type: 'statusApplied', side, status });
+    if (status === 'dread') await this._applyStatStage(target, side, 'aegis', DREAD_AEGIS_STAGE);
+    return true;
+  }
+
+  async _doAttack(side, attacker, moveDef, isBurst) {
+    if (!attacker || attacker.fainted) return;
+    const foeSide = side === 'p' ? 'e' : 'p';
+    const defender = this._active(foeSide);
+    if (!defender || defender.fainted) return;
+
+    if (attacker.mon.status === 'shock' && this.rng() < 0.25) {
+      await this._emit({ type: 'moveUsed', side, mon: attacker.mon, move: moveDef });
+      await this._emit({ type: 'miss', side, mon: attacker.mon, reason: 'shock' });
+      return;
+    }
+
+    this._trackAspect(side, moveDef.aspect);
+    await this._emit({ type: 'moveUsed', side, mon: attacker.mon, move: moveDef });
+    if (isBurst) {
+      attacker.mon.burstCharge = 0;
+      await this._emit({ type: 'burstUsed', side, mon: attacker.mon, burst: moveDef });
+    }
+
+    const attView = this._combatView(attacker);
+    const defView = this._combatView(defender);
+    attView.outMult = await this._computeOutMult(attacker, defender, moveDef);
+    defView.inMult = await this._computeInMult(defender, attacker, moveDef);
+    defView.guard = defender.guardTurns > 0;
+
+    const acc = accuracyOf(moveDef, attView, defView);
+    const hitRoll = acc >= 999 || this.rng() * 100 < acc;
+    if (!hitRoll) {
+      await this._emit({ type: 'miss', side, mon: attacker.mon });
+      return;
+    }
+    if (defender.guardTurns > 0) defender.guardTurns--;
+
+    let totalDmg = 0;
+    if (moveDef.power) {
+      const multi = moveDef.effects?.find((e) => e.type === 'multihit');
+      const hits = multi ? multi.min + Math.floor(this.rng() * (multi.max - multi.min + 1)) : 1;
+      for (let i = 0; i < Math.max(1, hits); i++) {
+        if (defender.fainted) break;
+        const res = computeDamage(attView, defView, moveDef, { aura: this._auraKind(), rng: this.rng });
+        let dmg = res.dmg;
+        if (dmg > 0) {
+          if (defender.mon.talisman === 'survivor_knot' && !defender.usedSurvivorKnot
+            && defender.mon.hp > 1 && defender.mon.hp - dmg <= 0) {
+            dmg = defender.mon.hp - 1;
+            defender.usedSurvivorKnot = true;
+          }
+          defender.mon.hp = Math.max(0, defender.mon.hp - dmg);
+          totalDmg += dmg;
+          this._gainBurstCharge(attacker, BURST_CHARGE_ON_DEAL);
+          this._gainBurstCharge(defender, BURST_CHARGE_ON_TAKEN);
+        }
+        await this._emit({ type: 'hit', side: foeSide, dmg, eff: res.eff, crit: res.crit, hpLeft: defender.mon.hp });
+        await this._flushBurstReady();
+        if (defender.mon.hp <= 0) { await this._handleFaintCheck(defender, foeSide); break; }
+      }
+    }
+    if (this._ended) return;
+
+    await this._applyMoveEffects(moveDef, attacker, defender, side, foeSide, { totalDmg });
+    if (this._ended) return;
+    if (!defender.fainted && defender.mon.hp <= 0) await this._handleFaintCheck(defender, foeSide);
+    if (!attacker.fainted && attacker.mon.hp <= 0) await this._handleFaintCheck(attacker, side);
+  }
+
+  async _applyMoveEffects(moveDef, attacker, defender, side, foeSide, meta) {
+    for (const eff of moveDef.effects ?? []) {
+      if (this._ended) return;
+      const roll = eff.chance == null ? true : this.rng() * 100 < eff.chance;
+      if (!roll) continue;
+      switch (eff.type) {
+        case 'status':
+          if (!defender.fainted) await this._tryApplyStatus(defender, foeSide, eff.status);
+          break;
+        case 'statStage': {
+          const isSelf = eff.target === 'self';
+          const target = isSelf ? attacker : defender;
+          const tSide = isSelf ? side : foeSide;
+          if (!target.fainted) await this._applyStatStage(target, tSide, eff.stat, eff.stages ?? 1);
+          break;
+        }
+        case 'heal':
+          await this._healCombatant(attacker, eff.percent ?? 25);
+          break;
+        case 'drain':
+          if (meta.totalDmg > 0) await this._healCombatant(attacker, null, Math.round(meta.totalDmg * (eff.percent ?? 50) / 100));
+          break;
+        case 'recoil':
+          if (meta.totalDmg > 0) {
+            const amt = Math.round(meta.totalDmg * (eff.percent ?? 25) / 100);
+            const before = attacker.mon.hp;
+            attacker.mon.hp = Math.max(0, attacker.mon.hp - amt);
+            const lost = before - attacker.mon.hp;
+            if (lost > 0) await this._emit({ type: 'heal', side, amt: -lost });
+            if (attacker.mon.hp <= 0) await this._handleFaintCheck(attacker, side);
+          }
+          break;
+        case 'cleanse':
+          if (attacker.mon.status) {
+            const prev = attacker.mon.status;
+            attacker.mon.status = null; attacker.statusStacks = 0; attacker.statusTurns = null;
+            await this._runHook('onStatusCleared', attacker, { foe: defender, status: prev });
+            await this._emit({ type: 'statusApplied', side, status: null });
+          }
+          break;
+        case 'guard':
+          attacker.guardTurns = 1;
+          break;
+        case 'aura':
+          await this._applyAura(eff.kind);
+          break;
+        case 'flee':
+          if (side === 'p' && this.canFlee && this.kind === 'wild') this._finish('flee');
+          break;
+        case 'priority':
+          // Turn order already resolved from move.priority before effects run
+          // (see _orderEntries) — accepted for data-authoring convenience only.
+          break;
+        case 'multihit':
+          break; // handled in the damage loop above
+        default:
+          warnOnce('effect:' + eff.type, `[engine] unknown ability effect type "${eff.type}" — ignored`);
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------- turn end
+  async _endOfTurn() {
+    for (const s of ['p', 'e']) {
+      const c = this._active(s);
+      if (!c || c.fainted) continue;
+      const status = c.mon.status;
+      if (DOT_STATUSES.includes(status)) {
+        const dmg = statusTickDamage(status, c.mon.maxHp, c.statusStacks ?? 0);
+        c.mon.hp = Math.max(0, c.mon.hp - dmg);
+        c.statusStacks = (c.statusStacks ?? 0) + 1;
+        await this._emit({ type: 'statusTick', side: s, status, dmg });
+        if (c.mon.hp <= 0) { await this._handleFaintCheck(c, s); if (this._ended) return; }
+      }
+    }
+    for (const s of ['p', 'e']) {
+      const c = this._active(s);
+      if (!c || c.fainted || !c.mon.status || c.statusTurns == null) continue;
+      c.statusTurns--;
+      if (c.statusTurns <= 0) {
+        const prev = c.mon.status;
+        c.mon.status = null; c.statusStacks = 0; c.statusTurns = null;
+        await this._runHook('onStatusCleared', c, { status: prev });
+        await this._emit({ type: 'statusApplied', side: s, status: null });
+      }
+    }
+    if (this._ended) return;
+    for (const s of ['p', 'e']) {
+      const c = this._active(s);
+      if (!c || c.fainted) continue;
+      await this._runHook('onLowHP', c, { foe: this._active(s === 'p' ? 'e' : 'p') });
+      await this._runHook('onTurnEnd', c, { foe: this._active(s === 'p' ? 'e' : 'p') });
+      if (c.mon.hp <= 0) { await this._handleFaintCheck(c, s); if (this._ended) return; }
+    }
+    if (this._tempAura) {
+      this._tempAura.turnsLeft--;
+      if (this._tempAura.turnsLeft <= 0) { this._tempAura = null; await this._emit({ type: 'auraEnd' }); }
+    }
+    this._checkEnd();
+  }
+
+  async _handleFaintCheck(combatant, side) {
+    if (!combatant || combatant.fainted || combatant.mon.hp > 0) return;
+    combatant.fainted = true;
+    combatant.mon.hp = 0;
+    await this._emit({ type: 'faint', side });
+    await this._runHook('onFaint', combatant, { foe: this._active(side === 'p' ? 'e' : 'p') });
+    if (this._ended) return;
+
+    if (side === 'e') await this._awardXpForFaint(combatant.mon);
+    if (this._ended) return;
+
+    const team = side === 'p' ? this.pTeam : this.eTeam;
+    if (!team.some((c) => !c.fainted)) { this._finish(side === 'p' ? 'loss' : 'win'); return; }
+    await this._forcedSwitch(side);
+  }
+  async _forcedSwitch(side) {
+    if (side === 'p') {
+      const action = await this._safeGetPlayerAction(true);
+      let idx = action?.type === 'switch' ? action.index : -1;
+      if (idx < 0 || idx >= this.pTeam.length || this.pTeam[idx].fainted) idx = this.pTeam.findIndex((c) => !c.fainted);
+      if (idx >= 0) await this._doSwitch('p', idx, { voluntary: false });
+    } else {
+      const view = this._aiViewFor('e', { mustSwitch: true });
+      let idx;
+      try { idx = chooseSwitch(this.ai, view); } catch (e) { console.error('[engine] ai.chooseSwitch threw', e); idx = -1; }
+      if (idx == null || idx < 0 || idx >= this.eTeam.length || this.eTeam[idx].fainted) idx = this.eTeam.findIndex((c) => !c.fainted);
+      if (idx >= 0) await this._doSwitch('e', idx, { voluntary: false });
+    }
+  }
+  async _awardXpForFaint(faintedMon) {
+    const species = SPECIES?.[faintedMon.speciesId];
+    const base = xpForFaint(species ?? {}, faintedMon.level ?? 5);
+    for (const c of this.pTeam) {
+      if (c.mon.hp <= 0) continue;
+      const share = this._participants.has(c.mon.uid) ? base : Math.round(base * RESERVE_XP_SHARE);
+      if (share <= 0) continue;
+      const { levelups } = addXp(c.mon, share);
+      this._xpAwarded += share;
+      await this._emit({ type: 'xp', mon: c.mon, amount: share, levelups });
+    }
+  }
+
+  // ---------------------------------------------------------------- traits
+  async _runHook(hookName, combatant, ctx = {}) {
+    const trait = this._traitOf(combatant);
+    if (!trait?.hook) return undefined;
+    if (!checkHookKnown(trait.hook)) return undefined;
+    if (trait.hook !== hookName) return undefined;
+    const impl = HOOK_IMPLS[trait.hook];
+    if (!impl) return undefined;
+    if (!combatant.traitState) combatant.traitState = {};
+    return impl(trait, combatant, ctx, this);
+  }
 }

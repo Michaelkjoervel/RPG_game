@@ -213,7 +213,7 @@ function buildMeadow(P) {
   return {
     kind: 'meadow', group, marks: marks(), lights, sky: { top: 0x9fd8ff, bottom: 0xdff2e0 }, fogColor: 0xcfe8d8, fogDensity: 0.006,
     update(dt, t) { clouds.position.x = Math.sin(t * 0.02) * 3; },
-    dispose() { bag.dispose(group); void amb; },
+    dispose() { bag.dispose(group); },
   };
 }
 
@@ -258,7 +258,7 @@ function buildForest(P) {
   return {
     kind: 'forest', group, marks: marks(), lights, sky: { top: 0x3f5a45, bottom: 0x223326 }, fogColor: 0x203324, fogDensity: 0.02,
     update(dt, t) { shaftMat.opacity = 0.07 + Math.sin(t * 0.6) * 0.04; },
-    dispose() { bag.dispose(group); void amb; },
+    dispose() { bag.dispose(group); },
   };
 }
 
@@ -288,7 +288,7 @@ function buildCave(P) {
   return {
     kind: 'cave', group, marks: marks(), lights, sky: { top: 0x120f1c, bottom: 0x0a0812 }, fogColor: 0x141220, fogDensity: 0.028,
     update(dt, t) { pulse = 0.85 + Math.sin(t * 1.4) * 0.25; crystalMat.emissiveIntensity = pulse; },
-    dispose() { bag.dispose(group); void amb; },
+    dispose() { bag.dispose(group); },
   };
 }
 
@@ -339,7 +339,7 @@ function buildLake(P) {
       waterGeo.attributes.position.needsUpdate = true;
       clouds.position.x = Math.sin(t * 0.015) * 4;
     },
-    dispose() { bag.dispose(group); void amb; },
+    dispose() { bag.dispose(group); },
   };
 }
 
@@ -376,7 +376,7 @@ function buildMountain(P) {
   return {
     kind: 'mountain', group, marks: marks(), lights, sky: { top: 0x8fc6ff, bottom: 0xe9f5ff }, fogColor: 0xdcecff, fogDensity: 0.006,
     update(dt, t) { seaGroup.rotation.y = t * 0.01; },
-    dispose() { bag.dispose(group); void amb; },
+    dispose() { bag.dispose(group); },
   };
 }
 
@@ -429,7 +429,7 @@ function buildRuins(P) {
   return {
     kind: 'ruins', group, marks: marks(), lights, sky: { top: 0x9fb0c0, bottom: 0xe0dccb }, fogColor: 0xcfd6dc, fogDensity: 0.012,
     update(dt, t) { shaftMat.opacity = 0.06 + Math.sin(t * 0.5) * 0.03; },
-    dispose() { bag.dispose(group); void amb; },
+    dispose() { bag.dispose(group); },
   };
 }
 
@@ -475,7 +475,7 @@ function buildSpire(P) {
         b.glow.intensity = 1.1 * f;
       }
     },
-    dispose() { bag.dispose(group); void amb; },
+    dispose() { bag.dispose(group); },
   };
 }
 
@@ -504,7 +504,7 @@ function buildGlade(P) {
   return {
     kind: 'glade', group, marks: marks(), lights, sky: { top: 0x5b4a8a, bottom: 0x24193f }, fogColor: 0x2c2246, fogDensity: 0.014,
     update(dt, t) { const p = 0.6 + Math.sin(t * 0.9) * 0.2; for (const tr of trees) tr.children.slice(1).forEach((c) => { c.material.emissiveIntensity = p; }); },
-    dispose() { bag.dispose(group); void amb; },
+    dispose() { bag.dispose(group); },
   };
 }
 

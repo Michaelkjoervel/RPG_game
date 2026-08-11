@@ -14,7 +14,10 @@
 //
 // appearance is read by world/npcs.js (silhouette + palette); keys are descriptive, not code —
 // { palette:[primary,secondary,accent?] (hex numbers), hat, robe, mask, build, accessory, hair }.
-import { hasFlag } from '../core/state.js';
+//
+// All selectors below are pure functions of the `G` argument they're given (they never read
+// the core/state.js singleton directly) — callers (game/story.js) always pass the live G, so
+// this is functionally identical in-game, but keeps this module import-free and unit-testable.
 
 // Coarse story-progress bracket, used to age ambient villager chatter. 0 start .. 4 postgame.
 export function storyStage(G) {
@@ -59,7 +62,7 @@ export const ASHE_STAGES = [
   ] },
 ];
 export function asheStageIndex(G) {
-  return ASHE_STAGES.findIndex((s) => !hasFlag(s.flag));
+  return ASHE_STAGES.findIndex((s) => !G.flags[s.flag]);
 }
 function ashelLine(G) {
   return ASHE_COUNTER_LINE[G.starter] ?? ASHE_COUNTER_LINE.kindlet;
@@ -107,7 +110,7 @@ export const NPCS = {
     // on a loss) — so a win's index has already advanced past the just-finished stage while
     // a loss's has not. See ASHE_STAGES above.
     postWinDialogue: (G) => { const i = asheStageIndex(G); return `dlg_ashe_win_${i === -1 ? 5 : Math.max(1, i)}`; },
-    postLossDialogue: (G) => { const i = asheStageIndex(G); return `dlg_ashe_loss_${i + 1}`; },
+    postLossDialogue: (G) => { const i = asheStageIndex(G); return `dlg_ashe_loss_${i === -1 ? 5 : i + 1}`; },
   },
   merchant_pip: {
     id: 'merchant_pip', name: 'Pip', kind: 'merchant',
@@ -141,7 +144,7 @@ export const NPCS = {
     id: 'keeper_bramwell', name: 'Keeper Bramwell', kind: 'keeper',
     appearance: { palette: [0x6b5636, 0x8fae6a], build: 'broad', accessory: 'stone pauldron', hat: 'none' },
     wanderRadius: 2,
-    dialogue: (G) => hasFlag('kb_beat') ? 'dlg_bramwell_after' : 'dlg_bramwell_greet',
+    dialogue: (G) => G.flags.kb_beat ? 'dlg_bramwell_after' : 'dlg_bramwell_greet',
     battle: {
       team: [{ speciesId: 'pebbin', level: 8 }, { speciesId: 'cairnox', level: 9, talisman: 'ward_amulet' }],
       ai: 'tactical', reward: { glim: 90, items: [{ id: 'terrastone', qty: 1 }] },
@@ -156,7 +159,7 @@ export const NPCS = {
     appearance: { palette: [0x5b8a5b, 0xffe9b0], accessory: 'antler circlet', robe: true },
     wanderRadius: 2,
     dialogue: (G) => {
-      if (!hasFlag('kl_beat')) return 'dlg_liora_greet';
+      if (!G.flags.kl_beat) return 'dlg_liora_greet';
       if (G.quests.sq_liora_dapplyn && !G.quests.sq_liora_dapplyn.done) return 'dlg_liora_dapplyn_active';
       return 'dlg_liora_after';
     },
@@ -196,8 +199,8 @@ export const NPCS = {
     appearance: { palette: [0x8a8a92, 0xd8d4c4], robe: true, hood: true, mask: 'removed' },
     wanderRadius: 1,
     dialogue: (G) => {
-      if (hasFlag('finn_helped')) return 'dlg_finn_after_help';
-      if (hasFlag('finn_reported')) return 'dlg_finn_after_report';
+      if (G.flags.finn_helped) return 'dlg_finn_after_help';
+      if (G.flags.finn_reported) return 'dlg_finn_after_report';
       return 'dlg_finn_intro';
     },
   },
@@ -205,7 +208,7 @@ export const NPCS = {
     id: 'seeker_a', name: 'Seeker', kind: 'seeker',
     appearance: { palette: [0x8a8a92, 0xd8d4c4], robe: true, mask: 'pale', hood: true },
     wanderRadius: 1,
-    dialogue: (G) => hasFlag('sk_a_beat') ? 'dlg_seeker_a_after' : 'dlg_seeker_a_taunt',
+    dialogue: (G) => G.flags.sk_a_beat ? 'dlg_seeker_a_after' : 'dlg_seeker_a_taunt',
     battle: {
       team: [{ speciesId: 'oozel', level: 16 }, { speciesId: 'sludgemaw', level: 16 }],
       ai: 'basic', reward: { glim: 70 }, once: 'sk_a_beat',
@@ -216,7 +219,7 @@ export const NPCS = {
     id: 'seeker_b', name: 'Seeker', kind: 'seeker',
     appearance: { palette: [0x8a8a92, 0xd8d4c4], robe: true, mask: 'pale', hood: true },
     wanderRadius: 1,
-    dialogue: (G) => hasFlag('sk_b_beat') ? 'dlg_seeker_b_after' : 'dlg_seeker_b_taunt',
+    dialogue: (G) => G.flags.sk_b_beat ? 'dlg_seeker_b_after' : 'dlg_seeker_b_taunt',
     battle: {
       team: [{ speciesId: 'sonark', level: 17 }, { speciesId: 'shardling', level: 17, talisman: 'ward_amulet' }],
       ai: 'basic', reward: { glim: 80, items: [{ id: 'shrine_shard', qty: 1 }] },
@@ -230,7 +233,7 @@ export const NPCS = {
     id: 'keeper_maro', name: 'Keeper Maro', kind: 'keeper',
     appearance: { palette: [0x2f6a8a, 0xffcf7a], accessory: 'carried lantern', build: 'stocky' },
     wanderRadius: 2,
-    dialogue: (G) => hasFlag('km_beat') ? 'dlg_maro_after' : 'dlg_maro_greet',
+    dialogue: (G) => G.flags.km_beat ? 'dlg_maro_after' : 'dlg_maro_greet',
     battle: {
       team: [
         { speciesId: 'finnet', level: 17 }, { speciesId: 'bogret', level: 18 },
@@ -249,7 +252,7 @@ export const NPCS = {
       const q = G.quests.sq_ferry;
       if (!q) return 'dlg_juno_intro';
       if (q.done) return 'dlg_juno_done';
-      return hasFlag('gc_chest_ferrygear') || (G.bag.ferry_gear ?? 0) >= 1 ? 'dlg_juno_turnin' : 'dlg_juno_active';
+      return G.flags.gc_chest_ferrygear || (G.bag.ferry_gear ?? 0) >= 1 ? 'dlg_juno_turnin' : 'dlg_juno_active';
     },
   },
   merchant_wren: {
@@ -280,7 +283,7 @@ export const NPCS = {
     id: 'keeper_sera', name: 'Keeper Sera', kind: 'keeper',
     appearance: { palette: [0x7a8aa8, 0x2a2f3f], accessory: 'storm goggles', accent: 'coat tails' },
     wanderRadius: 2,
-    dialogue: (G) => hasFlag('ks_beat') ? 'dlg_sera_after' : 'dlg_sera_greet',
+    dialogue: (G) => G.flags.ks_beat ? 'dlg_sera_after' : 'dlg_sera_greet',
     battle: {
       team: [
         { speciesId: 'nimbis', level: 23 }, { speciesId: 'aurelark', level: 23 },
@@ -299,7 +302,7 @@ export const NPCS = {
       const q = G.quests.sq_climber;
       if (!q) return 'dlg_bo_intro';
       if (q.done) return 'dlg_bo_done';
-      return hasFlag('sq_climber_b1') ? 'dlg_bo_wait2' : 'dlg_bo_wait1';
+      return G.flags.sq_climber_b1 ? 'dlg_bo_wait2' : 'dlg_bo_wait1';
     },
   },
 
@@ -319,7 +322,7 @@ export const NPCS = {
     id: 'seeker_c', name: 'Seeker', kind: 'seeker',
     appearance: { palette: [0x8a8a92, 0xd8d4c4], robe: true, mask: 'pale', hood: true },
     wanderRadius: 1,
-    dialogue: (G) => hasFlag('sk_c_beat') ? 'dlg_seeker_c_after' : 'dlg_seeker_c_taunt',
+    dialogue: (G) => G.flags.sk_c_beat ? 'dlg_seeker_c_after' : 'dlg_seeker_c_taunt',
     battle: {
       team: [{ speciesId: 'chandelisk', level: 29 }, { speciesId: 'gloomel', level: 28, talisman: 'aegis_veil' }],
       ai: 'tactical', reward: { glim: 220 }, once: 'sk_c_beat',
@@ -332,7 +335,7 @@ export const NPCS = {
     id: 'lt_vess', name: 'Lieutenant Vess', kind: 'order',
     appearance: { palette: [0xa8d8ff, 0x2a2f3f], accessory: 'pale mask', accent: 'ice-blue coat' },
     wanderRadius: 2,
-    dialogue: (G) => hasFlag('vess_beat') ? 'dlg_vess_after' : 'dlg_vess_greet',
+    dialogue: (G) => G.flags.vess_beat ? 'dlg_vess_after' : 'dlg_vess_greet',
     battle: {
       team: [
         { speciesId: 'rimehorn', level: 27 }, { speciesId: 'noctyra', level: 28 },
@@ -346,7 +349,7 @@ export const NPCS = {
     id: 'lt_dorn', name: 'Lieutenant Dorn', kind: 'order',
     appearance: { palette: [0xc9995c, 0x2a2f3f], build: 'heavy', accessory: 'terra armor' },
     wanderRadius: 2,
-    dialogue: (G) => hasFlag('dorn_beat') ? 'dlg_dorn_after' : 'dlg_dorn_greet',
+    dialogue: (G) => G.flags.dorn_beat ? 'dlg_dorn_after' : 'dlg_dorn_greet',
     battle: {
       team: [
         { speciesId: 'cairnox', level: 31 }, { speciesId: 'sludgemaw', level: 32 },
@@ -360,7 +363,7 @@ export const NPCS = {
     id: 'seeker_d', name: 'Seeker', kind: 'seeker',
     appearance: { palette: [0x8a8a92, 0xd8d4c4], robe: true, mask: 'pale', hood: true },
     wanderRadius: 1,
-    dialogue: (G) => hasFlag('sk_d_beat') ? 'dlg_seeker_d_after' : 'dlg_seeker_d_taunt',
+    dialogue: (G) => G.flags.sk_d_beat ? 'dlg_seeker_d_after' : 'dlg_seeker_d_taunt',
     battle: {
       team: [
         { speciesId: 'reverbane', level: 36, hollowed: true },
@@ -376,8 +379,8 @@ export const NPCS = {
     wanderRadius: 0,
     dialogue: (G) => {
       if (G.flags.postgame) return 'dlg_sol_postgame';
-      if (!hasFlag('vess_beat') || !hasFlag('dorn_beat')) return 'dlg_sol_not_ready';
-      return hasFlag('sol_p1_beat') ? 'dlg_sol_interlude' : 'dlg_sol_greet';
+      if (!G.flags.vess_beat || !G.flags.dorn_beat) return 'dlg_sol_not_ready';
+      return G.flags.sol_p1_beat ? 'dlg_sol_interlude' : 'dlg_sol_greet';
     },
     // Phase-1 team only. Phase 2 (Sol + the Hollowed Thalassyr, ai:'boss', twoActions,
     // uncatchable) is scripted directly in game/story.js#runSolFinale — see that file.

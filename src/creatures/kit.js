@@ -786,6 +786,13 @@ export function at(parent, child, x = 0, y = 0, z = 0, opts = {}) {
  *   const root = new THREE.Group();
  *   root.add(body); // ...attach everything else to body/root as usual...
  *   return { group: kit.groundPlant(root), parts: {...}, hints: {...} };
+ *
+ * GOTCHA for anyone rescaling a model afterward (registry.js does this to
+ * match SPECIES[id].size): groundPlant works by nudging `root.position.y`,
+ * and position does NOT scale with the object's own `.scale` (only
+ * child-local geometry does) — so `root.scale.multiplyScalar(s)` AFTER
+ * groundPlant reintroduces a vertical offset. Call groundPlant again after
+ * any such rescale to correct it (registry.js already does this).
  * @param {THREE.Object3D} root
  * @returns {THREE.Object3D} root, unchanged in type, position.y adjusted
  */

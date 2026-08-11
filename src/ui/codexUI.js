@@ -109,7 +109,7 @@ export function renderCodex(container, opts = {}) {
   let active = false;
   let SPECIES = {}, SPECIES_LIST = [], chainOf = () => [];
   let focusIdx = 0, detailId = null, cols = 6;
-  let preview = null; // { renderer, scene, camera, group, raf, dispose }
+  let preview = null; // { dispose() } — the detail pane's dedicated mini renderer, when open
 
   const root = document.createElement('div');
   root.className = 'codex-root';
@@ -260,7 +260,8 @@ export function renderCodex(container, opts = {}) {
       scene.add(hemi, key, rim);
       const { group, animator } = buildCreature(id);
       if (status !== 'caught') {
-        group.traverse((o) => { if (o.isMesh) { const c = o.material?.color; o.material = new THREE.MeshBasicMaterial({ color: 0x0a0b12 }); } });
+        // Silhouette treatment for 'seen'-but-not-caught: flat near-black, no lit detail.
+        group.traverse((o) => { if (o.isMesh) o.material = new THREE.MeshBasicMaterial({ color: 0x0a0b12 }); });
       }
       const box = new THREE.Box3().setFromObject(group);
       const size = box.getSize(new THREE.Vector3());

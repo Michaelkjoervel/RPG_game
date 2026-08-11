@@ -186,11 +186,22 @@ function measureHeight(group) {
 // once creature-data lands, but keeps this file crash-proof in isolation),
 // the model simply keeps its authored scale, which every model builder is
 // expected to author at sane real-world proportions already.
+//
+// NOTE: every builder already calls kit.groundPlant() to plant its feet at
+// y=0 — but that works by nudging the root's `.position.y`, and position
+// does NOT scale with its own object's `.scale` (only child-local geometry
+// does). Scaling the root after groundPlant has run reintroduces a vertical
+// offset proportional to (1 - scaleFactor). So: scale first, then
+// groundPlant AGAIN to correct for it. Cheap (one more bbox measurement) and
+// makes this correct regardless of how big the size correction is.
 function scaleToSpeciesHeight(group, speciesId) {
   const size = SPECIES && SPECIES[speciesId] ? SPECIES[speciesId].size : null;
   if (!size || size <= 0) return;
   const height = measureHeight(group);
   if (height <= 0) return;
   const s = size / height;
-  if (isFinite(s) && s > 0) group.scale.multiplyScalar(s);
+  if (isFinite(s) && s > 0) {
+    group.scale.multiplyScalar(s);
+    kit.groundPlant(group);
+  }
 }
