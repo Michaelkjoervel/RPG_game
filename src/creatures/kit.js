@@ -900,13 +900,20 @@ export function gleamify(group, parts) {
     node.material.color.setHSL((hsl.h + 0.52) % 1, clamp01(hsl.s * 1.1 + 0.08), clamp01(hsl.l * 1.04 + 0.02));
     if (node.material.emissive) node.material.emissiveIntensity = (node.material.emissiveIntensity ?? 1) * 1.3;
   });
+  // NOTE: box3 is a WORLD-space measurement, but `sparkle.group` is about to
+  // become a direct CHILD of `group` — so any size/position we hand it must
+  // be converted into group's LOCAL space first (world / group.scale),
+  // otherwise it comes out wrong the moment group has already been rescaled
+  // (registry.js rescales to SPECIES[id].size before calling gleamify).
   const box3 = new THREE.Box3().setFromObject(group);
-  const size = new THREE.Vector3(); box3.getSize(size);
-  const radius = Math.max(size.x, size.z) * 0.55 || 0.3;
+  const worldSize = new THREE.Vector3(); box3.getSize(worldSize);
+  const gs = group.scale;
+  const localSize = new THREE.Vector3(worldSize.x / (gs.x || 1), worldSize.y / (gs.y || 1), worldSize.z / (gs.z || 1));
+  const radius = Math.max(localSize.x, localSize.z) * 0.55 || 0.3;
   const seed = hashStr((group.name || 'gleam') + '_g');
-  const sparkle = mote(10, { color: 0xfff6d8, radius, height: size.y * 0.5, speed: 0.55, seed });
+  const sparkle = mote(10, { color: 0xfff6d8, radius, height: localSize.y * 0.5, speed: 0.55, seed });
   sparkle.group.name = 'gleamSparkle';
-  sparkle.group.position.y = size.y * 0.4;
+  sparkle.group.position.y = localSize.y * 0.4;
   group.add(sparkle.group);
   group.userData.gleaming = true;
   if (parts) { parts.fx = parts.fx || []; parts.fx.push(sparkle); }

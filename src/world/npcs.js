@@ -213,19 +213,28 @@ function buildHuman(spec) {
 }
 
 // ---------------------------------------------------------------- kind archetypes
+// Real appearance shape (docs/ARCHITECTURE.md + observed data/npcs.js):
+//   { palette:[primaryHex, secondaryHex], hat?, hood?:bool, mask?:string,
+//     robe?:bool|string, build?:'slight'|'lean'|'avg'|'stocky'|'broad'|'heavy',
+//     accessory?:string (free text), accent?:string (free text), hair?:string (style, not a color) }
+// Only numeric fields are ever treated as colors — free-text descriptors are
+// read for the id-keyed bespoke overrides below, never guessed at generically.
+const BUILD_MAP = { slight: 'slim', lean: 'slim', avg: 'avg', average: 'avg', stocky: 'broad', broad: 'broad', heavy: 'broad' };
+
 function archetypeFor(id, kind, appearance) {
   const p = basePalette(id);
-  // Opportunistic read of whatever the data agent provides — several likely
-  // key names are tried; anything missing falls back to the deterministic palette.
   const a = appearance || {};
-  const skin = a.skin ?? a.palette?.skin ?? p.skin;
-  const hair = a.hair ?? a.hairColor ?? a.palette?.hair ?? p.hair;
-  const primary = a.primary ?? a.robeColor ?? a.palette?.primary ?? p.primary;
-  const secondary = a.secondary ?? a.trimColor ?? a.palette?.secondary ?? p.secondary;
-  const accent = a.accent ?? a.palette?.accent ?? GOLD;
-  const hatFromData = a.hat;
+  const pal = Array.isArray(a.palette) ? a.palette : null;
+  const num = (v, fb) => (typeof v === 'number' ? v : fb);
+  const skin = num(a.skin, p.skin);
+  const hair = p.hair; // appearance.hair is a style descriptor ("silver","tousled"), not a color
+  const primary = num(pal?.[0], num(a.primary, p.primary));
+  const secondary = num(pal?.[1], num(a.secondary, p.secondary));
+  const accent = num(a.accentColor, GOLD);
+  let hatFromData = a.hat ?? (a.hood ? 'hood' : a.mask ? 'mask' : undefined);
+  const build = BUILD_MAP[a.build] ?? 'avg';
 
-  const base = { skin, hair, primary, secondary, accent, height: 1.6, build: 'avg', hat: 'none', cape: false };
+  const base = { skin, hair, primary, secondary, accent, height: 1.6, build, hat: 'none', cape: false };
 
   switch (kind) {
     case 'seeker':
