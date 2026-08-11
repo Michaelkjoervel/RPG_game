@@ -230,7 +230,7 @@ function archetypeFor(id, kind, appearance) {
   const hair = p.hair; // appearance.hair is a style descriptor ("silver","tousled"), not a color
   const primary = num(pal?.[0], num(a.primary, p.primary));
   const secondary = num(pal?.[1], num(a.secondary, p.secondary));
-  const accent = num(a.accentColor, GOLD);
+  const accent = num(pal?.[2], num(a.accentColor, GOLD));
   let hatFromData = a.hat ?? (a.hood ? 'hood' : a.mask ? 'mask' : undefined);
   const build = BUILD_MAP[a.build] ?? 'avg';
 
@@ -238,16 +238,16 @@ function archetypeFor(id, kind, appearance) {
 
   switch (kind) {
     case 'seeker':
-      return { ...base, primary: 0x5c5c66, secondary: 0x46464e, accent: 0xdedad2, hat: 'mask', cape: 0x40404a, build: 'avg' };
+      return { ...base, primary: num(pal?.[0], 0x5c5c66), secondary: num(pal?.[1], 0x46464e), accent: 0xdedad2, hat: hatFromData ?? 'mask', cape: 0x40404a };
     case 'keeper':
-      return { ...base, hat: hatFromData ?? 'none', cape: secondary, build: 'avg' };
+      return { ...base, hat: hatFromData ?? 'none', cape: base.secondary };
     case 'rival':
-      return { ...base, primary: 0xc2603a, secondary: 0x4a4a52, accent: 0xffd94f, build: 'slim', hat: 'none' };
+      return { ...base, build: BUILD_MAP[a.build] ?? 'slim', hat: hatFromData ?? 'none' };
     case 'merchant':
-      return { ...base, primary: 0xc2985a, secondary: 0x8a6a48, accent: GOLD, hat: hatFromData ?? 'straw', build: 'avg' };
+      return { ...base, hat: hatFromData ?? 'straw' };
     case 'villager':
     default:
-      return { ...base, hat: hatFromData ?? 'none', cape: false, build: 'avg' };
+      return { ...base, hat: hatFromData ?? 'none', cape: false };
   }
 }
 

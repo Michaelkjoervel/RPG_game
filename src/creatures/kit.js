@@ -188,6 +188,15 @@ export function orb(r, m, opts = {}) {
 /**
  * A capsule (rounded cylinder) aligned to local +Y — the default choice for
  * limbs, torsos, necks, tails-as-a-single-piece.
+ *
+ * GOTCHA when this mesh is ALSO an attachment anchor for other parts (e.g. a
+ * capsule "torso" that a head/legs/tail get `at()`-ed onto): if you need it
+ * lying along a different axis, rotate the GEOMETRY
+ * (`mesh.geometry.rotateZ(Math.PI/2)`), not `mesh.rotation`. Rotating the
+ * mesh's own transform also rotates the local coordinate frame every child
+ * you attach to it is measured in, silently scrambling their x/y/z offsets.
+ * Geometry rotation is baked into the vertices, leaving `mesh.rotation` at
+ * identity so children behave exactly as authored. See charvane.js.
  * @param {number} r
  * @param {number} len - length of the straight midsection (total length = len + 2r)
  * @param {THREE.Material} m
@@ -847,22 +856,39 @@ export function hollowify(group, parts) {
     node.material.color.setHSL(hsl.h, hsl.s * 0.12, clamp(hsl.l * 0.7 + 0.12, 0.18, 0.55));
     if (node.material.emissive) node.material.emissiveIntensity = Math.min(node.material.emissiveIntensity ?? 1, 0.25);
   });
+  // box3 is WORLD-space; the crack strips are about to become CHILDREN of
+  // `group`, so every size/position below is converted into group's LOCAL
+  // space (world / group.scale for sizes, group.worldToLocal(...) for
+  // positions) — otherwise placement/size come out wrong once `group` has
+  // already been rescaled (registry.js rescales to SPECIES[id].size before
+  // calling hollowify). Y-center is also clamped so a strip's own height
+  // never pushes it past the model's true top/bottom.
   const box3 = new THREE.Box3().setFromObject(group);
-  const size = new THREE.Vector3(); box3.getSize(size);
-  const center = new THREE.Vector3(); box3.getCenter(center);
+  const worldSize = new THREE.Vector3(); box3.getSize(worldSize);
+  const worldCenter = new THREE.Vector3(); box3.getCenter(worldCenter);
+  const gs = group.scale;
   const seed = hashStr(group.name || 'hollow');
   const rng = seededRandom(seed);
   const crackMat = mat(0xffe9b0, { unlit: true, transparent: true, opacity: 0.85 });
   const cracks = [];
   const count = 3 + Math.floor(rng() * 3);
   for (let i = 0; i < count; i++) {
-    const strip = box(Math.max(size.x, size.y, size.z) * 0.012, size.y * (0.3 + rng() * 0.35), 0.01, crackMat.clone());
-    strip.name = 'hollowCrack';
-    strip.position.set(
-      center.x + (rng() - 0.5) * size.x * 0.7,
-      box3.min.y + rng() * size.y * 0.75,
-      center.z + (rng() - 0.5) * size.z * 0.7,
+    const worldH = worldSize.y * (0.2 + rng() * 0.2);
+    const halfH = worldH / 2;
+    const yRange = Math.max(0.001, worldSize.y - 2 * halfH);
+    const worldY = box3.min.y + halfH + rng() * yRange;
+    const worldPoint = new THREE.Vector3(
+      worldCenter.x + (rng() - 0.5) * worldSize.x * 0.6,
+      worldY,
+      worldCenter.z + (rng() - 0.5) * worldSize.z * 0.6,
     );
+    const localPoint = group.worldToLocal(worldPoint.clone());
+    const localW = (Math.max(worldSize.x, worldSize.y, worldSize.z) * 0.012) / (gs.x || 1);
+    const localH = worldH / (gs.y || 1);
+    const localD = 0.01 / (gs.z || 1);
+    const strip = box(localW, localH, localD, crackMat.clone());
+    strip.name = 'hollowCrack';
+    strip.position.copy(localPoint);
     strip.rotation.set((rng() - 0.5) * 0.3, rng() * Math.PI * 2, (rng() - 0.5) * 0.5);
     group.add(strip);
     cracks.push(strip);

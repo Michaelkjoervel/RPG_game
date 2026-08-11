@@ -159,7 +159,7 @@ export const SPECIES = {
     growth: 'medium', awakensTo: null,
     w: { vigor: 1.0, might: 0.7, ward: 0.9, focus: 1.4, aegis: 1.0, haste: 1.2 },
     learnset: [[18, 'windslice'], [18, 'gustjab'], [22, 'tailwind'], [26, 'downdraft'],
-      [30, 'skydance'], [34, 'cycloneburst'], [38, 'galeforce'], [42, 'windwarden'], [46, 'wingstorm'], [50, 'gustjab']],
+      [30, 'skydance'], [34, 'cycloneburst'], [38, 'galeforce'], [42, 'windwarden'], [46, 'wingstorm'], [50, 'fulltilt']],
     trait: 'cometdrift', burst: 'cometveilwing', size: 0.6, cry: { pitch: 1.3, timbre: 'trill' },
     codex: 'A regal drifter; four ribbon wings leave a comet-trail of scattered scales.',
     habitat: 'High night air above the meadow' }),
@@ -436,7 +436,7 @@ export const SPECIES = {
     w: { vigor: 1.6, might: 1.1, ward: 1.3, focus: 1.2, aegis: 1.2, haste: 0.5 },
     learnset: [[1, 'tidesplash'], [1, 'shadowjab'], [10, 'nightguard'], [20, 'undertow'],
       [30, 'eclipseveil'], [36, 'maelstrom'], [42, 'gloomwave'], [46, 'abysscall'], [50, 'tidesurge']],
-    trait: 'deepdream', burst: 'deepdreamtide', size: 3.2, cry: { pitch: 0.4, timbre: 'rumble' },
+    trait: 'deepdream', burst: 'deepdreamtide', size: 3.2, cry: { pitch: 0.5, timbre: 'rumble' },
     codex: 'An abyssal leviathan sleeping beneath Mirrorlake; the world’s dreams pool in its slow wake.',
     habitat: 'The deep, sunless floor of Mirrorlake' }),
 };

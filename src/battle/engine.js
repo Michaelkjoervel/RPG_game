@@ -530,6 +530,10 @@ export class BattleEngine {
       warnOnce('switch:' + side, `[engine] invalid switch target for side "${side}" — ignored`);
       return;
     }
+    if (voluntary) {
+      const cur = this._active(side);
+      if (cur?.mon.status === 'root') return; // root: cannot switch (a forced switch after fainting still may)
+    }
     const curIdx = side === 'p' ? this.pActiveIdx : this.eActiveIdx;
     if (curIdx === index) return;
     const cur = team[curIdx];
@@ -563,6 +567,7 @@ export class BattleEngine {
       warnOnce('flee-invalid', '[engine] flee attempted outside a fleeable wild battle — ignored');
       return;
     }
+    if (combatant.mon.status === 'root') return; // root: cannot flee
     const foe = this._active('e');
     const myHaste = effectiveStat(this._combatView(combatant), 'haste');
     const foeHaste = foe ? effectiveStat(this._combatView(foe), 'haste') : myHaste;
@@ -776,7 +781,7 @@ export class BattleEngine {
           await this._applyAura(eff.kind);
           break;
         case 'flee':
-          if (side === 'p' && this.canFlee && this.kind === 'wild') this._finish('flee');
+          if (side === 'p' && this.canFlee && this.kind === 'wild' && attacker.mon.status !== 'root') this._finish('flee');
           break;
         case 'priority':
           // Turn order already resolved from move.priority before effects run

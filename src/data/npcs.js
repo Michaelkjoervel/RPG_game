@@ -40,7 +40,7 @@ function ambientVillager(prefix) {
 
 // ---------------------------------------------------------------------------------- Ashe (rival)
 // Starter-advantage matchup: Ashe always picks the line that's strong against the player's.
-const ASHE_COUNTER_LINE = {
+export const ASHE_COUNTER_LINE = {
   kindlet: ['nixling', 'maelfin', 'tidelorn'],
   nixling: ['thistlit', 'briarback', 'sylvathorn'],
   thistlit: ['kindlet', 'charvane', 'pyrelith'],
@@ -256,7 +256,7 @@ export const NPCS = {
     },
   },
   merchant_wren: {
-    id: 'merchant_wren', name: 'Wren', kind: 'merchant',
+    id: 'merchant_wren', name: 'Wren', kind: 'merchant', questId: 'sq_gleam',
     appearance: { palette: [0x3c7a8a, 0xf2e6c8], hat: 'straw', accessory: 'apron' },
     wanderRadius: 1,
     dialogue: (G) => {
