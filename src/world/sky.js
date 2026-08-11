@@ -322,7 +322,7 @@ export function createSky(zone, scene) {
         const m4 = clouds.userData.m4, q = clouds.userData.q, s = clouds.userData.s;
         const cloudTint = _tc2.copy(colors.night.top).lerp(colors.day.top, dw).lerp(new THREE.Color(0xffffff), 0.5);
         cloudMat.uniforms.uColor.value.copy(cloudTint);
-        cloudMat.uniforms.uAlpha.value = lerp(0.18, 0.55, dw) ;
+        cloudMat.uniforms.uAlpha.value = lerp(0.18, 0.55, dw);
         for (let i = 0; i < data.length; i++) {
           const c = data[i];
           c.x += cloudDrift.x * c.speed * dt;

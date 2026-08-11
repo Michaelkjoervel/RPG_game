@@ -66,8 +66,15 @@ function moveScore(entry, view) {
         break;
       }
       case 'status': score += 18 * chance; break;
-      case 'heal': score += (eff.percent ?? 25) * 0.55 * chance; break;
-      case 'drain': score += 6 * chance; break;
+      case 'heal': {
+        // Scale by how much HP is actually missing — healing at full HP is
+        // worth exactly nothing and must never outscore attacking (this was
+        // the source of an infinite Soothe-mirror stalemate during testing).
+        const missing = 1 - view.self.hpFrac;
+        score += (eff.percent ?? 25) * 0.9 * chance * missing;
+        break;
+      }
+      case 'drain': score += 6 * chance * (0.4 + (1 - view.self.hpFrac)); break;
       case 'recoil': score -= 4 * chance; break;
       case 'cleanse': score += view.self.status ? 22 : 0; break;
       case 'guard': score += view.self.hpFrac < 0.5 ? 14 : 6; break;

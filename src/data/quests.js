@@ -11,7 +11,7 @@
 // onWin flags on story-quests' own NPCs, or scripted STORY_TRIGGERS scenes. The one exception
 // is sq_ferry, which happily lines up with a chest zone-content already placed
 // (`gc_chest_ferrygear` in src/data/zones/gloamcavern.js) — confirmed by inspection.
-import { gainGlim, gainItem } from '../core/state.js';
+import { gainGlim, gainItem, spendItem } from '../core/state.js';
 import { bus } from '../core/events.js';
 
 const notify = (text, icon) => bus.emit('notify', { text, icon });
@@ -79,7 +79,7 @@ export const QUESTS = {
     steps: [{ text: 'Bring Herbalist Syl 3 Tonics for her patients.', isDone: (G) => (G.bag.tonic ?? 0) >= 3 }],
     rewards: { glim: 60, items: [{ id: 'honey_drop', qty: 2 }] },
     onComplete: (G) => {
-      if ((G.bag.tonic ?? 0) >= 3) { G.bag.tonic -= 3; if (G.bag.tonic <= 0) delete G.bag.tonic; }
+      spendItem('tonic', 3);
       gainGlim(60); gainItem('honey_drop', 2); notify('Syl thanks you for the tonics.', '✦');
     },
   },
@@ -103,7 +103,7 @@ export const QUESTS = {
     steps: [{ text: 'Find the lost Ferry Gear in Gloamcavern and bring it to Ferryman Juno.', isDone: (G) => !!(G.flags.gc_chest_ferrygear || (G.bag.ferry_gear ?? 0) >= 1) }],
     rewards: { glim: 90, items: [{ id: 'tidestone', qty: 1 }] },
     onComplete: (G) => {
-      if ((G.bag.ferry_gear ?? 0) >= 1) { G.bag.ferry_gear -= 1; if (G.bag.ferry_gear <= 0) delete G.bag.ferry_gear; }
+      if ((G.bag.ferry_gear ?? 0) >= 1) spendItem('ferry_gear', 1);
       gainGlim(90); gainItem('tidestone', 1); notify("Juno's ferry sails again.", '✦');
     },
   },

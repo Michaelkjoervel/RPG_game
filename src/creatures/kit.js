@@ -927,10 +927,14 @@ export function gleamify(group, parts) {
     if (node.material.emissive) node.material.emissiveIntensity = (node.material.emissiveIntensity ?? 1) * 1.3;
   });
   // NOTE: box3 is a WORLD-space measurement, but `sparkle.group` is about to
-  // become a direct CHILD of `group` — so any size/position we hand it must
-  // be converted into group's LOCAL space first (world / group.scale),
-  // otherwise it comes out wrong the moment group has already been rescaled
-  // (registry.js rescales to SPECIES[id].size before calling gleamify).
+  // become a direct CHILD of `group` — so any SIZE we hand it must be
+  // converted into group's LOCAL space first (world / group.scale — valid
+  // for distances), and any ABSOLUTE POSITION must go through
+  // `group.worldToLocal()` instead (dividing a position by scale is only
+  // correct if group's local origin sits at world y=0, which it usually
+  // doesn't — groundPlant leaves a nonzero position offset). Getting this
+  // wrong is exactly how a gleam sparkle ends up floating below a model's
+  // feet the moment registry.js has already rescaled it.
   const box3 = new THREE.Box3().setFromObject(group);
   const worldSize = new THREE.Vector3(); box3.getSize(worldSize);
   const gs = group.scale;
@@ -939,7 +943,8 @@ export function gleamify(group, parts) {
   const seed = hashStr((group.name || 'gleam') + '_g');
   const sparkle = mote(10, { color: 0xfff6d8, radius, height: localSize.y * 0.5, speed: 0.55, seed });
   sparkle.group.name = 'gleamSparkle';
-  sparkle.group.position.y = localSize.y * 0.4;
+  const worldAnchor = new THREE.Vector3(box3.min.x + worldSize.x * 0.5, box3.min.y + worldSize.y * 0.45, box3.min.z + worldSize.z * 0.5);
+  sparkle.group.position.copy(group.worldToLocal(worldAnchor));
   group.add(sparkle.group);
   group.userData.gleaming = true;
   if (parts) { parts.fx = parts.fx || []; parts.fx.push(sparkle); }
