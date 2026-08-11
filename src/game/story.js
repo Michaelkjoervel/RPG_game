@@ -75,9 +75,18 @@ async function confirmViaDialogue(speaker, text, acceptText = 'Accept.', decline
 async function healPartyNow() {
   try {
     const mod = await creaturesMod();
-    if (typeof mod.healParty === 'function') { mod.healParty(G); return; }
-  } catch (e) { /* combat-engine module not ready — fall through to the manual heal below */ }
-  for (const m of G.party) { if (m) { m.hp = m.maxHp ?? m.hp; m.status = null; } }
+    if (typeof mod.healParty === 'function') {
+      mod.healParty(G.party, { full: true, cureStatus: true, reviveFainted: true, revivePercent: 0.5 });
+      return;
+    }
+  } catch (e) { console.error('[story] healParty (game/creatures.js) failed, using manual fallback', e); }
+  // Manual fallback: also revive anyone fainted at 50%, matching the shrine/defeat mercy above.
+  for (const m of G.party) {
+    if (!m) continue;
+    if (m.hp <= 0) m.hp = Math.max(1, Math.round((m.maxHp ?? 1) * 0.5));
+    else m.hp = m.maxHp ?? m.hp;
+    m.status = null;
+  }
 }
 
 function resolveBattleConfig(npcData) {
@@ -146,18 +155,27 @@ async function handleDefeat() {
   }
 }
 
-// --------------------------------------------------------------------- Gloamcavern light-puzzle
-// The 4 rock_crystal pedestals (kind:'pedestal') zone-content placed in gloamcavern.js have no
-// gameplay hook of their own (see that file's integrator note) — story.js is the logic owner.
+// -------------------------------------------------------------------------- Optional puzzles
+// Both zone-content areas below placed interactable kinds outside world-living's documented
+// chest/shard/shrine/sparkle vocabulary (kind:'pedestal', kind:'valve') and explicitly flagged
+// in their own file's integrator note that story.js should own the resulting logic.
 const GC_PEDESTALS = ['gc_pedestal_1', 'gc_pedestal_2', 'gc_pedestal_3', 'gc_pedestal_4'];
+const RU_VALVES = ['ru_valve_1', 'ru_valve_2', 'ru_valve_3'];
 bus.on('flag:set', ({ key } = {}) => {
-  if (!GC_PEDESTALS.includes(key) || G.flags.puzzle_gloam_solved) return;
-  if (!GC_PEDESTALS.every((f) => G.flags[f])) return;
-  setFlag('puzzle_gloam_solved');
-  gainItem('glazed_charm', 1);
-  gainGlim(60);
-  bus.emit('ui:sfx', { name: 'chest' });
-  notify('The crystal pedestals align — a hidden cache clicks open.', '✦');
+  if (GC_PEDESTALS.includes(key) && !G.flags.puzzle_gloam_solved && GC_PEDESTALS.every((f) => G.flags[f])) {
+    setFlag('puzzle_gloam_solved');
+    gainItem('glazed_charm', 1);
+    gainGlim(60);
+    bus.emit('ui:sfx', { name: 'chest' });
+    notify('The crystal pedestals align — a hidden cache clicks open.', '✦');
+  }
+  if (RU_VALVES.includes(key) && !G.flags.puzzle_ruins_solved && RU_VALVES.every((f) => G.flags[f])) {
+    setFlag('puzzle_ruins_solved');
+    gainItem('vigil_bloom', 1);
+    gainGlim(80);
+    bus.emit('ui:sfx', { name: 'door' });
+    notify('The water-stair grinds open, level by level, revealing a sealed alcove.', '✦');
+  }
 });
 
 // =============================================================================== NPC interaction

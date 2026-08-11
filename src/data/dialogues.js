@@ -393,6 +393,7 @@ D.lore_ruins_1 = one('', 'A carved star, whole and burning, ringed by a hundred 
 D.lore_ruins_2 = one('', 'The star cracks. The smaller lights scatter and fall, and where they land, the stone itself starts to breathe.');
 D.lore_ruins_3 = one('', 'A last panel, worn nearly smooth: a shape in the dark, reaching for the falling light — not to save it. To keep it.');
 D.lore_hs_1 = one('', '"Cruelty wearing mercy\'s face is still cruelty. It only fools the one wearing it." — scratched beneath a Spire banner, recently');
+D.lore_glade_1 = one('', '"Where a Warden\'s bond runs truest, the dark remembers how to be warm again." — carved fresh into a glow-tree, sap still faintly wet with light');
 
 // Stamp `id` onto every entry (some were built by helpers that don't know their own key).
 for (const [id, dlg] of Object.entries(D)) dlg.id = id;

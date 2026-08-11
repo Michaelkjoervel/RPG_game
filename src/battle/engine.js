@@ -22,54 +22,48 @@
 //     burst definition (id + all data fields), not just the id.
 //
 // ---------------------------------------------------------------------------
-// TRAIT HOOK VOCABULARY (the contract this engine implements from data).
-// abilities.js's TRAITS entries are pure DATA: { hook: '<name>', ...params }.
-// If src/data/abilities.js exists when another agent reads this, its own
-// header is the source of truth; this engine implements the following <=10
-// hooks and is defensive about anything else: an unrecognized hook name
-// warns ONCE (console.warn) and is otherwise silently ignored — it never
-// throws. A trait fires only at the lifecycle point matching its own hook;
-// most params below are read permissively (several optional key names) so
-// data authored slightly differently still mostly works.
+// TRAIT HOOK VOCABULARY. abilities.js's TRAITS entries are pure DATA:
+// { hook:'<name>', ...params }. src/data/abilities.js's own header is the
+// authoritative source for this (this engine implements it exactly, 1:1 —
+// see that file's "TRAIT HOOK VOCABULARY" comment); reproduced here so
+// engine.js is self-documenting. A trait fires only at the lifecycle point
+// matching its own hook; an unrecognized hook name warns ONCE
+// (console.warn) and is otherwise silently ignored — it never throws.
 //
-//   onSwitchIn    { stat, stages, target:'self'|'foe' }
-//     Fires when the Kindred is sent into battle (battle start or a switch).
-//     Applies a one-off stat-stage change (e.g. an intimidate-style -1 to
-//     the foe's might on entry).
+//   onSwitchIn      { effect:'statStage', stat, stages, target:'self'|'foe' }
+//     Fires once when this creature enters battle (battle start or a switch).
 //
-//   onTurnEnd     { healPercent, chance? }
-//     Fires at the end of every turn this Kindred is active and unfainted.
-//     Heals healPercent% of max HP (optionally gated by chance, 0-100).
+//   onLowHP         { threshold:0..1, mod:'damageOut'|'damageIn',
+//                      filter?:{aspect?,kind?}, mult }
+//     A CONTINUOUS damage multiplier, active only while hp/maxHp <= threshold
+//     (re-evaluated on every attack/defense while active — not a one-shot).
 //
-//   onLowHP       { threshold?(0-1, default 1/3), stat, stages }
-//     Fires once, the moment HP first drops below `threshold` (re-arms if
-//     healed back above it). Applies a one-off stat-stage change to self —
-//     a "second wind" archetype. For a continuous damage-boost-while-low
-//     effect (e.g. "kindleheart"), use modDamageOut/modDamageIn's own
-//     hpBelow/hpAbove gate instead — it re-evaluates every hit.
+//   onStatusApplied { effect:'block'|'reflect', status:'any'|<id>, chance:0..100 }
+//     Rolls when a status would be applied TO this creature. 'block' cancels
+//     it outright; 'reflect' cancels it AND attempts to apply the same
+//     status onto the attacker instead (the bounce never chains a second time).
 //
-//   onStatusApplied { cancel?:true, blockStatuses?:string[] }
-//     Fires right before a status would be applied to self; setting cancel
-//     blocks it outright. For a *permanent* immunity, prefer immuneStatus.
+//   onTurnEnd       { effect:'heal'|'statStage', percent?, stat?, stages?,
+//                      target:'self', chance?:0..100 (default 100) }
+//     Evaluated at the end of each turn this creature is active & unfainted.
 //
-//   onStatusCleared { healPercent }
-//     Fires after a status leaves self (cleanse/remedy/root's expiry).
+//   modDamageOut    { filter?:{aspect?,kind?}, mult }
+//     Multiplies damage this creature DEALS (unconditional unless filtered).
 //
-//   modDamageOut  { aspect?, moveKind?, hpBelow?, hpAbove?, once?, mult }
-//     Multiplies damage self DEALS. Gates: aspect (only that move aspect),
-//     moveKind ('might'|'focus'), hpBelow/hpAbove (self's hp fraction),
-//     once (fires only the first time it would apply, per battle).
+//   modDamageIn     { filter?:{aspect?,kind?}, mult }
+//     Multiplies damage this creature TAKES (unconditional unless filtered).
 //
-//   modDamageIn   { aspect?, moveKind?, hpBelow?, hpAbove?, once?, mult }
-//     Same gates/shape as modDamageOut, but multiplies damage self TAKES.
+//   immuneStatus    { status:'any'|<id> }
+//     This creature can never receive that status (or, with 'any', any status).
 //
-//   immuneStatus  { statuses?:string[], status?:string, all?:true }
-//     Self can never be afflicted by any status in the list (or all of
-//     them). Checked before a status application is attempted.
+//   onHit           { effect:'statStage'|'heal', stat?, stages?, percent?,
+//                      chance:0..100, target?:'self' (default) }
+//     Rolls whenever this creature LANDS a damaging hit with a move.
 //
-//   onFaint       { stat, stages }
-//     Fires when self faints. Applies a stat-stage change to the FOE (a
-//     "parting gift" archetype) — self is gone, so there is no self target.
+//   onHitTaken      { effect:'statStage'|'heal', stat?, stages?, percent?,
+//                      chance:0..100, target?:'self'(default)|'foe' }
+//     Rolls whenever this creature IS hit by a damaging move (only while it
+//     survives the hit — a fainted creature cannot react).
 // ---------------------------------------------------------------------------
 
 import { G, markCodex, spendItem } from '../core/state.js';
@@ -98,8 +92,8 @@ function warnOnce(key, msg) {
 
 // ------------------------------------------------------------ trait hooks
 const KNOWN_HOOKS = new Set([
-  'onSwitchIn', 'onTurnEnd', 'onLowHP', 'onStatusApplied', 'onStatusCleared',
-  'modDamageOut', 'modDamageIn', 'immuneStatus', 'onFaint',
+  'onSwitchIn', 'onLowHP', 'onStatusApplied', 'onTurnEnd',
+  'modDamageOut', 'modDamageIn', 'immuneStatus', 'onHit', 'onHitTaken',
 ]);
 function checkHookKnown(hookName) {
   if (KNOWN_HOOKS.has(hookName)) return true;
@@ -108,57 +102,65 @@ function checkHookKnown(hookName) {
     `Known hooks: ${[...KNOWN_HOOKS].join(', ')}`);
   return false;
 }
-function damageModValue(trait, self, move) {
-  if (!move) return 1;
-  if (trait.aspect && move.aspect !== trait.aspect) return 1;
-  if (trait.moveKind && move.kind !== trait.moveKind) return 1;
-  const frac = self.mon.maxHp ? self.mon.hp / self.mon.maxHp : 1;
-  if (trait.hpBelow != null && frac >= trait.hpBelow) return 1;
-  if (trait.hpAbove != null && frac <= trait.hpAbove) return 1;
-  if (trait.once) {
-    if (self.traitState.onceFired) return 1;
-    self.traitState.onceFired = true;
+function passesFilter(filter, move) {
+  if (!filter) return true;
+  if (filter.aspect && move?.aspect !== filter.aspect) return false;
+  if (filter.kind && move?.kind !== filter.kind) return false;
+  return true;
+}
+// Shared body for onHit/onHitTaken: {effect:'statStage'|'heal', stat?,
+// stages?, percent?, chance, target?}. `defaultTarget` is 'self' for both
+// per abilities.js's convention when `target` is omitted.
+async function applyReactiveEffect(trait, self, ctx, battle, defaultTarget) {
+  const chance = trait.chance ?? 100;
+  if (battle.rng() * 100 >= chance) return;
+  const target = trait.target === 'foe' ? ctx.foe : (trait.target === 'self' ? self : (defaultTarget === 'foe' ? ctx.foe : self));
+  if (!target || target.fainted) return;
+  if (trait.effect === 'statStage' && trait.stat && trait.stages) {
+    await battle._applyStatStage(target, target.side, trait.stat, trait.stages);
+  } else if (trait.effect === 'heal') {
+    await battle._healCombatant(target, trait.percent);
   }
-  return trait.mult ?? trait.multiplier ?? 1;
 }
 const HOOK_IMPLS = {
   async onSwitchIn(trait, self, ctx, battle) {
-    if (trait.stat && trait.stages) {
-      const target = trait.target === 'self' ? self : ctx.foe;
-      if (target && !target.fainted) await battle._applyStatStage(target, target.side, trait.stat, trait.stages);
+    if (trait.effect !== 'statStage' || !trait.stat || !trait.stages) return;
+    const target = trait.target === 'foe' ? ctx.foe : self;
+    if (target && !target.fainted) await battle._applyStatStage(target, target.side, trait.stat, trait.stages);
+  },
+  // A continuous damage multiplier active only while hp/maxHp <= threshold;
+  // checked from _computeOutMult/_computeInMult (NOT a turn-end/one-shot
+  // hook), with ctx.dir telling us which direction is being asked about.
+  onLowHP(trait, self, ctx) {
+    const dir = trait.mod === 'damageOut' ? 'damageOut' : trait.mod === 'damageIn' ? 'damageIn' : null;
+    if (!dir || dir !== ctx.dir) return 1;
+    const frac = self.mon.maxHp ? self.mon.hp / self.mon.maxHp : 1;
+    if (frac > (trait.threshold ?? 1 / 3)) return 1;
+    if (!passesFilter(trait.filter, ctx.move)) return 1;
+    return trait.mult ?? 1;
+  },
+  async onStatusApplied(trait, self, ctx, battle) {
+    if (trait.chance != null && battle.rng() * 100 >= trait.chance) return;
+    if (!(trait.status === 'any' || trait.status === ctx.status)) return;
+    if (trait.effect === 'block') { ctx.cancel?.(true); return; }
+    if (trait.effect === 'reflect') {
+      ctx.cancel?.(true);
+      if (!ctx.noReflect && ctx.attacker && !ctx.attacker.fainted) {
+        await battle._tryApplyStatus(ctx.attacker, ctx.attacker.side, ctx.status, { attacker: self, noReflect: true });
+      }
     }
   },
   async onTurnEnd(trait, self, ctx, battle) {
-    if (trait.chance != null && battle.rng() * 100 >= trait.chance) return;
-    if (trait.healPercent) await battle._healCombatant(self, trait.healPercent);
+    const chance = trait.chance ?? 100;
+    if (battle.rng() * 100 >= chance) return;
+    if (trait.effect === 'heal') await battle._healCombatant(self, trait.percent);
+    else if (trait.effect === 'statStage' && trait.stat && trait.stages) await battle._applyStatStage(self, self.side, trait.stat, trait.stages);
   },
-  async onLowHP(trait, self, ctx, battle) {
-    const threshold = trait.threshold ?? (1 / 3);
-    const frac = self.mon.maxHp ? self.mon.hp / self.mon.maxHp : 1;
-    if (frac < threshold) {
-      if (!self.traitState.lowHpTriggered) {
-        self.traitState.lowHpTriggered = true;
-        if (trait.stat && trait.stages) await battle._applyStatStage(self, self.side, trait.stat, trait.stages);
-      }
-    } else {
-      self.traitState.lowHpTriggered = false;
-    }
-  },
-  onStatusApplied(trait, self, ctx) {
-    if (trait.cancel === true) { ctx.cancel?.(true); return; }
-    if (Array.isArray(trait.blockStatuses) && trait.blockStatuses.includes(ctx.status)) ctx.cancel?.(true);
-  },
-  async onStatusCleared(trait, self, ctx, battle) {
-    if (trait.healPercent) await battle._healCombatant(self, trait.healPercent);
-  },
-  modDamageOut(trait, self, ctx) { return damageModValue(trait, self, ctx.move); },
-  modDamageIn(trait, self, ctx) { return damageModValue(trait, self, ctx.move); },
+  modDamageOut(trait, self, ctx) { return passesFilter(trait.filter, ctx.move) ? (trait.mult ?? 1) : 1; },
+  modDamageIn(trait, self, ctx) { return passesFilter(trait.filter, ctx.move) ? (trait.mult ?? 1) : 1; },
   immuneStatus() { return undefined; }, // handled inline in _tryApplyStatus
-  async onFaint(trait, self, ctx, battle) {
-    if (trait.stat && trait.stages && ctx.foe && !ctx.foe.fainted) {
-      await battle._applyStatStage(ctx.foe, ctx.foe.side, trait.stat, trait.stages);
-    }
-  },
+  async onHit(trait, self, ctx, battle) { await applyReactiveEffect(trait, self, ctx, battle, 'self'); },
+  async onHitTaken(trait, self, ctx, battle) { await applyReactiveEffect(trait, self, ctx, battle, 'self'); },
 };
 
 // ------------------------------------------------------------ pinned talismans
@@ -386,12 +388,20 @@ export class BattleEngine {
     };
   }
   async _computeOutMult(attacker, defender, move) {
-    const v = await this._runHook('modDamageOut', attacker, { foe: defender, move });
-    return (typeof v === 'number' && isFinite(v)) ? v : 1;
+    let mult = 1;
+    const a = await this._runHook('modDamageOut', attacker, { foe: defender, move });
+    if (typeof a === 'number' && isFinite(a)) mult *= a;
+    const b = await this._runHook('onLowHP', attacker, { foe: defender, move, dir: 'damageOut' });
+    if (typeof b === 'number' && isFinite(b)) mult *= b;
+    return mult;
   }
   async _computeInMult(defender, attacker, move) {
-    const v = await this._runHook('modDamageIn', defender, { foe: attacker, move });
-    return (typeof v === 'number' && isFinite(v)) ? v : 1;
+    let mult = 1;
+    const a = await this._runHook('modDamageIn', defender, { foe: attacker, move });
+    if (typeof a === 'number' && isFinite(a)) mult *= a;
+    const b = await this._runHook('onLowHP', defender, { foe: attacker, move, dir: 'damageIn' });
+    if (typeof b === 'number' && isFinite(b)) mult *= b;
+    return mult;
   }
   _moveEntries(combatant) {
     return (combatant.mon.moves ?? []).map((id) => ({ id, def: ABILITIES?.[id] ? { id, ...ABILITIES[id] } : null }));
@@ -656,16 +666,17 @@ export class BattleEngine {
     await this._emit({ type: 'statStage', side, stat, delta });
     return delta;
   }
-  async _tryApplyStatus(target, side, status) {
+  // opts: { attacker (combatant that caused this — enables trait 'reflect'),
+  // noReflect (set internally so a reflect bounce can't chain a second time) }.
+  async _tryApplyStatus(target, side, status, opts = {}) {
     if (!status || target.fainted) return false;
     if (target.mon.status) return false; // one status at a time
     const trait = this._traitOf(target);
-    if (trait?.hook === 'immuneStatus') {
-      const list = trait.statuses ?? (trait.status ? [trait.status] : null);
-      if (trait.all || !list || list.includes(status)) return false;
-    }
+    if (trait?.hook === 'immuneStatus' && (trait.status === 'any' || trait.status === status)) return false;
     let cancel = false;
-    await this._runHook('onStatusApplied', target, { status, cancel: (v) => (cancel = v) });
+    await this._runHook('onStatusApplied', target, {
+      status, cancel: (v) => (cancel = v), attacker: opts.attacker ?? null, noReflect: !!opts.noReflect,
+    });
     if (cancel) return false;
     target.mon.status = status;
     target.statusStacks = 0;
