@@ -740,7 +740,13 @@ export class BattleEngine {
         }
         await this._emit({ type: 'hit', side: foeSide, dmg, eff: res.eff, crit: res.crit, hpLeft: defender.mon.hp });
         await this._flushBurstReady();
+        // onHit: the attacker reacting to landing a blow — fires even on a
+        // finishing hit (the attacker is still standing either way).
+        if (dmg > 0) await this._runHook('onHit', attacker, { foe: defender, move: moveDef });
         if (defender.mon.hp <= 0) { await this._handleFaintCheck(defender, foeSide); break; }
+        // onHitTaken: the defender reacting to being struck — only while it
+        // actually survived this hit (a fainted creature cannot react).
+        if (dmg > 0) await this._runHook('onHitTaken', defender, { foe: attacker, move: moveDef });
       }
     }
     if (this._ended) return;
@@ -829,9 +835,7 @@ export class BattleEngine {
       if (!c || c.fainted || !c.mon.status || c.statusTurns == null) continue;
       c.statusTurns--;
       if (c.statusTurns <= 0) {
-        const prev = c.mon.status;
         c.mon.status = null; c.statusStacks = 0; c.statusTurns = null;
-        await this._runHook('onStatusCleared', c, { status: prev });
         await this._emit({ type: 'statusApplied', side: s, status: null });
       }
     }
@@ -839,7 +843,6 @@ export class BattleEngine {
     for (const s of ['p', 'e']) {
       const c = this._active(s);
       if (!c || c.fainted) continue;
-      await this._runHook('onLowHP', c, { foe: this._active(s === 'p' ? 'e' : 'p') });
       await this._runHook('onTurnEnd', c, { foe: this._active(s === 'p' ? 'e' : 'p') });
       if (c.mon.hp <= 0) { await this._handleFaintCheck(c, s); if (this._ended) return; }
     }
@@ -855,8 +858,6 @@ export class BattleEngine {
     combatant.fainted = true;
     combatant.mon.hp = 0;
     await this._emit({ type: 'faint', side });
-    await this._runHook('onFaint', combatant, { foe: this._active(side === 'p' ? 'e' : 'p') });
-    if (this._ended) return;
 
     if (side === 'e') await this._awardXpForFaint(combatant.mon);
     if (this._ended) return;
