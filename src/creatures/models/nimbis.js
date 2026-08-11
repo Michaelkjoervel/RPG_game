@@ -8,6 +8,13 @@
 // kit.wing() flap-tips at the trailing edges so the animator still has
 // something to flap. A little drizzle of falling droplet motes under its
 // belly is a constant, gentle reminder of its "moody weather" trait.
+//
+// PROPORTION NOTE: registry.js rescales the whole model uniformly by
+// (SPECIES.nimbis.size / measured bbox HEIGHT) — a manta-ray silhouette is
+// naturally much wider than it is tall, so body squash and wing span are
+// both kept modest here (raw width:height well under 3:1) rather than
+// authored at "realistic ray" proportions, which would balloon a
+// kitten-sized creature into something absurdly wide once rescaled.
 
 import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
@@ -19,7 +26,7 @@ export function build_nimbis(kit = kitDefault) {
 
   const root = new THREE.Group();
 
-  const body = kit.blob(0.13, skin, { seed: 100, noise: 0.12, squash: { x: 1.9, y: 0.42, z: 1.3 } });
+  const body = kit.blob(0.13, skin, { seed: 100, noise: 0.12, squash: { x: 1.2, y: 0.62, z: 1.2 } });
   root.add(body);
   body.position.y = 0.16;
 
@@ -32,10 +39,10 @@ export function build_nimbis(kit = kitDefault) {
   kit.at(body, kit.orb(0.014, skinDark, { sy: 0.5 }), 0, -0.03, 0.18);
 
   // Wing-tip flaps at the trailing edges of the flattened body-wing.
-  const wingR = kit.wing(0.16, skin, { style: 'membrane', bones: 2, width: 0.13, droop: 0.2 });
-  kit.at(body, wingR, 0.14, 0, -0.02, { rx: -0.1, ry: -0.3 });
-  const wingL = kit.wing(0.16, skin, { style: 'membrane', bones: 2, width: 0.13, droop: 0.2 });
-  kit.at(body, wingL, -0.14, 0, -0.02, { rx: -0.1, ry: 0.3, sx: -1 });
+  const wingR = kit.wing(0.08, skin, { style: 'membrane', bones: 2, width: 0.07, droop: 0.2 });
+  kit.at(body, wingR, 0.1, 0.01, -0.02, { rx: -0.1, ry: -0.3 });
+  const wingL = kit.wing(0.08, skin, { style: 'membrane', bones: 2, width: 0.07, droop: 0.2 });
+  kit.at(body, wingL, -0.1, 0.01, -0.02, { rx: -0.1, ry: 0.3, sx: -1 });
 
   const tail = kit.at(body, kit.tailChain(3, skin, { segLen: 0.045, startR: 0.016, endR: 0.006 }), 0, -0.01, -0.14);
 

@@ -22,7 +22,7 @@ export function build_finnet(kit = kitDefault) {
 
   const root = new THREE.Group();
 
-  const body = kit.blob(0.11, skin, { seed: 80, noise: 0.06, squash: { x: 0.62, y: 0.72, z: 1.5 } });
+  const body = kit.blob(0.11, skin, { seed: 80, noise: 0.06, squash: { x: 0.68, y: 0.8, z: 1.15 } });
   root.add(body);
   body.position.y = 0.13;
 
@@ -44,9 +44,12 @@ export function build_finnet(kit = kitDefault) {
   const pecR = kit.at(body, kit.fin(0.07, finTeal), -0.06, -0.01, 0.05, { rx: -0.15, ry: -0.9 });
   const ventral = kit.at(body, kit.fin(0.06, finBlue), 0, -0.07, -0.02, { rx: 1.3, ry: Math.PI });
 
-  // Long flowing tail fin — the koi's signature flourish.
-  const tail = kit.at(body, kit.tailChain(4, skin, { segLen: 0.04, startR: 0.05, endR: 0.015 }), 0, 0, -0.15);
-  const tailFin = kit.at(tail.pivots[tail.pivots.length - 1], kit.fin(0.15, finBlue), 0, 0, -0.03, { ry: Math.PI / 2, s: 1.3 });
+  // Flowing tail fin — the koi's signature flourish, kept modest so the
+  // model's length:height ratio doesn't balloon once registry.js rescales
+  // the whole body uniformly to match SPECIES.finnet.size against measured
+  // bbox HEIGHT (a small ornamental koi should stay small end-to-end).
+  const tail = kit.at(body, kit.tailChain(3, skin, { segLen: 0.028, startR: 0.045, endR: 0.014 }), 0, 0, -0.1);
+  const tailFin = kit.at(tail.pivots[tail.pivots.length - 1], kit.fin(0.08, finBlue), 0, 0, -0.02, { ry: Math.PI / 2 });
 
   const spark = kit.heartspark(0.028, pal.eye, { seed: 81 });
   kit.at(body, spark, 0, 0, 0.08);

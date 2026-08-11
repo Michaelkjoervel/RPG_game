@@ -20,9 +20,9 @@ function echoRings(kit, wingBone, count, seed) {
   const rngPhase = (seed * 0.618) % 1;
   for (let i = 0; i < count; i++) {
     const m = kit.mat(0xcfe0ff, { unlit: true, transparent: true, opacity: 0, side: THREE.DoubleSide });
-    const ring = new THREE.Mesh(new THREE.RingGeometry(0.02, 0.028, 16), m);
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.014, 0.02, 16), m);
     ring.rotation.x = -Math.PI / 2;
-    ring.position.set(0.06 + i * 0.05, 0, 0);
+    ring.position.set(0.03 + i * 0.025, 0, 0);
     group.add(ring);
     rings.push(ring);
   }
@@ -63,9 +63,9 @@ export function build_reverbane(kit = kitDefault) {
   const earR = kit.at(head, kit.petal(0.1, fur, { width: 0.06 }), -0.04, 0.06, -0.02, { rx: -0.25, ry: 0.3, rz: -0.4 });
   kit.at(earR, kit.petal(0.07, earInner, { width: 0.042 }), 0, 0.008, 0.01);
 
-  const wingR = kit.wing(0.4, membrane, { style: 'membrane', bones: 3, width: 0.24, droop: 0.14 });
+  const wingR = kit.wing(0.2, membrane, { style: 'membrane', bones: 3, width: 0.14, droop: 0.14 });
   kit.at(body, wingR, 0.07, 0.03, 0, { rx: -0.1, ry: -0.16 });
-  const wingL = kit.wing(0.4, membrane, { style: 'membrane', bones: 3, width: 0.24, droop: 0.14 });
+  const wingL = kit.wing(0.2, membrane, { style: 'membrane', bones: 3, width: 0.14, droop: 0.14 });
   kit.at(body, wingL, -0.07, 0.03, 0, { rx: -0.1, ry: 0.16, sx: -1 });
 
   // Echo-rings, anchored to each wing's mid-bone, rippling outward toward the tip.

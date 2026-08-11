@@ -11,6 +11,14 @@
 // shardlight cracks, borrowed here as an intentional signature feature
 // rather than a damage state — that flash bright on a burst-driven pulse
 // timed to a slow inner thunder rhythm.
+//
+// PROPORTION NOTE: registry.js rescales the whole model uniformly by
+// (SPECIES.stratovane.size / measured bbox HEIGHT). A manta silhouette is
+// naturally wide, so both the body squash and wing span are kept
+// deliberately modest (raw width:height held under ~3:1) — an early,
+// wider-flying draft of this model measured over 11:1 and rescaled into an
+// absurd ~23m wingspan at this species' size, which is exactly the trap
+// this note exists to flag for the other four long/horizontal species too.
 
 import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
@@ -44,33 +52,33 @@ export function build_stratovane(kit = kitDefault) {
   const root = new THREE.Group();
 
   // Layered storm-cloud body: several overlapping puffs, not one smooth blob.
-  const body = kit.blob(0.24, cloud, { seed: 110, noise: 0.2, squash: { x: 1.7, y: 0.5, z: 1.35 } });
+  const body = kit.blob(0.22, cloud, { seed: 110, noise: 0.2, squash: { x: 1.2, y: 0.62, z: 1.2 } });
   root.add(body);
   body.position.y = 0.42;
-  const puffSpots = [[0.16, 0.04, 0.06, 0.13], [-0.16, 0.04, 0.06, 0.13], [0, 0.08, -0.1, 0.15], [0.24, -0.02, -0.02, 0.09], [-0.24, -0.02, -0.02, 0.09]];
+  const puffSpots = [[0.1, 0.04, 0.05, 0.1], [-0.1, 0.04, 0.05, 0.1], [0, 0.08, -0.08, 0.12], [0.14, -0.02, -0.01, 0.07], [-0.14, -0.02, -0.01, 0.07]];
   const puffs = puffSpots.map(([x, y, z, r]) => kit.at(body, kit.blob(r, cloudLight, { seed: 111 + x * 10, noise: 0.25, squash: { x: 1.1, y: 0.6, z: 1 } }), x, y, z));
 
-  const eyeL = kit.at(body, kit.eye(0.04, { irisColor: 0xffe94f, scleraColor: 0x1c1e26, skinColor: 0x4a4e5c, glintSize: 0.015 }), 0.07, 0.02, 0.19, { ry: 0.3 });
-  const eyeR = kit.at(body, kit.eye(0.04, { irisColor: 0xffe94f, scleraColor: 0x1c1e26, skinColor: 0x4a4e5c, glintSize: 0.015 }), -0.07, 0.02, 0.19, { ry: -0.3 });
+  const eyeL = kit.at(body, kit.eye(0.04, { irisColor: 0xffe94f, scleraColor: 0x1c1e26, skinColor: 0x4a4e5c, glintSize: 0.015 }), 0.06, 0.02, 0.16, { ry: 0.3 });
+  const eyeR = kit.at(body, kit.eye(0.04, { irisColor: 0xffe94f, scleraColor: 0x1c1e26, skinColor: 0x4a4e5c, glintSize: 0.015 }), -0.06, 0.02, 0.16, { ry: -0.3 });
 
-  // Wide manta wings.
-  const wingR = kit.wing(0.55, wingMat, { style: 'membrane', bones: 3, width: 0.34, droop: 0.1 });
-  kit.at(body, wingR, 0.2, 0.02, -0.03, { rx: -0.08, ry: -0.12 });
-  const wingL = kit.wing(0.55, wingMat, { style: 'membrane', bones: 3, width: 0.34, droop: 0.1 });
-  kit.at(body, wingL, -0.2, 0.02, -0.03, { rx: -0.08, ry: 0.12, sx: -1 });
+  // Manta wings — swept wide but kept in proportion (see PROPORTION NOTE above).
+  const wingR = kit.wing(0.19, wingMat, { style: 'membrane', bones: 3, width: 0.14, droop: 0.1 });
+  kit.at(body, wingR, 0.11, 0.02, -0.02, { rx: -0.08, ry: -0.12 });
+  const wingL = kit.wing(0.19, wingMat, { style: 'membrane', bones: 3, width: 0.14, droop: 0.1 });
+  kit.at(body, wingL, -0.11, 0.02, -0.02, { rx: -0.08, ry: 0.12, sx: -1 });
 
   // Lightning veins across each wing — jagged emissive strips.
-  const veinR1 = lightningVein(kit, 0.3, 5, 200);
-  kit.at(wingR.bones[1], veinR1, 0.03, 0.08, 0.01, { ry: 1.2 });
-  const veinR2 = lightningVein(kit, 0.22, 4, 201);
-  kit.at(wingR.bones[2], veinR2, 0.02, 0.05, 0.01, { ry: 1.2 });
-  const veinL1 = lightningVein(kit, 0.3, 5, 202);
-  kit.at(wingL.bones[1], veinL1, -0.03, 0.08, 0.01, { ry: -1.2, sx: -1 });
-  const veinL2 = lightningVein(kit, 0.22, 4, 203);
-  kit.at(wingL.bones[2], veinL2, -0.02, 0.05, 0.01, { ry: -1.2, sx: -1 });
+  const veinR1 = lightningVein(kit, 0.15, 5, 200);
+  kit.at(wingR.bones[1], veinR1, 0.015, 0.04, 0.01, { ry: 1.2 });
+  const veinR2 = lightningVein(kit, 0.11, 4, 201);
+  kit.at(wingR.bones[2], veinR2, 0.01, 0.025, 0.01, { ry: 1.2 });
+  const veinL1 = lightningVein(kit, 0.15, 5, 202);
+  kit.at(wingL.bones[1], veinL1, -0.015, 0.04, 0.01, { ry: -1.2, sx: -1 });
+  const veinL2 = lightningVein(kit, 0.11, 4, 203);
+  kit.at(wingL.bones[2], veinL2, -0.01, 0.025, 0.01, { ry: -1.2, sx: -1 });
   const veins = [veinR1, veinR2, veinL1, veinL2];
 
-  const tail = kit.at(body, kit.tailChain(4, cloud, { segLen: 0.11, startR: 0.06, endR: 0.014 }), 0, -0.02, -0.22);
+  const tail = kit.at(body, kit.tailChain(4, cloud, { segLen: 0.06, startR: 0.045, endR: 0.012 }), 0, -0.02, -0.16);
 
   // Thunder-on-wingbeat: a slow pulse that flashes every vein bright, timed
   // roughly to a heavy wingbeat, then fades — visible thunder.

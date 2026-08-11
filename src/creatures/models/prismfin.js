@@ -12,8 +12,8 @@
 // because this is one of the five long/horizontal-bodied species flagged
 // for extra proportion care — registry.js rescales the whole model
 // uniformly to match SPECIES.prismfin.size against measured bbox HEIGHT, so
-// a tall fin fan keeps the final body length from ballooning. Authored
-// length:height ratio here is ~1.7:1, comfortably shy of tidelorn's ~3:1.
+// a tall fin fan (and a deliberately short tail) keeps the final body
+// length from ballooning.
 
 import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
@@ -40,7 +40,7 @@ export function build_prismfin(kit = kitDefault) {
 
   const root = new THREE.Group();
 
-  const body = kit.blob(0.16, skin, { seed: 82, noise: 0.06, squash: { x: 0.6, y: 0.72, z: 1.55 } });
+  const body = kit.blob(0.16, skin, { seed: 82, noise: 0.06, squash: { x: 0.66, y: 0.8, z: 1.2 } });
   root.add(body);
   body.position.y = 0.2;
 
@@ -63,9 +63,9 @@ export function build_prismfin(kit = kitDefault) {
   const pecR = auroraFin(kit, 0.13, { width: 0.09 });
   kit.at(body, pecR, -0.09, -0.01, 0.08, { rx: -0.15, ry: -0.9 });
 
-  const tail = kit.at(body, kit.tailChain(5, skin, { segLen: 0.05, startR: 0.07, endR: 0.018 }), 0, 0, -0.22);
-  const tailFin = auroraFin(kit, 0.26, { width: 0.2 });
-  kit.at(tail.pivots[tail.pivots.length - 1], tailFin, 0, 0, -0.04, { ry: Math.PI / 2 });
+  const tail = kit.at(body, kit.tailChain(3, skin, { segLen: 0.032, startR: 0.065, endR: 0.017 }), 0, 0, -0.13);
+  const tailFin = auroraFin(kit, 0.15, { width: 0.12 });
+  kit.at(tail.pivots[tail.pivots.length - 1], tailFin, 0, 0, -0.025, { ry: Math.PI / 2 });
 
   // Trailing aurora shimmer — a loose ribbon of drifting color motes.
   const auroraGlow = kit.mote(12, { color: 0x9fc8ff, size: 0.02, radius: 0.3, height: 0.22, speed: 0.3, seed: 83 });
