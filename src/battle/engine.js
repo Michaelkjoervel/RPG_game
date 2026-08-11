@@ -345,7 +345,12 @@ export class BattleEngine {
     const idx = side === 'p' ? this.pActiveIdx : this.eActiveIdx;
     return team[idx] ?? null;
   }
-  _traitOf(combatant) { return TRAITS?.[combatant?.mon?.trait] ?? null; }
+  // trait/burst are SPECIES-level fields (SPECIES[id].trait / .burst), not
+  // part of the creature instance schema — resolve through the species.
+  _traitOf(combatant) {
+    const traitId = SPECIES?.[combatant?.mon?.speciesId]?.trait;
+    return TRAITS?.[traitId] ?? null;
+  }
   _checkEnd() {
     if (this._ended) return;
     const pAlive = this.pTeam.some((c) => !c.fainted);
@@ -392,7 +397,7 @@ export class BattleEngine {
     return (combatant.mon.moves ?? []).map((id) => ({ id, def: ABILITIES?.[id] ? { id, ...ABILITIES[id] } : null }));
   }
   _burstEntry(combatant) {
-    const id = combatant.mon.burst;
+    const id = SPECIES?.[combatant.mon.speciesId]?.burst;
     if (!id) return null;
     const raw = BURSTS?.[id];
     if (!raw) return null;
@@ -487,7 +492,8 @@ export class BattleEngine {
     }
     const entry = this._burstEntry(combatant);
     if (!entry) {
-      warnOnce('burst-missing:' + combatant.mon.burst, `[engine] burst id "${combatant.mon.burst}" not found in BURSTS — using Struggle instead`);
+      const burstId = SPECIES?.[combatant.mon.speciesId]?.burst;
+      warnOnce('burst-missing:' + burstId, `[engine] burst id "${burstId}" not found in BURSTS — using Struggle instead`);
       return lookupMove(null);
     }
     return entry.def;

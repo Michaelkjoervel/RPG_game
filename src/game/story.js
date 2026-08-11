@@ -419,8 +419,8 @@ export async function startNewGame(gameRef) {
   } catch (e) { console.error('[story] could not create the starter (game/creatures.js not ready?)', e); }
   markCodex(speciesId, 'caught');
 
-  gainItem('woven_charm', 5);
-  gainItem('tonic', 3);
+  // resetState() already seeds the starting bag with 5 woven_charm + 3 tonic (core/state.js) —
+  // that IS the "gift items" beat; only the Codex itself (a key item, not part of that default) is ours to grant.
   gainItem('kindred_codex', 1);
 
   await say('dlg_intro_2');

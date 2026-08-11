@@ -11,7 +11,7 @@
 // onWin flags on story-quests' own NPCs, or scripted STORY_TRIGGERS scenes. The one exception
 // is sq_ferry, which happily lines up with a chest zone-content already placed
 // (`gc_chest_ferrygear` in src/data/zones/gloamcavern.js) — confirmed by inspection.
-import { gainGlim, gainItem, spendItem } from '../core/state.js';
+import { gainGlim, gainItem, spendItem, setFlag } from '../core/state.js';
 import { bus } from '../core/events.js';
 
 const notify = (text, icon) => bus.emit('notify', { text, icon });
@@ -94,9 +94,13 @@ export const QUESTS = {
   },
   sq_lantern: {
     id: 'sq_lantern', name: "Lanternkeeper's Oil",
-    steps: [{ text: 'Buy Lantern Oil from Pip and bring it to Lanternkeeper Ode.', isDone: (G) => !!G.flags.lantern_lit }],
+    steps: [{ text: 'Buy Lantern Oil from Pip and bring it to Lanternkeeper Ode.', isDone: (G) => !!G.flags.lantern_lit || (G.bag.lantern_oil ?? 0) >= 1 }],
     rewards: { glim: 70, items: [{ id: 'super_tonic', qty: 1 }] },
-    onComplete: (G) => { gainGlim(70); gainItem('super_tonic', 1); notify('Ode\'s lantern burns steady again.', '✦'); },
+    onComplete: (G) => {
+      if ((G.bag.lantern_oil ?? 0) >= 1) spendItem('lantern_oil', 1);
+      setFlag('lantern_lit');
+      gainGlim(70); gainItem('super_tonic', 1); notify('Ode\'s lantern burns steady again.', '✦');
+    },
   },
   sq_ferry: {
     id: 'sq_ferry', name: "Juno's Ferry",

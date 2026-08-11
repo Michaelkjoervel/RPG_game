@@ -15,9 +15,21 @@
 // `shrine_stone` PROP (props.js already renders the monument) — so this
 // module deliberately draws only a light ground-rune + glow for shrines,
 // never a duplicate monolith.
+//
+// EXTENSION beyond the pinned vocabulary — 'pedestal' | 'valve' | 'dais':
+// the zone-content agent placed gloamcavern's light-puzzle pedestals and
+// sunkenruins' water-stair valves + Sancturne's trial dais as interactables
+// with these kinds ({kind, at, flag}), and flagged in its own file comments
+// that they need "a renderer + story.js hookup". The renderer is squarely
+// this module's job, so pedestal/valve get a simple, safe primitive: interact
+// toggles G.flags[flag] with matching on/off visuals + sfx, which is exactly
+// the raw signal a STORY_TRIGGERS-style puzzle checker needs to build on.
+// 'dais' is a one-shot flag set (like a chest) marking the trial as entered —
+// actually starting the Sancturne boss battle is still story.js's job (e.g.
+// reacting to the flag via onZoneEnter or a 'flag:set' listener).
 import * as THREE from 'three';
 import { bus } from '../core/events.js';
-import { G, setFlag, gainItem } from '../core/state.js';
+import { G, setFlag, hasFlag, gainItem } from '../core/state.js';
 import { clamp01, TAU } from '../core/math.js';
 import { tween } from '../core/tween.js';
 import { Particles } from '../gfx/particles.js';
@@ -25,7 +37,10 @@ import { Particles } from '../gfx/particles.js';
 const INTERACT_RADIUS = 2.5;
 const GOLD = 0xffe9b0;
 
-const PROMPT_TEXT = { chest: 'Open chest', shard: 'Read the shard', shrine: 'Rest at the shrine', sparkle: 'Search here' };
+const PROMPT_TEXT = {
+  chest: 'Open chest', shard: 'Read the shard', shrine: 'Rest at the shrine', sparkle: 'Search here',
+  pedestal: 'Touch the pedestal', valve: 'Turn the valve', dais: 'Step onto the dais',
+};
 
 const warned = new Set();
 const warnOnce = (msg) => { if (!warned.has(msg)) { warned.add(msg); console.warn('[interactables]', msg); } };
@@ -162,28 +177,92 @@ export function createInteractables(zone, world) {
     return g;
   }
 
+  function buildPedestal(rec) {
+    const g = new THREE.Group();
+    g.name = `pedestal:${rec.flag ?? ''}`;
+    const stoneMat = M('pedestal_stone', 0x8d8a84, { rough: 0.85 });
+    const runeMat = M('pedestal_rune', 0x9fe8ff, { emissive: 0x9fe8ff, ei: 0.15, rough: 0.35 });
+    const base = new THREE.Mesh(geo('pedestal_base', () => new THREE.CylinderGeometry(0.26, 0.32, 0.5, 8)), stoneMat);
+    base.position.y = 0.25;
+    base.castShadow = true; base.receiveShadow = true;
+    g.add(base);
+    const gem = new THREE.Mesh(geo('pedestal_gem', () => new THREE.OctahedronGeometry(0.15, 0)), runeMat);
+    gem.position.y = 0.58;
+    g.add(gem);
+    const light = new THREE.PointLight(0x9fe8ff, 0, 4, 2);
+    light.position.y = 0.6;
+    g.add(light);
+    g.userData.gem = gem;
+    g.userData.light = light;
+    return g;
+  }
+
+  function buildValve(rec) {
+    const g = new THREE.Group();
+    g.name = `valve:${rec.flag ?? ''}`;
+    const pipeMat = M('valve_pipe', 0x5c5860, { rough: 0.7, metal: 0.3 });
+    const wheelMat = M('valve_wheel', 0x8a6a48, { rough: 0.6, metal: 0.2 });
+    const stub = new THREE.Mesh(geo('valve_stub', () => new THREE.CylinderGeometry(0.09, 0.09, 0.5, 8)), pipeMat);
+    stub.rotation.z = Math.PI / 2;
+    stub.position.y = 0.5;
+    stub.castShadow = true;
+    g.add(stub);
+    const wheelGroup = new THREE.Group();
+    wheelGroup.position.set(0.28, 0.5, 0);
+    const wheel = new THREE.Mesh(geo('valve_wheel_ring', () => new THREE.TorusGeometry(0.16, 0.025, 6, 12)), wheelMat);
+    wheelGroup.add(wheel);
+    for (let i = 0; i < 4; i++) {
+      const spoke = new THREE.Mesh(geo('valve_spoke', () => new THREE.BoxGeometry(0.03, 0.03, 0.3)), wheelMat);
+      spoke.rotation.z = (i / 4) * Math.PI;
+      wheelGroup.add(spoke);
+    }
+    g.add(wheelGroup);
+    g.userData.wheel = wheelGroup;
+    return g;
+  }
+
+  function buildDais(rec) {
+    const g = new THREE.Group();
+    g.name = `dais:${rec.flag ?? ''}`;
+    const ring = new THREE.Mesh(geo('dais_ring', () => new THREE.PlaneGeometry(4.2, 4.2)), softDiscMaterial(0xdcc8ff, 0.5));
+    disposables.push({ mat: ring.material });
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.04;
+    g.add(ring);
+    const stepMat = M('dais_step', 0x8d8a94, { rough: 0.8 });
+    const step = new THREE.Mesh(geo('dais_step_ring', () => new THREE.CylinderGeometry(1.9, 2.1, 0.18, 16)), stepMat);
+    step.position.y = 0.09;
+    step.receiveShadow = true;
+    g.add(step);
+    const light = new THREE.PointLight(0xdcc8ff, 0.6, 7, 2);
+    light.position.y = 1.2;
+    g.add(light);
+    g.userData.ring = ring;
+    g.userData.light = light;
+    return g;
+  }
+
   // ---------------------------------------------------------------- load
+  const BUILDERS = { chest: buildChest, shard: buildShard, shrine: buildShrineGlow, sparkle: buildSparkle, pedestal: buildPedestal, valve: buildValve, dais: buildDais };
   for (const entry of (zone.interactables ?? [])) {
-    if (!PROMPT_TEXT[entry.kind]) { warnOnce(`unknown interactable kind "${entry.kind}" — skipped`); continue; }
+    const builder = BUILDERS[entry.kind];
+    if (!builder) { warnOnce(`unknown interactable kind "${entry.kind}" — skipped`); continue; }
     const [x, z] = entry.at ?? [0, 0];
     const y = heightAt(x, z);
     const rec = {
       kind: entry.kind, x, z, y, flag: entry.flag ?? null,
       item: entry.item ?? null, qty: entry.qty ?? 1,
       dialogueId: entry.dialogue ?? entry.flag ?? entry.id ?? null,
-      consumed: false, group: null, cooldown: 0,
+      consumed: false, active: false, group: null, cooldown: 0,
     };
-    if (rec.flag && G.flags[rec.flag]) rec.consumed = true; // chests/sparkles already claimed persist across reloads
+    if (rec.flag && G.flags[rec.flag]) { rec.consumed = true; rec.active = true; } // persist across reloads
 
-    let group;
-    if (entry.kind === 'chest') group = buildChest(rec);
-    else if (entry.kind === 'shard') group = buildShard(rec);
-    else if (entry.kind === 'shrine') group = buildShrineGlow(rec);
-    else group = buildSparkle(rec);
-
+    const group = builder(rec);
     group.position.set(x, y, z);
-    if (rec.consumed && entry.kind === 'chest') group.userData.lid.rotation.x = -Math.PI * 0.62;
-    if (rec.consumed && (entry.kind === 'sparkle')) group.visible = false;
+    if (entry.kind === 'chest' && rec.consumed) group.userData.lid.rotation.x = -Math.PI * 0.62;
+    if (entry.kind === 'sparkle' && rec.consumed) group.visible = false;
+    if (entry.kind === 'pedestal' && rec.active) group.userData.gem.material.emissiveIntensity = 1.1;
+    if (entry.kind === 'valve' && rec.active) group.userData.wheel.rotation.x = Math.PI * 0.6;
     scene.add(group);
     rec.group = group;
     records.push(rec);
@@ -253,13 +332,43 @@ export function createInteractables(zone, world) {
     tween({ from: 1, to: 0, dur: 0.35, onUpdate: (v) => { g.scale.setScalar(Math.max(0.001, v)); }, onDone: () => { g.visible = false; } });
   }
 
-  const ACTIONS = { chest: openChest, shard: readShard, shrine: restAtShrine, sparkle: collectSparkle };
+  function togglePedestal(rec) {
+    if (rec.cooldown > 0) return;
+    rec.cooldown = 0.4;
+    rec.active = !rec.active;
+    if (rec.flag) setFlag(rec.flag, rec.active);
+    bus.emit('ui:sfx', { name: 'light' });
+    fx.emitBurst({ at: { x: rec.x, y: rec.y + 0.58, z: rec.z }, count: 10, color: 0x9fe8ff, size: 0.06, life: 0.45, speed: 1.1, up: 0.8 });
+    bus.emit('notify', { text: rec.active ? 'The pedestal glows to life.' : 'The pedestal dims.', icon: rec.active ? '✦' : '·' });
+  }
+
+  function toggleValve(rec) {
+    if (rec.cooldown > 0) return;
+    rec.cooldown = 0.5;
+    rec.active = !rec.active;
+    if (rec.flag) setFlag(rec.flag, rec.active);
+    bus.emit('ui:sfx', { name: 'door' });
+    tween({ from: rec.active ? 0 : Math.PI * 0.6, to: rec.active ? Math.PI * 0.6 : 0, dur: 0.5, onUpdate: (v) => { rec.group.userData.wheel.rotation.x = v; } });
+    bus.emit('notify', { text: rec.active ? 'The valve groans open — water shifts somewhere below.' : 'The valve creaks shut.', icon: '⚙' });
+  }
+
+  function enterDais(rec) {
+    if (rec.consumed) return;
+    rec.consumed = true;
+    if (rec.flag) setFlag(rec.flag, true);
+    bus.emit('ui:sfx', { name: 'shrine_heal' });
+    fx.emitRing({ at: { x: rec.x, y: rec.y + 0.1, z: rec.z }, radius: 0.4, count: 36, color: 0xdcc8ff, life: 0.9, speed: 3.5, size: 0.08 });
+    bus.emit('notify', { text: 'The dais hums, awaiting a challenger...', icon: '✦' });
+  }
+
+  const ACTIONS = { chest: openChest, shard: readShard, shrine: restAtShrine, sparkle: collectSparkle, pedestal: togglePedestal, valve: toggleValve, dais: enterDais };
+  const ALWAYS_AVAILABLE = new Set(['shrine', 'pedestal', 'valve']); // never gated by a one-shot "consumed" flag
 
   // ---------------------------------------------------------------- query helpers
   function findNearest(playerPos) {
     let best = null, bestD2 = INTERACT_RADIUS * INTERACT_RADIUS;
     for (const rec of records) {
-      if (rec.kind !== 'shrine' && rec.consumed) continue;
+      if (!ALWAYS_AVAILABLE.has(rec.kind) && rec.consumed) continue;
       const dx = playerPos.x - rec.x, dz = playerPos.z - rec.z;
       const d2 = dx * dx + dz * dz;
       if (d2 < bestD2) { bestD2 = d2; best = rec; }
@@ -292,6 +401,15 @@ export function createInteractables(zone, world) {
           g.userData.emitAcc -= 1;
           fx.emitFountain({ at: { x: rec.x, y: rec.y, z: rec.z }, count: 1, color: GOLD, size: 0.05, life: 0.7, speed: 0.35, spread: 0.12, gravity: 0.2 });
         }
+      } else if (rec.kind === 'pedestal') {
+        const target = rec.active ? 1.1 : 0;
+        g.userData.gem.material.emissiveIntensity += (target - g.userData.gem.material.emissiveIntensity) * Math.min(1, dt * 5);
+        g.userData.light.intensity = rec.active ? 0.7 + Math.sin(T * 2.2 + rec.x) * 0.2 : 0;
+        g.userData.gem.rotation.y += dt * (rec.active ? 1.4 : 0.4);
+      } else if (rec.kind === 'dais' && !rec.consumed) {
+        g.userData.ring.material.uniforms.uAlpha.value = 0.45 + Math.sin(T * 0.6) * 0.15;
+        g.userData.ring.rotation.z += dt * 0.06;
+        g.userData.light.intensity = 0.55 + Math.sin(T * 1.1) * 0.15;
       }
     }
   }
@@ -306,6 +424,8 @@ export function createInteractables(zone, world) {
   function nearestPrompt(playerPos) {
     const rec = findNearest(playerPos);
     if (!rec) return null;
+    if (rec.kind === 'pedestal') return { text: rec.active ? 'Dim the pedestal' : 'Light the pedestal' };
+    if (rec.kind === 'valve') return { text: rec.active ? 'Shut the valve' : 'Turn the valve' };
     return { text: PROMPT_TEXT[rec.kind] };
   }
 
