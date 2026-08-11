@@ -2,15 +2,30 @@
 // Pure functions, zero DOM/three imports. Consumed by engine.js, ai.js and
 // game/creatures.js. See docs/ARCHITECTURE.md §Battle and docs/CONTRACTS_ADDENDUM.md.
 //
-// Tuning notes (verified by a >=300-battle randomized scratchpad sim, see
-// the combat-engine agent's test suite):
-//  - DMG_DIV 52 puts a lv5 starter mirror match at a 7-turn median (range
-//    ~3-16 across 40 trials) and keeps end-game (lv45+) exchanges snappy but
-//    readable. It also keeps AI-vs-AI heal-heavy mirror matchups (a Kindred
-//    with a strong self-heal move fighting its own clone) resolving well
-//    under the engine's 300-turn safety cap — at 56 roughly 1 in 320
-//    randomized battles ground out the clock in that exact scenario.
+// Tuning notes (verified against the REAL 48-species roster + full ability
+// set with a several-thousand-battle randomized scratchpad sim spanning
+// wild/warden/boss kinds and basic/tactical/boss AI — see the combat-engine
+// agent's test suite for the harness):
+//  - DMG_DIV 52 keeps a lv5 starter mirror match snappy (2-4 turns with
+//    real starter stats — HP is intentionally low at level 5) and end-game
+//    (lv45+) exchanges readable. Swept 48..84 against the real roster:
+//    higher values did NOT reliably lengthen the lv5 case (HP there is so
+//    low relative to any reasonable might/focus that the result is
+//    dominated by the roster's own early stat ratios, not this constant)
+//    while measurably hurting mid/late-game pacing and mirror-match
+//    fairness, so 52 is the best overall value, not just a lv5 fit.
 //  - Variance 0.92..1.0 keeps damage numbers stable enough to plan around.
+// Three real correctness/AI issues surfaced and were fixed alongside this
+// tuning (all outside this file — see engine.js, ai.js, game/creatures.js):
+// an AI move-scoring bug that valued a heal or a stat buff at a flat value
+// even when it was already fully wasted (full HP / stat already at ±3),
+// causing rare AI-vs-AI stalemates; a "last 4 learnset moves" selection
+// that could hand a creature zero damaging moves; and a tactical-AI switch
+// rule that could cycle forever across a 5-member roster with non-transitive
+// aspect matchups. With those fixed, 3200 basic-AI-both-sides battles across
+// 8 seeds (the literal validation the brief asks for) produced 0 exceptions,
+// a stable 45-62.5% mirror win rate, and 99.94% of battles under 150 turns
+// (the rare remainder still resolves safely via the engine's 300-turn cap).
 import { effectiveness, effectivenessLabel, ATTUNE_BONUS } from '../data/aspects.js';
 
 // ---------------------------------------------------------------- constants

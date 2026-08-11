@@ -1,0 +1,72 @@
+// =============================================================================
+// SHARDLING — Terra/Lumen, stage 1, uncommon.
+// "Crystal spiderling, translucent gem abdomen refracting light. Collector."
+// (Design Bible §4)
+// =============================================================================
+// A small six-legged crawler built around one glowing focal point: a
+// faceted gem abdomen (kit.crystal) that IS its collector's-eye centerpiece.
+// Six thin `kit.leg()` limbs fan out radially from a stone-toned thorax —
+// legN>=4 resolves the animator to 'quad' locomotion, which reads fine as a
+// scuttling gait for a small many-legged creature. Kept low, wary, and
+// glinting.
+
+import * as THREE from 'three';
+import * as kitDefault from '../kit.js';
+
+export function build_shardling(kit = kitDefault) {
+  const pal = kit.palette(['terra', 'lumen']);
+  const stone = kit.mat(0x8a7a5c, { rough: 0.6 });
+  const gemMat = kit.mat(0xdcd0a8, { rough: 0.15, metal: 0.1, transparent: true, opacity: 0.82 });
+
+  const root = new THREE.Group();
+
+  const thorax = kit.blob(0.07, stone, { seed: 60, noise: 0.1, squash: { x: 1, y: 0.85, z: 1.05 } });
+  root.add(thorax);
+  thorax.position.y = 0.09;
+
+  // Translucent gem abdomen, trailing behind the thorax — the collector's
+  // prize, refracting a faint scatter of light of its own.
+  const abdomen = kit.crystal(0.065, gemMat, { coreColor: pal.eye, detail: 0 });
+  kit.at(thorax, abdomen, 0, 0.02, -0.075, { s: 1 });
+
+  const head = kit.at(thorax, kit.orb(0.036, stone, { sz: 1.1, sy: 0.85 }), 0, 0.01, 0.075);
+  const eyeL = kit.at(head, kit.eye(0.014, { irisColor: 0xffe9b0, skinColor: 0x8a7a5c, glintSize: 0.006 }), 0.024, 0.006, 0.03, { ry: 0.4 });
+  const eyeR = kit.at(head, kit.eye(0.014, { irisColor: 0xffe9b0, skinColor: 0x8a7a5c, glintSize: 0.006 }), -0.024, 0.006, 0.03, { ry: -0.4 });
+  const eyeL2 = kit.at(head, kit.eye(0.009, { irisColor: 0xffe9b0, skinColor: 0x8a7a5c, glintSize: 0.004 }), 0.02, 0.017, 0.028, { ry: 0.4 });
+  const eyeR2 = kit.at(head, kit.eye(0.009, { irisColor: 0xffe9b0, skinColor: 0x8a7a5c, glintSize: 0.004 }), -0.02, 0.017, 0.028, { ry: -0.4 });
+
+  // Small crystalline mandible spikes.
+  kit.at(head, kit.cone(0.008, 0.024, gemMat, { segments: 4 }), 0.018, -0.015, 0.032, { rx: -0.5, rz: 0.2 });
+  kit.at(head, kit.cone(0.008, 0.024, gemMat, { segments: 4 }), -0.018, -0.015, 0.032, { rx: -0.5, rz: -0.2 });
+
+  // Six thin legs fanned radially — three pairs along the thorax.
+  const legSpots = [
+    { x: 0.06, z: 0.05, ry: 0.55 }, { x: -0.06, z: 0.05, ry: -0.55 },
+    { x: 0.075, z: -0.01, ry: 0.95 }, { x: -0.075, z: -0.01, ry: -0.95 },
+    { x: 0.06, z: -0.06, ry: 1.4 }, { x: -0.06, z: -0.06, ry: -1.4 },
+  ];
+  const legs = legSpots.map(({ x, z, ry }) => kit.at(thorax, kit.leg(0.11, stone, { thighR: 0.014, shinR: 0.01, footLen: 0.03 }), x, 0.09, z, { ry }));
+
+  const legParts = legs.map((l) => ({ hip: l.hip, knee: l.knee, foot: l.foot }));
+
+  const spark = kit.heartspark(0.024, pal.eye, { seed: 61 });
+  kit.at(abdomen, spark, 0, 0, 0);
+
+  return {
+    group: kit.groundPlant(root),
+    parts: {
+      body: thorax,
+      head,
+      eyelids: [eyeL.getObjectByName('eyelid'), eyeR.getObjectByName('eyelid'), eyeL2.getObjectByName('eyelid'), eyeR2.getObjectByName('eyelid')],
+      legs: legParts,
+      accents: [abdomen],
+      fx: [spark],
+    },
+    hints: {
+      personality: 'skittish',
+      locomotion: 'quad',
+      breathAmp: 0.8,
+      blinkEvery: 2.6,
+    },
+  };
+}

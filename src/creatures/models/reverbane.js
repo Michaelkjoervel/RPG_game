@@ -13,13 +13,13 @@
 import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
 
-function echoRings(wingBone, count, seed) {
+function echoRings(kit, wingBone, count, seed) {
   const group = new THREE.Group(); group.name = 'echoRings';
   wingBone.add(group);
   const rings = [];
-  const rngPhase = seed * 0.618 % 1;
+  const rngPhase = (seed * 0.618) % 1;
   for (let i = 0; i < count; i++) {
-    const m = kit_ref.mat(0xcfe0ff, { unlit: true, transparent: true, opacity: 0, side: THREE.DoubleSide });
+    const m = kit.mat(0xcfe0ff, { unlit: true, transparent: true, opacity: 0, side: THREE.DoubleSide });
     const ring = new THREE.Mesh(new THREE.RingGeometry(0.02, 0.028, 16), m);
     ring.rotation.x = -Math.PI / 2;
     ring.position.set(0.06 + i * 0.05, 0, 0);
@@ -41,10 +41,7 @@ function echoRings(wingBone, count, seed) {
   return { group, update };
 }
 
-let kit_ref; // set inside build so the helper above can reach kit.mat without threading it through
-
 export function build_reverbane(kit = kitDefault) {
-  kit_ref = kit;
   const pal = kit.palette(['gale', 'umbra']);
   const fur = kit.mat(0x2e2a3e, { rough: 0.4, metal: 0.08 });
   const membrane = kit.mat(0x5c5480, { rough: 0.22, transparent: true, opacity: 0.68, side: THREE.DoubleSide });
@@ -72,8 +69,8 @@ export function build_reverbane(kit = kitDefault) {
   kit.at(body, wingL, -0.07, 0.03, 0, { rx: -0.1, ry: 0.16, sx: -1 });
 
   // Echo-rings, anchored to each wing's mid-bone, rippling outward toward the tip.
-  const ringsR = echoRings(wingR.bones[1], 3, 1);
-  const ringsL = echoRings(wingL.bones[1], 3, 2);
+  const ringsR = echoRings(kit, wingR.bones[1], 3, 1);
+  const ringsL = echoRings(kit, wingL.bones[1], 3, 2);
 
   const tail = kit.at(body, kit.tailChain(3, fur, { segLen: 0.045, startR: 0.026, endR: 0.01 }), 0, 0, -0.08);
 

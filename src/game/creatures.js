@@ -7,6 +7,7 @@ import { bus } from '../core/events.js';
 import { markCodex } from '../core/state.js';
 import { statFor, maxHpFor, RESONANCE_STAT_BONUS_PER_LEVEL } from '../battle/formulas.js';
 import { SPECIES, XP_CURVES } from '../data/creatures.js';
+import { ABILITIES } from '../data/abilities.js';
 
 const MAX_LEVEL = 50;
 const MAX_RESONANCE = 5;
@@ -36,17 +37,44 @@ function makeUid() {
 
 function clampLevel(lv) { return Math.max(1, Math.min(MAX_LEVEL, Math.floor(lv) || 1)); }
 
+// XP_CURVES[growth] is indexed by (level - 1) — data/creatures.js's own
+// convention, documented there as "index 0 = level 1 = 0 xp" — so the
+// threshold TO REACH level N lives at curve[N - 1].
 function xpFloorForLevel(growth, level) {
   const curve = XP_CURVES?.[growth];
-  return curve?.[level] ?? 0;
+  return curve?.[level - 1] ?? 0;
 }
 
 /** Ability ids from a learnset ([level, abilityId][]) known by `level`, last 4. */
+function isDamaging(abilityId) { return (ABILITIES?.[abilityId]?.power ?? 0) > 0; }
+
 function defaultMoves(learnset, level) {
-  return (learnset ?? [])
-    .filter(([lv]) => lv <= level)
-    .slice(-MAX_MOVES)
-    .map(([, id]) => id);
+  const list = learnset ?? [];
+  const eligible = list.filter(([lv]) => lv <= level);
+  let picked = eligible.slice(-MAX_MOVES).map(([, id]) => id);
+  // Defensive: a species spawned below its own learnset's minimum level
+  // (e.g. an evolved-stage species hand-paired with too low a level by
+  // mistake) would otherwise have ZERO moves — unable to act at all, which
+  // can hang a battle forever. Fall back to its earliest known move(s).
+  if (!picked.length && list.length) {
+    picked = list.slice(0, MAX_MOVES).map(([, id]) => id);
+    warnOnce('learnset-too-high:' + list[0][1],
+      `[creatures] level ${level} is below this species' entire learnset — granting its earliest move(s) as a defensive fallback`);
+  }
+  // Guarantee at least one damaging move stays equipped by default. A
+  // learnset can (by design or accident) schedule all of its early attacks
+  // before a run of later status/utility moves, so "last 4 <= level" alone
+  // can hand a creature a moveset with zero offense — unwinnable, and a
+  // real stalemate risk we hit during testing. Swap the least-recent pick
+  // for the most-recent damaging move in the eligible list when that happens.
+  if (picked.length && !picked.some(isDamaging)) {
+    const pool = eligible.length ? eligible : list;
+    for (let i = pool.length - 1; i >= 0; i--) {
+      const id = pool[i][1];
+      if (isDamaging(id)) { picked[0] = id; break; }
+    }
+  }
+  return picked;
 }
 
 /**
@@ -128,7 +156,10 @@ export function addXp(mon, amount) {
     return { levelups, learnable };
   }
   mon.xp = Math.max(0, (mon.xp ?? 0) + Math.max(0, Math.floor(amount) || 0));
-  while (mon.level < MAX_LEVEL && mon.xp >= (curve[mon.level + 1] ?? Infinity)) {
+  // curve[mon.level] === threshold for (mon.level + 1) under the (level-1)
+  // indexing above; the last valid index is 49 (level 50), so this never
+  // reads past the array even at the level cap.
+  while (mon.level < MAX_LEVEL && mon.xp >= (curve[mon.level] ?? Infinity)) {
     mon.level++;
     recalcStats(mon);
     for (const [lv, abilityId] of (species?.learnset ?? [])) {

@@ -61,8 +61,19 @@ function moveScore(entry, view) {
     const chance = clamp01((eff.chance ?? 100) / 100);
     switch (eff.type) {
       case 'statStage': {
-        const mag = Math.abs(eff.stages ?? 1) * 8 * chance;
-        score += eff.target === 'foe' ? mag * 0.85 : mag;
+        // Scale by how much "room" is left before the stage hits its ±3
+        // cap — a maxed-out stat is worth nothing, and must never outscore
+        // attacking (this was the source of a real infinite buff-loop
+        // stalemate during testing: a mirror where 'basic' kept re-casting
+        // an already-capped self-buff forever instead of ever attacking).
+        const stages = eff.stages ?? 1;
+        const targetView = eff.target === 'foe' ? view.foe : view.self;
+        const cur = targetView?.statStages?.[eff.stat] ?? 0;
+        const room = stages > 0 ? Math.max(0, 3 - cur) : Math.max(0, cur - -3);
+        if (room > 0) {
+          const mag = Math.min(Math.abs(stages), room) * 8 * chance;
+          score += eff.target === 'foe' ? mag * 0.85 : mag;
+        }
         break;
       }
       case 'status': score += 18 * chance; break;
@@ -159,10 +170,18 @@ function chooseTactical(view, rng) {
   }
 
   // 3) Switch away from a bad matchup while it still has a healthy bench.
+  // Gated on the CURRENT matchup actually being a losing one (ratio < 1) —
+  // with 5-member rosters, aspect matchups are non-transitive (A beats B
+  // beats C beats A is entirely possible), so "is the bench merely better"
+  // alone can make both sides in a mirror chase each other in an endless
+  // switching circle without either ever landing a hit (a real stalemate we
+  // hit during testing). Only bail out of a matchup that's actually bad.
   if (view.canSwitch && self.hpFrac < 0.6) {
     const ratio = matchupRatio(self.aspects, foe.aspects);
-    const escape = bestSwitchTarget(view);
-    if (escape && escape.ratio > ratio + 0.35) return { type: 'switch', index: escape.index };
+    if (ratio < 1.0) {
+      const escape = bestSwitchTarget(view);
+      if (escape && escape.ratio > ratio + 0.35) return { type: 'switch', index: escape.index };
+    }
   }
 
   // 4) "Predicts obvious super-effective spam": if the foe just leaned on a
