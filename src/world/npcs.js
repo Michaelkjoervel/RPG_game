@@ -31,7 +31,7 @@ import { hashStr, seededRandom } from '../core/rng.js';
 import { windSway } from '../gfx/materials.js';
 
 const INTERACT_RADIUS = 2.3;
-const INTERACT_CONE = Math.cos((100 * Math.PI) / 180); // generous ~100deg talk cone
+const INTERACT_CONE = Math.cos((50 * Math.PI) / 180); // half-angle cutoff -> ~100deg total talk cone
 const FACE_PLAYER_RADIUS = 4.5;
 const GOLD = 0xffe9b0;
 
@@ -105,7 +105,7 @@ function buildHuman(spec) {
   function buildLeg(sx) {
     const leg = new THREE.Group();
     leg.position.set(sx * 0.09 * wide, 0, 0);
-    const m1 = mesh(geo(`leg_${legLen.toFixed(2)}`, () => new THREE.CapsuleGeometry(0.075 * wide, legLen * 0.72, 3, 6)), secondaryM);
+    const m1 = mesh(geo(`leg_${legLen.toFixed(2)}_${wide.toFixed(2)}`, () => new THREE.CapsuleGeometry(0.075 * wide, legLen * 0.72, 3, 6)), secondaryM);
     m1.position.y = -legLen * 0.42;
     leg.add(m1);
     const boot = mesh(geo('npc_boot', () => new THREE.BoxGeometry(0.1, 0.08, 0.2)), hairM, true);
@@ -121,7 +121,7 @@ function buildHuman(spec) {
   const torsoMesh = mesh(geo(`torso_${torsoLen.toFixed(2)}_${wide.toFixed(2)}`, () => new THREE.CapsuleGeometry(0.155 * wide, torsoLen * 0.62, 4, 8)), primaryM);
   torsoMesh.position.y = torsoLen * 0.55;
   torso.add(torsoMesh);
-  const belt = mesh(geo('npc_belt', () => new THREE.CylinderGeometry(0.165 * wide, 0.165 * wide, 0.06, 9)), accentM, false);
+  const belt = mesh(geo(`npc_belt_${wide.toFixed(2)}`, () => new THREE.CylinderGeometry(0.165 * wide, 0.165 * wide, 0.06, 9)), accentM, false);
   belt.position.y = torsoLen * 0.16;
   torso.add(belt);
 
@@ -144,7 +144,6 @@ function buildHuman(spec) {
   torso.add(headGrp);
   const head = mesh(geo(`head_${headR.toFixed(3)}`, () => new THREE.SphereGeometry(headR, 10, 8)), skinM);
   headGrp.add(head);
-  const browM = accentM; // reuse-free thin dark line via hair color instead
   const browL = mesh(geo('npc_brow', () => new THREE.BoxGeometry(0.045, 0.012, 0.012)), hairM, false);
   browL.position.set(-0.032, 0.02, headR * 0.92);
   const browR = browL.clone(); browR.position.x = 0.032;
@@ -196,7 +195,7 @@ function buildHuman(spec) {
   let cape = null;
   if (spec.cape) {
     const capeM = stdMat(spec.cape === true ? spec.secondary : spec.cape, { rough: 1, side: THREE.DoubleSide, sway: 0.5 });
-    cape = mesh(geo(`cape_${torsoLen.toFixed(2)}`, () => new THREE.PlaneGeometry(0.3 * wide, torsoLen * 1.05, 1, 4)), capeM, true);
+    cape = mesh(geo(`cape_${torsoLen.toFixed(2)}_${wide.toFixed(2)}`, () => new THREE.PlaneGeometry(0.3 * wide, torsoLen * 1.05, 1, 4)), capeM, true);
     cape.position.set(0, torsoLen * 0.62, -0.1 * wide);
     cape.rotation.x = 0.15;
     torso.add(cape);
@@ -376,6 +375,7 @@ export function createNpcs(zone, world) {
       turnPhase: 0, turnTarget: 0, walkPhase: Math.random() * TAU,
       breathPhase: Math.random() * TAU, speed: 1.05 + Math.random() * 0.25,
       talkCooldown: 0, hasBattleReady: false,
+      specialExtras: built.special, markerBaseY: spec.height + 0.32,
     };
     records.push(rec);
   }
@@ -498,7 +498,7 @@ export function createNpcs(zone, world) {
     }
 
     // lantern flicker / other special extras
-    for (const ex of rec.def._specialExtras ?? []) {
+    for (const ex of rec.specialExtras ?? []) {
       if (ex.type === 'lantern' && ex.light) ex.light.intensity = 0.75 + Math.sin(performance.now() * 0.006 + ex.node.id) * 0.2;
     }
 
@@ -509,7 +509,7 @@ export function createNpcs(zone, world) {
     if (unfought) {
       const cam = world.camera;
       const mp = rec.marker;
-      mp.position.y = rec.def._markerBaseY + Math.sin(performance.now() * 0.003 + g.position.x) * 0.08;
+      mp.position.y = rec.markerBaseY + Math.sin(performance.now() * 0.003 + g.position.x) * 0.08;
       if (cam) {
         _faceVec.set(cam.position.x - (g.position.x + mp.position.x), 0, cam.position.z - (g.position.z + mp.position.z));
         if (_faceVec.lengthSq() > 1e-6) mp.rotation.y = Math.atan2(_faceVec.x, _faceVec.z) - rec.face;

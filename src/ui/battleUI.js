@@ -299,6 +299,7 @@ export function createBattleUI(ctx = {}) {
     setStage('moves');
     sfx('ui_open');
     const myMode = (panelMode = 'moves');
+    els.movesGrid.innerHTML = '<div class="bui-empty">…</div>';
     const [ABILITIES, SPECIES] = await Promise.all([loadAbilities(), getSpecies()]);
     if (panelMode !== myMode) return; // user backed out mid-load
     const self = view.self || {};
@@ -355,6 +356,7 @@ export function createBattleUI(ctx = {}) {
     els.dock.classList.toggle('force-switch', forced);
     if (!forced) sfx('ui_open');
     const myMode = (panelMode = 'switch');
+    els.switchList.innerHTML = '<div class="bui-empty">…</div>';
     const SPECIES = await getSpecies();
     if (panelMode !== myMode) return;
     const party = view.party || G.party || [];
@@ -395,6 +397,7 @@ export function createBattleUI(ctx = {}) {
     sfx('ui_open');
     setBagTab(section);
     const myMode = (panelMode = 'bag');
+    els.bagList.innerHTML = '<div class="bui-empty">…</div>';
     itemsCache ??= await loadItems();
     if (panelMode !== myMode) return;
     renderBagList(view, section);
@@ -444,6 +447,7 @@ export function createBattleUI(ctx = {}) {
     sfx('ui_open');
     const myMode = (panelMode = 'target');
     els.targetHint.textContent = `Use ${entry.def?.name ?? entry.id} on...`;
+    els.targetList.innerHTML = '<div class="bui-empty">…</div>';
     const SPECIES = await getSpecies();
     if (panelMode !== myMode) return;
     const party = view.party || G.party || [];
@@ -622,7 +626,7 @@ export function createBattleUI(ctx = {}) {
   // ---- damage numbers -------------------------------------------------------
   function showDamage(xPct, yPct, text, kind = 'normal') {
     if (!els?.dmgLayer) return;
-    if (!settings.showDamageNumbers && kind !== 'heal') return;
+    if (!settings.showDamageNumbers) return;
     const el = document.createElement('div');
     el.className = `bui-dmg bui-dmg-${kind}`;
     el.style.left = `${xPct}%`;

@@ -13,6 +13,12 @@
   mix-blend-mode: multiply;
 }
 #hud.battle-dim .hud-vignette { opacity: .55; transition: opacity 400ms ease; }
+/* battleUI (styles/battle.css) owns the screen while a battle runs — hide the
+   overworld chrome that would otherwise sit under/over its plates and dock. */
+#hud.battle-dim .hud-party, #hud.battle-dim .hud-quest, #hud.battle-dim .hud-toasts,
+#hud.battle-dim .hud-prompt, #hud.battle-dim .hud-zone-title {
+  opacity: 0; pointer-events: none; transition: opacity 200ms ease;
+}
 
 .hud-letterbox { position: fixed; inset: 0; z-index: 40; pointer-events: none; }
 .hud-letterbox .lb-top, .hud-letterbox .lb-bot {

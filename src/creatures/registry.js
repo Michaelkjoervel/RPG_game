@@ -24,6 +24,11 @@
 import * as THREE from 'three';
 import * as kit from './kit.js';
 import { CreatureAnimator } from './animator.js';
+// SPECIES is owned by the creature-data agent (src/data/creatures.js) and
+// used only for its per-species `size` (world height in meters). Per the
+// HARD RULES, importing a not-yet-existing sibling module is expected during
+// the parallel build; this resolves once that file lands.
+import { SPECIES } from '../data/creatures.js';
 
 // The 48 canonical species ids (Design Bible §4), in bible order. Every
 // builder below is imported unconditionally, per the addendum: "write all 48
@@ -176,38 +181,16 @@ function measureHeight(group) {
   return Math.max(box.max.y, 0.0001);
 }
 
+// Rescale the whole model so its measured (post-build, pre-variant) height
+// matches SPECIES[id].size. If a species has no data entry (shouldn't happen
+// once creature-data lands, but keeps this file crash-proof in isolation),
+// the model simply keeps its authored scale, which every model builder is
+// expected to author at sane real-world proportions already.
 function scaleToSpeciesHeight(group, speciesId) {
+  const size = SPECIES && SPECIES[speciesId] ? SPECIES[speciesId].size : null;
+  if (!size || size <= 0) return;
   const height = measureHeight(group);
   if (height <= 0) return;
-  importSpeciesSizeSync(speciesId, (size) => {
-    if (!size || size <= 0) return;
-    const s = size / height;
-    if (isFinite(s) && s > 0) group.scale.multiplyScalar(s);
-  });
-}
-
-// SPECIES data (src/data/creatures.js, owned by the creature-data agent) may
-// not exist yet at import time in a parallel build, and even once it exists
-// this registry must stay synchronous (buildCreature is called from hot
-// paths like wildlife spawning with no await). We lazily cache a dynamic
-// import's result the first time it resolves; until then, models keep their
-// authored scale, which is already sane (built at roughly real-world meters).
-let speciesSizeCache = null;
-let speciesSizeLoading = false;
-function importSpeciesSizeSync(speciesId, onReady) {
-  if (speciesSizeCache) { onReady(speciesSizeCache[speciesId]); return; }
-  if (!speciesSizeLoading) {
-    speciesSizeLoading = true;
-    import('../data/creatures.js')
-      .then((mod) => {
-        speciesSizeCache = {};
-        for (const id of Object.keys(mod.SPECIES || {})) speciesSizeCache[id] = mod.SPECIES[id].size;
-      })
-      .catch(() => { speciesSizeCache = {}; });
-  }
-  // Not ready this call — the model keeps its authored (already sane) scale.
-  // Once the cache warms, subsequent buildCreature() calls for this species
-  // will be sized exactly; already-built instances are unaffected, matching
-  // how the rest of the game re-fetches models per encounter/party-change
-  // rather than mutating live ones.
+  const s = size / height;
+  if (isFinite(s) && s > 0) group.scale.multiplyScalar(s);
 }

@@ -17,6 +17,8 @@
 //   - A creature's root Group faces +Z, feet touch y=0, overall height should
 //     land near SPECIES[id].size (registry.js rescales, but build at a
 //     sensible real scale — roughly meters — so proportions stay sane).
+//     Don't hand-compute the feet-at-y=0 offset across legs/tail/body — build
+//     naturally, then call `groundPlant(root)` as your last line (see below).
 //   - "Rest pose" = whatever local position/rotation/scale a part has the
 //     moment your build_<id>(kit) function returns. animator.js snapshots
 //     that as the idle baseline and animates OFFSETS from it. Build your
@@ -72,24 +74,28 @@
 //     heartspark(r, color, opts) -> { group, update(dt) }        the lore chest-glow (see above)
 //   Composition & palette
 //     at(parent, child, x, y, z, opts) -> child                 attach + position sugar
+//     groundPlant(root) -> root                                 shift so feet sit exactly at y=0
 //     palette(aspectIds) -> { primary, secondary, accent, eye, emissive }  (hex ints)
 //   Variants
 //     hollowify(group, parts?) -> group                         gray, cracked, dim (mutates)
 //     gleamify(group, parts?) -> group                          hue-shift + sparkle (mutates)
 //
 // EXAMPLE — a tiny two-part creature (see kindlet.js etc. for full builds):
+//   import * as THREE from 'three';
 //   import * as kit from '../kit.js';
 //   export function build_example(k = kit) {
 //     const pal = k.palette(['ember']);
 //     const skin = k.mat(pal.primary);
+//     const root = new THREE.Group();
 //     const body = k.blob(0.3, skin, { seed: 3 });
+//     root.add(body);
 //     const head = k.at(body, k.orb(0.18, skin), 0, 0.32, 0.18);
 //     const eyeL = k.at(head, k.eye(0.045, { skinColor: pal.primary }), 0.09, 0.03, 0.15);
 //     const eyeR = k.at(head, k.eye(0.045, { skinColor: pal.primary }), -0.09, 0.03, 0.15);
 //     const spark = k.heartspark(0.045, pal.eye);
 //     k.at(body, spark, 0, 0.05, 0.24);
 //     return {
-//       group: body,
+//       group: k.groundPlant(root),
 //       parts: { body, head, eyelids: [eyeL.getObjectByName('eyelid'), eyeR.getObjectByName('eyelid')], fx: [spark] },
 //       hints: { personality: 'eager', locomotion: 'hop' },
 //     };
@@ -766,6 +772,27 @@ export function at(parent, child, x = 0, y = 0, z = 0, opts = {}) {
   }
   parent.add(obj);
   return child;
+}
+
+/**
+ * The recommended LAST step in every build_<id>() function: measures the
+ * assembled model's world-space bounding box and shifts `root` vertically so
+ * its lowest point sits exactly at y=0. Hand-computing every part's Y offset
+ * so feet-on-the-ground works out exactly is tedious and error-prone the
+ * moment you have legs, tails and floating fx all as separate children —
+ * this makes "feet at y=0" (the #1 rule in CONTRACTS_ADDENDUM.md's model
+ * conventions) trivially guaranteed instead. Call it once, at the very end,
+ * on the actual object you're about to return as `group`:
+ *   const root = new THREE.Group();
+ *   root.add(body); // ...attach everything else to body/root as usual...
+ *   return { group: kit.groundPlant(root), parts: {...}, hints: {...} };
+ * @param {THREE.Object3D} root
+ * @returns {THREE.Object3D} root, unchanged in type, position.y adjusted
+ */
+export function groundPlant(root) {
+  const box = new THREE.Box3().setFromObject(root);
+  if (isFinite(box.min.y)) root.position.y -= box.min.y;
+  return root;
 }
 
 /**

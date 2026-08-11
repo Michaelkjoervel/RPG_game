@@ -26,6 +26,10 @@
 //     accents: Object3D[]           // ears/horns/fins/static decoration — animator sways/twitches these
 //     fx:      {update(dt):void}[]  // flame/mote/heartspark/pulsing-crystal — ticked every frame, NOT swayed
 //   }
+// (Forgiving detail: if you drop a wing()/tailChain()/leg()/flame()/mote()
+// wrapper straight into `accents` instead of its `.group`, this still works —
+// the animator unwraps `.group` automatically. Doesn't apply to `fx`, which
+// needs the wrapper itself so its `.update` is reachable.)
 // `accents` vs `fx`: accents are ordinary static parts the animator moves FOR
 // you (gentle idle sway with per-index phase offset). fx are self-driving
 // helpers from kit.js that already know how to animate themselves — the
@@ -98,10 +102,19 @@ function wander(t, freq, seedA, seedB) {
 /**
  * Builds the fixed, allocation-free list of animatable entries from a parts
  * object. Called once in the constructor — update() never allocates.
+ *
+ * Defensively unwraps kit.js compound-helper results: wing()/tailChain()/
+ * leg()/flame()/mote()/heartspark() all return `{ group, ... }` wrappers, not
+ * bare Object3Ds. It's an easy mistake to push e.g. a wing() result straight
+ * into `parts.accents` — this accepts either form transparently by reading
+ * `.group` off anything that isn't already an Object3D.
  */
 function buildEntries(parts) {
   const entries = [];
-  const push = (obj, kind, extra) => { if (obj) entries.push({ obj, kind, ...extra }); };
+  const push = (raw, kind, extra) => {
+    const obj = raw && raw.isObject3D ? raw : raw && raw.group;
+    if (obj) entries.push({ obj, kind, ...extra });
+  };
   push(parts.body, 'body');
   push(parts.head, 'head');
   push(parts.jaw, 'jaw');

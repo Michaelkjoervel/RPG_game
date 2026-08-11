@@ -299,7 +299,7 @@ export function renderCodex(container, opts = {}) {
 
   // -------------------------------------------------------------- Input
   function moveFocus(dx, dy) {
-    if (detailId) return;
+    if (!active || detailId) return;
     const len = SPECIES_LIST.length || 1;
     let i = focusIdx;
     if (dx) i += dx;

@@ -3,7 +3,6 @@
 import { bus } from '../core/events.js';
 import { G } from '../core/state.js';
 import { input } from '../core/input.js';
-import { tween } from '../core/tween.js';
 import { hashStr, seededRandom } from '../core/rng.js';
 import { clamp01, TAU } from '../core/math.js';
 import { ASPECTS } from '../data/aspects.js';
@@ -384,7 +383,7 @@ export function renderParty(container, opts = {}) {
 
   // -------------------------------------------------------------- Input
   function moveFocus(dir) {
-    if (detailMon) return;
+    if (!active || detailMon) return;
     sfx('ui_move');
     const len = Math.max(1, (G.party || []).length);
     focusIdx = (focusIdx + dir + len) % len;

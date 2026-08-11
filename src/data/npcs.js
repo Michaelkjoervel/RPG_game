@@ -106,7 +106,7 @@ export const NPCS = {
     // Called AFTER the battle resolves (onWin flag already applied on a win, never applied
     // on a loss) — so a win's index has already advanced past the just-finished stage while
     // a loss's has not. See ASHE_STAGES above.
-    postWinDialogue: (G) => { const i = asheStageIndex(G); return `dlg_ashe_win_${i === -1 ? 5 : i}`; },
+    postWinDialogue: (G) => { const i = asheStageIndex(G); return `dlg_ashe_win_${i === -1 ? 5 : Math.max(1, i)}`; },
     postLossDialogue: (G) => { const i = asheStageIndex(G); return `dlg_ashe_loss_${i + 1}`; },
   },
   merchant_pip: {
@@ -168,7 +168,7 @@ export const NPCS = {
     postWinDialogue: 'dlg_liora_win', postLossDialogue: 'dlg_liora_loss',
   },
   herbalist_syl: {
-    id: 'herbalist_syl', name: 'Herbalist Syl', kind: 'villager',
+    id: 'herbalist_syl', name: 'Herbalist Syl', kind: 'villager', questId: 'sq_herbalist',
     appearance: { palette: [0x6a9e5a, 0xd8c9a3], hat: 'hood', accessory: 'herb satchel' },
     wanderRadius: 2,
     dialogue: (G) => {
@@ -181,7 +181,7 @@ export const NPCS = {
 
   // ------------------------------------------------------------------------------ Gloamcavern
   lanternkeeper_ode: {
-    id: 'lanternkeeper_ode', name: 'Lanternkeeper Ode', kind: 'villager',
+    id: 'lanternkeeper_ode', name: 'Lanternkeeper Ode', kind: 'villager', questId: 'sq_lantern',
     appearance: { palette: [0xffb85c, 0x2a2f3f], accessory: 'carried lantern' },
     wanderRadius: 2,
     dialogue: (G) => {
@@ -192,7 +192,7 @@ export const NPCS = {
     },
   },
   deserter_finn: {
-    id: 'deserter_finn', name: 'Finn', kind: 'seeker',
+    id: 'deserter_finn', name: 'Finn', kind: 'seeker', questId: 'sq_deserter_finn',
     appearance: { palette: [0x8a8a92, 0xd8d4c4], robe: true, hood: true, mask: 'removed' },
     wanderRadius: 1,
     dialogue: (G) => {
@@ -242,7 +242,7 @@ export const NPCS = {
     postWinDialogue: 'dlg_maro_win', postLossDialogue: 'dlg_maro_loss',
   },
   ferryman_juno: {
-    id: 'ferryman_juno', name: 'Ferryman Juno', kind: 'villager',
+    id: 'ferryman_juno', name: 'Ferryman Juno', kind: 'villager', questId: 'sq_ferry',
     appearance: { palette: [0x4a6a8a, 0xd8d4c4], accessory: 'oilskin coat' },
     wanderRadius: 1,
     dialogue: (G) => {
@@ -292,7 +292,7 @@ export const NPCS = {
     postWinDialogue: 'dlg_sera_win', postLossDialogue: 'dlg_sera_loss',
   },
   climber_bo: {
-    id: 'climber_bo', name: 'Climber Bo', kind: 'villager',
+    id: 'climber_bo', name: 'Climber Bo', kind: 'villager', questId: 'sq_climber',
     appearance: { palette: [0x9e6a3c, 0x7a8aa8], accessory: 'rope & pack' },
     wanderRadius: 2,
     dialogue: (G) => {
@@ -305,7 +305,7 @@ export const NPCS = {
 
   // ---------------------------------------------------------------------------- Sunken Ruins
   scholar_imre: {
-    id: 'scholar_imre', name: 'Scholar Imre', kind: 'elder',
+    id: 'scholar_imre', name: 'Scholar Imre', kind: 'elder', questId: 'sq_scholar',
     appearance: { palette: [0x8a7a9e, 0xe8dcc0], robe: true, accessory: 'spectacles' },
     wanderRadius: 2,
     dialogue: (G) => {

@@ -339,7 +339,7 @@ export const TRACKS = {
       },
       pad: {
         voice: 'warmPad', step: '2n', gain: 0.24,
-        pattern: '.*2 G3+B3+D4*6',
+        pattern: '.*2 G3+B3+D4*8',
       },
       reveal: {
         voice: 'bell', step: '4n', gain: 0.8,
