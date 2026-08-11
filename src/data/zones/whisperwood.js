@@ -93,7 +93,7 @@ export const ZONE = {
   ],
 
   npcs: [
-    { id: 'keeper_liora', at: [52, -28], face: Math.PI }, // faces south into her glade
+    { id: 'keeper_liora', at: [52, -28], face: Math.PI }, // faces -Z into her glade
     { id: 'herbalist_syl', at: [74, 10], face: -Math.PI / 2 },
   ],
 

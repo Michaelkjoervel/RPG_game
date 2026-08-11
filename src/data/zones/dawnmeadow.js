@@ -72,7 +72,7 @@ export const ZONE = {
   ],
 
   npcs: [
-    { id: 'keeper_bramwell', at: [-38, 41], face: 0 }, // faces north into the shrine ring
+    { id: 'keeper_bramwell', at: [-38, 41], face: 0 }, // faces +Z into the shrine ring
   ],
 
   encounters: {
@@ -101,6 +101,7 @@ export const ZONE = {
   },
 
   interactables: [
+    { kind: 'shrine', at: [-38, 48] },
     { kind: 'chest', at: [-46, 58], item: 'tonic', qty: 2, flag: 'dm_chest1' },
     { kind: 'chest', at: [72, 46], item: 'woven_charm', qty: 1, flag: 'dm_chest2' },
     { kind: 'shard', at: [76, 52], flag: 'dm_shard1', dialogue: 'lore_dm_1' },

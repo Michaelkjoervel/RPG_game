@@ -90,7 +90,7 @@ export const ZONE = {
   ],
 
   npcs: [
-    { id: 'keeper_maro', at: [8, -59], face: Math.PI }, // faces south into the shrine
+    { id: 'keeper_maro', at: [8, -59], face: Math.PI }, // faces -Z into the shrine
     { id: 'ferryman_juno', at: [-44, 34], face: -Math.PI * 0.75 },
     { id: 'merchant_wren', at: [66, 75], face: Math.PI },
     { id: 'v_dm_1', at: [60, 82], face: -Math.PI / 3 },

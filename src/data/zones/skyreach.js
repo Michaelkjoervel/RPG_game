@@ -81,7 +81,7 @@ export const ZONE = {
 
   npcs: [
     { id: 'climber_bo', at: [6, -16], face: Math.PI * 0.75 },
-    { id: 'keeper_sera', at: [-5, -51], face: Math.PI }, // faces south into her ring
+    { id: 'keeper_sera', at: [-5, -51], face: Math.PI }, // faces -Z into her ring
   ],
 
   encounters: {
