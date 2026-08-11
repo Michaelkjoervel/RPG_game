@@ -758,7 +758,7 @@ export class BattleEngine {
       if (!roll) continue;
       switch (eff.type) {
         case 'status':
-          if (!defender.fainted) await this._tryApplyStatus(defender, foeSide, eff.status);
+          if (!defender.fainted) await this._tryApplyStatus(defender, foeSide, eff.status, { attacker });
           break;
         case 'statStage': {
           const isSelf = eff.target === 'self';
@@ -785,9 +785,7 @@ export class BattleEngine {
           break;
         case 'cleanse':
           if (attacker.mon.status) {
-            const prev = attacker.mon.status;
             attacker.mon.status = null; attacker.statusStacks = 0; attacker.statusTurns = null;
-            await this._runHook('onStatusCleared', attacker, { foe: defender, status: prev });
             await this._emit({ type: 'statusApplied', side, status: null });
           }
           break;
