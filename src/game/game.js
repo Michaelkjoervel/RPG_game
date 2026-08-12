@@ -98,6 +98,7 @@ class Game {
     this._battleDepth++;
     const prevMode = this.mode;
     this.mode = 'battle';
+    bus.emit('battle:start', { kind: config.kind ?? 'wild', encounter: config });
     try {
       const { runBattle } = await import('../battle/battleFlow.js');
       const result = await runBattle(this, config);
