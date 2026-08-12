@@ -6,8 +6,8 @@
 // Charm ids are a pinned vocabulary (data/items.js defines the Item records;
 // the base rates themselves are pinned here in the addendum).
 export const CHARM_BASE = {
-  woven_charm: 0.30,
-  glazed_charm: 0.45,
+  woven_charm: 0.50,
+  glazed_charm: 0.62,
   gilded_charm: 0.60,
   starwoven_charm: 0.85,
 };
@@ -15,7 +15,7 @@ export const CHARM_BASE = {
 // Rarity letters from the roster (C/U/R/L). 'starter' and anything unlisted
 // fall back to the common factor — starters are never wild-caught in
 // practice, but we never want an unknown rarity to make capture impossible.
-export const RARITY_FACTOR = { C: 1.0, U: 0.7, R: 0.45, L: 0.12 };
+export const RARITY_FACTOR = { C: 1.0, U: 0.7, R: 0.35, L: 0.12 };
 const RARITY_FALLBACK = 1.0;
 
 // "Hard" statuses lock the target down and help attunement more than the

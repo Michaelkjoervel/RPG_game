@@ -46,7 +46,11 @@ export const ASHE_COUNTER_LINE = {
   thistlit: ['kindlet', 'charvane', 'pyrelith'],
 };
 export const ASHE_STAGES = [
-  { level: 7, flag: 'ashe_1', team: (l) => [{ speciesId: l[0], level: 7 }] },
+  // Stage 1 deliberately does NOT counter-pick: Ashe mirrors the player's own starter at
+  // level 5, keeping the first rival fight winnable (~40-60%) for every starter choice.
+  // Counter-line picks begin at stage 2 and stay from there on. team() receives the
+  // counter line `l` plus the player's starter id (see ashelBattle below).
+  { level: 5, flag: 'ashe_1', team: (l, starter) => [{ speciesId: starter ?? 'vellit', level: 5 }] },
   { level: 12, flag: 'ashe_2', team: (l) => [
     { speciesId: l[0], level: 12 }, { speciesId: 'pebbin', level: 10 },
   ] },
@@ -73,7 +77,7 @@ function ashelBattle(G) {
   const stage = ASHE_STAGES[idx];
   const rewardGlim = [60, 110, 180, 280, 420][idx];
   return {
-    team: stage.team(ashelLine(G)),
+    team: stage.team(ashelLine(G), G.starter),
     ai: 'tactical',
     reward: { glim: rewardGlim },
     onWin: { flag: stage.flag },
@@ -146,7 +150,7 @@ export const NPCS = {
     wanderRadius: 2,
     dialogue: (G) => G.flags.kb_beat ? 'dlg_bramwell_after' : 'dlg_bramwell_greet',
     battle: {
-      team: [{ speciesId: 'pebbin', level: 8 }, { speciesId: 'cairnox', level: 9, talisman: 'ward_amulet' }],
+      team: [{ speciesId: 'pebbin', level: 8 }, { speciesId: 'pebbin', level: 10, talisman: 'ward_amulet' }],
       ai: 'tactical', reward: { glim: 90, items: [{ id: 'terrastone', qty: 1 }] },
       onWin: { sigil: 0 }, once: 'kb_beat',
     },
@@ -210,7 +214,7 @@ export const NPCS = {
     wanderRadius: 1,
     dialogue: (G) => G.flags.sk_a_beat ? 'dlg_seeker_a_after' : 'dlg_seeker_a_taunt',
     battle: {
-      team: [{ speciesId: 'oozel', level: 16 }, { speciesId: 'sludgemaw', level: 16 }],
+      team: [{ speciesId: 'oozel', level: 16 }, { speciesId: 'oozel', level: 17 }],
       ai: 'basic', reward: { glim: 70 }, once: 'sk_a_beat',
     },
     postWinDialogue: 'dlg_seeker_a_lose',
@@ -287,7 +291,7 @@ export const NPCS = {
     battle: {
       team: [
         { speciesId: 'nimbis', level: 23 }, { speciesId: 'aurelark', level: 23 },
-        { speciesId: 'stratovane', level: 24, talisman: 'haste_feather' },
+        { speciesId: 'stratovane', level: 26, talisman: 'haste_feather' },
       ],
       ai: 'tactical', reward: { glim: 260, items: [{ id: 'voltstone', qty: 1 }] },
       onWin: { sigil: 3, flag: 'storm_calmed' }, once: 'ks_beat',

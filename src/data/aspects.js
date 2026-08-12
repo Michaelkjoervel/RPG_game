@@ -1,5 +1,5 @@
 // The ten Aspects of Vael + Neutral. Single source of truth for the type chart.
-// Multipliers: strong ×1.6, weak ×0.65. Attunement (same-aspect) bonus ×1.25.
+// Multipliers: strong ×1.4, weak ×0.75. Attunement (same-aspect) bonus ×1.25.
 export const ASPECTS = {
   ember:  { id: 'ember',  name: 'Ember',  color: 0xff7a3c, icon: '🔥', strong: ['bloom', 'frost'] },
   tide:   { id: 'tide',   name: 'Tide',   color: 0x4fa8ff, icon: '💧', strong: ['ember', 'terra'] },
@@ -14,8 +14,8 @@ export const ASPECTS = {
   neutral:{ id: 'neutral',name: 'Neutral',color: 0xc8c2b8, icon: '◇', strong: [] },
 };
 
-export const STRONG_MULT = 1.6;
-export const WEAK_MULT = 0.65;
+export const STRONG_MULT = 1.4;
+export const WEAK_MULT = 0.75;
 export const ATTUNE_BONUS = 1.25;
 
 // Effectiveness of one attacking aspect vs one defending aspect.

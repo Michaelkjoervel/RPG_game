@@ -1,6 +1,6 @@
 // LUMENFALL — Kindred species data: the 48 canonical Kindred + XP curves.
 // Stat budgets (sum of base.vigor/might/ward/focus/aegis/haste):
-//   stage1 ~275, stage2 ~340, stage3 ~410, legendary ~480, single-stage species +8%.
+//   stage1 ~275, stage2 ~340, stage3 ~410, legendary ~480, single-stage species +4%.
 // budgetStats() distributes a personality-weighted spread that always sums exactly to budget.
 
 function budgetStats(budget, w) {
@@ -17,7 +17,7 @@ function budgetStats(budget, w) {
   return out;
 }
 
-const BUDGET = { 1: 275, 2: 340, 3: 410, L: 480, single: Math.round(275 * 1.08) };
+const BUDGET = { 1: 275, 2: 340, 3: 410, L: 480, single: Math.round(275 * 1.04) };
 
 // XP curve: cumulative xp required to REACH each level (index 0 = level 1 = 0 xp), 1..50.
 function curve(mult) {
@@ -67,7 +67,7 @@ export const SPECIES = {
     habitat: 'Obsidian scarps where the ground still remembers fire' }),
   nixling: S({ id: 'nixling', name: 'Nixling', aspects: ['tide'], stage: 1, rarity: 'starter',
     growth: 'medium', awakensTo: { id: 'maelfin', level: 16 },
-    w: { vigor: 0.9, might: 0.7, ward: 0.8, focus: 1.3, aegis: 0.9, haste: 1.2 },
+    w: { vigor: 1.1, might: 0.7, ward: 0.8, focus: 1.4, aegis: 0.9, haste: 1.2 },
     learnset: [[1, 'graze'], [1, 'tidesplash'], [5, 'ripcurrent'], [9, 'howl'], [13, 'surgingtail'],
       [18, 'tidalmend'], [23, 'maelstrom'], [28, 'undertow'], [34, 'abysscall'], [40, 'cleansingtide'], [46, 'tidesurge']],
     trait: 'quickcurrent', burst: 'tidewhirl', size: 0.5, cry: { pitch: 1.5, timbre: 'chirp' },
@@ -133,7 +133,7 @@ export const SPECIES = {
     habitat: 'Open plains where nothing can catch it' }),
   pipwing: S({ id: 'pipwing', name: 'Pipwing', aspects: ['gale'], stage: 1, rarity: 'C',
     growth: 'fast', awakensTo: { id: 'aurelark', level: 15 },
-    w: { vigor: 0.9, might: 0.7, ward: 0.8, focus: 1.1, aegis: 0.8, haste: 1.4 },
+    w: { vigor: 0.9, might: 0.7, ward: 0.8, focus: 1.3, aegis: 0.8, haste: 1.2 },
     learnset: [[1, 'graze'], [1, 'gustjab'], [5, 'windslice'], [9, 'quickstep'], [13, 'tailwind'],
       [18, 'wingstorm'], [23, 'downdraft'], [28, 'skydance'], [34, 'cycloneburst'], [40, 'galeforce']],
     trait: 'chatterbox', burst: 'skysongchorus', size: 0.35, cry: { pitch: 1.8, timbre: 'chirp' },
@@ -181,7 +181,7 @@ export const SPECIES = {
     habitat: 'Old cairns along the shrine paths' }),
   fulmin: S({ id: 'fulmin', name: 'Fulmin', aspects: ['volt'], stage: 1, rarity: 'U',
     growth: 'medium', awakensTo: { id: 'stormane', level: 22 },
-    w: { vigor: 0.8, might: 1.0, ward: 0.7, focus: 0.9, aegis: 0.7, haste: 1.8 },
+    w: { vigor: 0.8, might: 1.0, ward: 0.7, focus: 1.2, aegis: 0.7, haste: 1.4 },
     learnset: [[1, 'graze'], [1, 'sparkbite'], [5, 'boltstep'], [9, 'staticrush'], [13, 'thunderclap'],
       [18, 'staticfield'], [23, 'livewire'], [28, 'thunderfang'], [34, 'voltcannon'], [40, 'stormsurge']],
     trait: 'zoomies', burst: 'staticstorm', size: 0.55, cry: { pitch: 1.6, timbre: 'chirp' },
@@ -265,7 +265,7 @@ export const SPECIES = {
   // ========================================================================== Gloamcavern
   sonark: S({ id: 'sonark', name: 'Sonark', aspects: ['gale', 'umbra'], stage: 1, rarity: 'C',
     growth: 'fast', awakensTo: { id: 'reverbane', level: 23 },
-    w: { vigor: 0.8, might: 0.7, ward: 0.7, focus: 1.2, aegis: 0.8, haste: 1.5 },
+    w: { vigor: 1.0, might: 0.7, ward: 0.9, focus: 1.2, aegis: 0.8, haste: 1.5 },
     learnset: [[1, 'graze'], [1, 'gustjab'], [5, 'shadowjab'], [9, 'tailwind'], [13, 'downdraft'],
       [18, 'duskclaw'], [23, 'wingstorm'], [28, 'eclipseveil'], [34, 'gloomwave']],
     trait: 'echolocation', burst: 'echostormshriek', size: 0.4, cry: { pitch: 1.6, timbre: 'trill' },
@@ -297,7 +297,7 @@ export const SPECIES = {
     habitat: 'The grandest crystal chambers of Gloamcavern' }),
   oozel: S({ id: 'oozel', name: 'Oozel', aspects: ['venom'], stage: 1, rarity: 'C',
     growth: 'fast', awakensTo: { id: 'sludgemaw', level: 24 },
-    w: { vigor: 1.1, might: 0.8, ward: 1.0, focus: 1.0, aegis: 1.1, haste: 0.7 },
+    w: { vigor: 0.9, might: 0.8, ward: 1.0, focus: 0.8, aegis: 0.9, haste: 0.7 },
     learnset: [[1, 'graze'], [1, 'toxinjab'], [5, 'gallsting'], [9, 'corrosivehiss'], [13, 'fangflurry'],
       [18, 'witherkiss'], [23, 'leechbite'], [28, 'sporecloud'], [34, 'gloomdrip']],
     trait: 'absorbent', burst: 'mineralmaw', size: 0.6, cry: { pitch: 0.8, timbre: 'hum' },
@@ -313,7 +313,7 @@ export const SPECIES = {
     habitat: 'The tar-black lower galleries' }),
   gloomel: S({ id: 'gloomel', name: 'Gloomel', aspects: ['umbra', 'tide'], stage: 1, rarity: 'R', single: true,
     growth: 'slow', awakensTo: null,
-    w: { vigor: 1.1, might: 0.9, ward: 0.9, focus: 1.2, aegis: 0.9, haste: 1.1 },
+    w: { vigor: 1.3, might: 0.9, ward: 0.9, focus: 1.4, aegis: 0.9, haste: 1.1 },
     learnset: [[1, 'graze'], [1, 'shadowjab'], [5, 'tidesplash'], [9, 'nightguard'], [13, 'eclipseveil'],
       [18, 'ripcurrent'], [23, 'gloomwave'], [28, 'undertow'], [34, 'hollowmend'], [40, 'gloom']],
     trait: 'darklure', burst: 'abyssallullaby', size: 1.4, cry: { pitch: 0.9, timbre: 'hum' },
@@ -347,7 +347,7 @@ export const SPECIES = {
     habitat: 'Open water under a clear night sky' }),
   bogret: S({ id: 'bogret', name: 'Bogret', aspects: ['tide', 'terra'], stage: 1, rarity: 'U', single: true,
     growth: 'medium', awakensTo: null,
-    w: { vigor: 1.3, might: 1.1, ward: 1.3, focus: 0.7, aegis: 1.2, haste: 0.5 },
+    w: { vigor: 1.3, might: 1.1, ward: 1.1, focus: 0.7, aegis: 1.2, haste: 0.5 },
     learnset: [[1, 'graze'], [1, 'tidesplash'], [5, 'boulderram'], [9, 'ironhide'], [13, 'surgingtail'],
       [18, 'bulwarkstance'], [23, 'tremor'], [28, 'maelstrom'], [34, 'landslide']],
     trait: 'boulderhat', burst: 'boulderhatslam', size: 0.75, cry: { pitch: 0.7, timbre: 'growl' },
@@ -365,7 +365,7 @@ export const SPECIES = {
     habitat: 'Low drifting clouds along the pass' }),
   stratovane: S({ id: 'stratovane', name: 'Stratovane', aspects: ['gale', 'volt'], stage: 2, rarity: 'R',
     growth: 'slow', awakensTo: null,
-    w: { vigor: 1.0, might: 1.0, ward: 0.9, focus: 1.3, aegis: 0.9, haste: 1.4 },
+    w: { vigor: 1.0, might: 1.0, ward: 0.9, focus: 1.15, aegis: 0.9, haste: 1.25 },
     learnset: [[26, 'windslice'], [26, 'sparkbite'], [30, 'thunderclap'], [34, 'skydance'],
       [38, 'staticfield'], [42, 'voltcannon'], [46, 'galeforce'], [50, 'cycloneburst']],
     trait: 'chargedveins', burst: 'galeboltwing', size: 2.0, cry: { pitch: 0.7, timbre: 'rumble' },
@@ -373,7 +373,7 @@ export const SPECIES = {
     habitat: 'The high storm-front above Skyreach Pass' }),
   rimehorn: S({ id: 'rimehorn', name: 'Rimehorn', aspects: ['frost'], stage: 1, rarity: 'U', single: true,
     growth: 'medium', awakensTo: null,
-    w: { vigor: 1.2, might: 1.1, ward: 1.3, focus: 0.8, aegis: 1.2, haste: 0.6 },
+    w: { vigor: 1.0, might: 1.0, ward: 1.0, focus: 0.8, aegis: 1.0, haste: 0.6 },
     learnset: [[1, 'graze'], [1, 'icejab'], [5, 'glacierfist'], [9, 'wintersguard'], [13, 'permafrost'],
       [18, 'hoarwind'], [23, 'avalanche'], [28, 'frostmend'], [34, 'deepfreeze'], [40, 'shardstorm']],
     trait: 'surefooted', burst: 'glacialcharge', size: 1.15, cry: { pitch: 0.8, timbre: 'growl' },

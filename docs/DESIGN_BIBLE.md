@@ -74,7 +74,7 @@ believes cruelty now prevents extinction later.
 
 ## 3. Aspects (elements)
 
-Ten Aspects + Neutral. Multipliers: strong ×1.6, weak ×0.65, immune ×0 (rare).
+Ten Aspects + Neutral. Multipliers: strong ×1.4, weak ×0.75, immune ×0 (rare).
 
 | Aspect | Flavor | Strong vs | Weak vs (takes more from) |
 |---|---|---|---|

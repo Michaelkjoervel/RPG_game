@@ -6,14 +6,10 @@
 // set with a several-thousand-battle randomized scratchpad sim spanning
 // wild/warden/boss kinds and basic/tactical/boss AI — see the combat-engine
 // agent's test suite for the harness):
-//  - DMG_DIV 52 keeps a lv5 starter mirror match snappy (2-4 turns with
-//    real starter stats — HP is intentionally low at level 5) and end-game
-//    (lv45+) exchanges readable. Swept 48..84 against the real roster:
-//    higher values did NOT reliably lengthen the lv5 case (HP there is so
-//    low relative to any reasonable might/focus that the result is
-//    dominated by the roster's own early stat ratios, not this constant)
-//    while measurably hurting mid/late-game pacing and mirror-match
-//    fairness, so 52 is the best overall value, not just a lv5 fit.
+//  - DMG_DIV 62 + the fatter vigor flat term (core + 2·level + 12) came out
+//    of the 2026-08 balance pass: together they move mirror TTK from 2-4
+//    turns to a 4+ turn median at lv 5/20/45 so setup/status play has time
+//    to pay off, while keeping late-game exchanges readable.
 //  - Variance 0.92..1.0 keeps damage numbers stable enough to plan around.
 // Three real correctness/AI issues surfaced and were fixed alongside this
 // tuning (all outside this file — see engine.js, ai.js, game/creatures.js):
@@ -29,7 +25,7 @@
 import { effectiveness, effectivenessLabel, ATTUNE_BONUS } from '../data/aspects.js';
 
 // ---------------------------------------------------------------- constants
-export const DMG_DIV = 52;          // global damage divisor (pacing knob)
+export const DMG_DIV = 62;          // global damage divisor (pacing knob)
 export const CRIT_CHANCE = 1 / 16;
 export const CRIT_MULT = 1.5;
 export const VARIANCE_MIN = 0.92;   // damage roll 0.92..1.0
@@ -76,7 +72,7 @@ export function statFor(base = 50, level = 1, isVigor = false) {
   base = Math.max(1, base | 0);
   level = Math.max(1, Math.min(MAX_LEVEL, level | 0));
   const core = Math.floor((2 * base * level) / 100);
-  return isVigor ? core + level + 10 : core + 5;
+  return isVigor ? core + 2 * level + 12 : core + 5;
 }
 
 export const maxHpFor = (vigorBase, level) => statFor(vigorBase, level, true);
@@ -173,14 +169,14 @@ export function expectedDamage(attView, defView, move, ctx = {}) {
 }
 
 // ---------------------------------------------------------------- status dots
-/** Turn-end damage for a status. venom ramps: 4% + 2% per elapsed tick. */
+/** Turn-end damage for a status. venom ramps: 5% + 3% per elapsed tick. */
 export function statusTickDamage(status, maxHp, stacks = 0) {
   let pct = 0;
   switch (status) {
-    case 'burn': pct = 0.06; break;
+    case 'burn': pct = 0.08; break;
     case 'root': pct = 0.03; break;
     case 'frostbite': pct = 0.04; break;
-    case 'venom': pct = 0.04 + 0.02 * Math.max(0, stacks); break;
+    case 'venom': pct = 0.05 + 0.03 * Math.max(0, stacks); break;
     default: return 0;
   }
   return Math.max(1, Math.floor(maxHp * pct));

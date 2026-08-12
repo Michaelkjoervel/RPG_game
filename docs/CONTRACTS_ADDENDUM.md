@@ -101,17 +101,17 @@ meadow→meadow, forest→forest, cave→cave, lake→lake, mountain→mountain,
 spire→spire, glade→glade, town→meadow
 
 ## Status effects (engine semantics — single source in engine)
-burn (6% maxHP/turn, might ×0.7) · soak (haste ×0.75, +30% volt dmg taken) ·
+burn (8% maxHP/turn, might ×0.7) · soak (haste ×0.75, +30% volt dmg taken) ·
 root (cannot switch/flee, 3% dot, 3 turns) · shock (25% chance to lose the turn) ·
-frostbite (4% dot, focus ×0.7) · venom (ramping dot 4%→+2%/turn) · blind (accuracy ×0.65) ·
+frostbite (4% dot, focus ×0.7) · venom (ramping dot 5%→+3%/turn) · blind (accuracy ×0.65) ·
 dread (burst charge gain halved, aegis −1 stage on apply)
 One status at a time; later replaces earlier only if target has none. Auras: emberhaze
 (+30% ember dmg, frost −30%), tidesurge (+30% tide, ember −30%), gloom (+30% umbra, lumen −30%).
 
 ## Catching (capture.js)
-Only wild battles. rate = charmBase (woven .30, glazed .45, gilded .60, starwoven .85)
+Only wild battles. rate = charmBase (woven .50, glazed .62, gilded .60, starwoven .85)
 × (1 − 0.7·hp/maxHp) × statusBonus (root/frostbite/shock 1.35, others 1.15) × rarityFactor
-(C 1.0, U .7, R .45, L .12) — clamp .02–.95. 0–3 shake events then result. Hollowed: uncatchable.
+(C 1.0, U .7, R .35, L .12) — clamp .02–.95. 0–3 shake events then result. Hollowed: uncatchable.
 
 ## Creature model conventions (kit/registry)
 Feet at y=0, face +Z, overall height ≈ SPECIES[id].size (meters). Export `build_<id>` from
