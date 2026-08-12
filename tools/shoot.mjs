@@ -35,7 +35,17 @@ const browser = await chromium.launch({
   headless: true,
   args: ['--enable-unsafe-swiftshader', '--use-angle=swiftshader', '--disable-dev-shm-usage', '--no-sandbox'],
 });
-const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
+// BEAUTY=1: full-size, high quality (for visual QA screenshots).
+// Default: small viewport + low quality so software rendering keeps a usable framerate.
+const BEAUTY = process.env.QA_BEAUTY === '1';
+const page = await browser.newPage({ viewport: BEAUTY ? { width: 1600, height: 900 } : { width: 960, height: 540 } });
+if (!BEAUTY) {
+  await page.addInitScript(() => {
+    localStorage.setItem('lumenfall_settings', JSON.stringify({
+      musicVol: 0, sfxVol: 0, quality: 'low', textSpeed: 'fast', camShake: true, invertY: false, showDamageNumbers: true,
+    }));
+  });
+}
 
 const consoleLog = [];
 page.on('console', (msg) => {
@@ -63,6 +73,16 @@ const h = {
   },
   hold: async (key, ms) => { await page.keyboard.down(key); await page.waitForTimeout(ms); await page.keyboard.up(key); },
   errors: () => consoleLog.filter((l) => l.startsWith('[error]') || l.startsWith('[pageerror]')),
+  // Poll an in-page condition (fn source string evaluated in page) until truthy.
+  waitFor: async (fnSrc, timeoutMs = 30000, pollMs = 400) => {
+    const t0 = Date.now();
+    while (Date.now() - t0 < timeoutMs) {
+      const v = await page.evaluate(fnSrc);
+      if (v) return v;
+      await page.waitForTimeout(pollMs);
+    }
+    return null;
+  },
 };
 
 try {
