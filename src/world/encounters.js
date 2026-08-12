@@ -86,7 +86,7 @@ export function createEncounters(zone, world) {
 
     battleInFlight = true;
     cooldown = BATTLE_COOLDOWN;
-    bus.emit('ui:sfx', { name: 'ui_open' });
+    bus.emit('ui:sfx', { name: 'encounter' });
     fx.emitBurst({ at: { x: patch.x, y: patch.disc.position.y + 0.1, z: patch.z }, count: 22, color: GLINT, size: 0.09, life: 0.5, speed: 2.2, up: 1.1 });
 
     Promise.resolve(world.startWildBattle?.(pick.speciesId, level))

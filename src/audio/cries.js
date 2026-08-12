@@ -65,10 +65,11 @@ function glideTone(ctx, dest, { type = 'sine', t, dur, f0, f1, peak = 0.5, a, r,
   if (vib) { vib.start(t); vib.stop(t + dur + 0.05); }
 }
 
-function noiseLayer(ctx, dest, noiseBuf, { t, dur, freq = 500, Q = 1, peak = 0.2, type = 'bandpass' }) {
+function noiseLayer(ctx, dest, noiseBuf, { t, dur, freq = 500, Q = 1, peak = 0.2, type = 'bandpass', rng }) {
   if (!noiseBuf) return;
   const src = ctx.createBufferSource(); src.buffer = noiseBuf;
-  const off = Math.random() * Math.max(0.05, noiseBuf.duration - dur - 0.1);
+  // seeded offset — same species reads the same slice of the noise buffer
+  const off = (rng ? rng() : Math.random()) * Math.max(0.05, noiseBuf.duration - dur - 0.1);
   const f = ctx.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = Q;
   const env = envSeg(ctx, dest, { t, dur, a: Math.min(0.05, dur * 0.2), r: Math.min(0.15, dur * 0.4), peak });
   src.connect(f); f.connect(env);
@@ -107,7 +108,7 @@ function growl(ctx, dest, { pitch, rng, t0, noiseBuf }) {
   osc.connect(filt); filt.connect(trem); trem.connect(env);
   osc.start(t0); osc.stop(t0 + dur + 0.05);
   lfo.start(t0); lfo.stop(t0 + dur + 0.05);
-  noiseLayer(ctx, dest, noiseBuf, { t: t0, dur: dur * 0.6, freq: base * 3, Q: 0.8, peak: 0.08, type: 'bandpass' });
+  noiseLayer(ctx, dest, noiseBuf, { t: t0, dur: dur * 0.6, freq: base * 3, Q: 0.8, peak: 0.08, type: 'bandpass', rng });
 }
 
 function hum(ctx, dest, { pitch, rng, t0 }) {
@@ -146,7 +147,7 @@ function rumble(ctx, dest, { pitch, rng, t0, noiseBuf }) {
   osc.connect(trem); trem.connect(env);
   osc.start(t0); osc.stop(t0 + dur + 0.05);
   lfo.start(t0); lfo.stop(t0 + dur + 0.05);
-  noiseLayer(ctx, dest, noiseBuf, { t: t0, dur, freq: base * 2.5, Q: 0.6, peak: 0.1, type: 'lowpass' });
+  noiseLayer(ctx, dest, noiseBuf, { t: t0, dur, freq: base * 2.5, Q: 0.6, peak: 0.1, type: 'lowpass', rng });
 }
 
 function bell(ctx, dest, { pitch, rng, t0 }) {
@@ -169,7 +170,12 @@ const TIMBRES = { chirp, growl, hum, trill, rumble, bell };
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
-/** playCry(speciesId, {hollowed}?) — fire-and-forget; safe before audio unlock. */
+/**
+ * playCry(speciesId, {hollowed}?) — fire-and-forget; safe before audio unlock.
+ * Hollowed variants are pitched down and made "wrong": a detuned ghost double
+ * of the same seeded cry plus a grainy amplitude flutter, on top of the wider
+ * reverb send — the same voice, hollowed out.
+ */
 export async function playCry(speciesId, opts = {}) {
   const ctx = getCtx();
   if (!ctx) return;
@@ -177,11 +183,31 @@ export async function playCry(speciesId, opts = {}) {
   if (!routes) return;
   const SPECIES = await loadSpecies();
   const def = SPECIES?.[speciesId]?.cry ?? DEFAULT_CRY;
-  const pitch = clamp(def.pitch ?? 1, 0.5, 2);
+  const hollowed = !!opts.hollowed;
+  const pitch = clamp(def.pitch ?? 1, 0.5, 2) * (hollowed ? 0.78 : 1);
   const timbre = TIMBRES[def.timbre] ? def.timbre : 'chirp';
-  const rng = seededRandom((hashStr(speciesId || 'unknown') ^ 0x9e3779b9) >>> 0);
+  const seed = (hashStr(speciesId || 'unknown') ^ 0x9e3779b9) >>> 0;
+  const rng = seededRandom(seed);
   const t0 = ctx.currentTime + 0.01;
-  const dest = mix(ctx, routes, 0.85, opts.hollowed ? 0.5 : 0.28);
-  try { TIMBRES[timbre](ctx, dest, { pitch, rng, t0, noiseBuf: getNoiseBuffer() }); }
-  catch (e) { console.error(`[cries] "${speciesId}" (${timbre}) failed`, e); }
+  const dest = mix(ctx, routes, 0.85, hollowed ? 0.5 : 0.28);
+  let target = dest;
+  if (hollowed) {
+    // grainy amplitude flutter between the cry and the mix
+    const grain = ctx.createGain(); grain.gain.value = 0.8;
+    const lfo = ctx.createOscillator(); lfo.type = 'square';
+    lfo.frequency.value = 24 + rng() * 10;
+    const lfoG = ctx.createGain(); lfoG.gain.value = 0.18;
+    lfo.connect(lfoG); lfoG.connect(grain.gain);
+    grain.connect(dest);
+    lfo.start(t0); lfo.stop(t0 + 2.5);
+    target = grain;
+  }
+  try {
+    TIMBRES[timbre](ctx, target, { pitch, rng, t0, noiseBuf: getNoiseBuffer() });
+    if (hollowed) {
+      // ghost double: same seed (identical segments), slightly flat and late
+      const ghost = ctx.createGain(); ghost.gain.value = 0.38; ghost.connect(target);
+      TIMBRES[timbre](ctx, ghost, { pitch: pitch * 0.94, rng: seededRandom(seed), t0: t0 + 0.014, noiseBuf: getNoiseBuffer() });
+    }
+  } catch (e) { console.error(`[cries] "${speciesId}" (${timbre}) failed`, e); }
 }

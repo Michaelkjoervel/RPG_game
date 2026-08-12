@@ -255,57 +255,79 @@ export const TRACKS = {
   },
 
   // --------------------------------------------------------- Battle: wild
+  // 8-bar AB form (32 beats): A circles the E pedal, B lifts to G/A/C ground
+  // with a higher hook — real rising energy, not just a repeat.
   battle_wild: {
     name: 'Wild Encounter', key: 'E', mode: 'aeolian', tempo: 140, swing: 0,
     meter: [4, 4], wet: 0.2,
     parts: {
       bass: {
         voice: 'bass', step: '8n', gain: 0.66,
-        pattern: 'E2 E2 G2 E2 E2 E2 B2 E2 E2 E2 G2 E2 E2 D2 B1 E2 E2 E2 G2 E2 E2 E2 B2 E2 E2 E2 G2 E2 E2 D2 E2 E2',
+        pattern: 'E2 E2 G2 E2 E2 E2 B2 E2 E2 E2 G2 E2 E2 D2 B1 E2 '
+          + 'E2 E2 G2 E2 E2 E2 B2 E2 E2 E2 G2 E2 E2 D2 E2 E2 '
+          + 'G2 G2 B2 G2 G2 G2 D3 G2 A2 A2 C3 A2 A2 G2 E2 A2 '
+          + 'C2 C2 G2 C2 C2 C2 G2 C2 D2 D2 A2 D2 D2 E2 F#2 B1',
       },
       hook: {
         voice: 'pluck', step: '8n', gain: 0.55,
-        pattern: '. . E4 G4 B4 . G4 E4 . . D4 E4 G4 . E4 B3 . . E4 G4 B4 . D5 B4 . . G4 E4 D4 . B3 .',
+        pattern: '. . E4 G4 B4 . G4 E4 . . D4 E4 G4 . E4 B3 '
+          + '. . E4 G4 B4 . D5 B4 . . G4 E4 D4 . B3 . '
+          + '. . B4 D5 E5 . D5 B4 . . C5 D5 E5 . C5 A4 '
+          + '. . D5 E5 G5 . E5 D5 . . E5 D5 B4 . A4 .',
       },
       arp: {
         voice: 'arp', step: '16n', gain: 0.24,
-        pattern: 'E5 G5 B5 E6 .*12 B4 D5 G5 B5 .*12',
+        pattern: 'E5 G5 B5 E6 .*12 B4 D5 G5 B5 .*12 E5 G5 B5 E6 .*12 A4 C5 E5 A5 C6 A5 E5 C5 .*8',
       },
     },
   },
 
   // ------------------------------------------------------- Battle: warden
+  // Deliberately NOT the wild loop in D: martial dotted rhythm with rests
+  // (staccato drive), a long-note heroic bell contour instead of the wild
+  // eighth-note tumble, and a full Dm-C-Bb-A / Dm-F-Bb-A choir ground.
   battle_warden: {
     name: 'Warden Duel', key: 'D', mode: 'aeolian, heroic', tempo: 146, swing: 0,
     meter: [4, 4], wet: 0.22,
     parts: {
       bass: {
         voice: 'bass', step: '8n', gain: 0.68,
-        pattern: 'D2 D2 F2 D2 D2 D2 A2 D2 D2 D2 F2 D2 D2 C2 A1 D2 D2 D2 F2 D2 D2 D2 A2 D2 D2 D2 F2 D2 D2 C2 D2 D2',
+        pattern: 'D2 D2 . A2 D2 . F2 A2 C2 C2 . G2 C2 . E2 G2 '
+          + 'Bb1 Bb1 . F2 Bb1 . D2 F2 A1 A1 . E2 A2 . G2 E2 '
+          + 'D2 D2 F2 A2 D3 . A2 F2 F2 F2 . C3 F2 . A2 C3 '
+          + 'Bb1 Bb2 . F2 Bb2 . D3 F2 A1 A2 . E2 A2 C#3 E3 E2',
       },
       hook: {
         voice: 'bell', step: '8n', gain: 0.5,
-        pattern: '. . D4 F4 A4 . F4 D4 . . C4 D4 F4 . D4 A3 . . D4 F4 A4 . C5 A4 . . F4 D4 C4 . A3 .',
+        pattern: 'D5 . . A4 . . D5 E5 F5 . . E5 . . C5 D5 '
+          + 'F5 . . D5 . . Bb4 C5 A4 . . C#5 . . E5 . '
+          + 'D5 . E5 F5 . G5 A5 . A5 . G5 F5 . E5 C5 . '
+          + 'Bb4 . D5 F5 . G5 F5 D5 E5 . C#5 . E5 A4 . .',
       },
       choir: {
         voice: 'choir', step: '2n', gain: 0.26,
-        pattern: 'D3+F3+A3*2 C3+E3+G3*2 Bb2+D3+F3*2 A2+C#3+E3*2',
+        pattern: 'D3+F3+A3*2 C3+E3+G3*2 Bb2+D3+F3*2 A2+C#3+E3*2 D3+F3+A3*2 F3+A3+C4*2 Bb2+D3+F3*2 A2+C#3+E3*2',
       },
     },
   },
 
   // --------------------------------------------------------- Battle: boss
+  // Bass + choir extended to four 5/4 bars: the ostinato darkens (F, then Bb
+  // and a climbing Eb-D turn) instead of looping a single bar.
   battle_boss: {
     name: 'The Hollow Order', key: 'G', mode: 'minor, 5/4 ostinato', tempo: 120, swing: 0,
     meter: [5, 4], wet: 0.4,
     parts: {
       bass: {
         voice: 'bass', step: '8n', gain: 0.74,
-        pattern: 'G1 G1 G1 D2 G1 G1 G1 D2 Eb2 D2',
+        pattern: 'G1 G1 G1 D2 G1 G1 G1 D2 Eb2 D2 '
+          + 'G1 G1 G1 D2 G1 G1 G1 D2 F2 D2 '
+          + 'G1 G1 Bb1 D2 G1 G1 Bb1 D2 Eb2 F2 '
+          + 'G1 G1 C2 D2 Eb2 Eb2 D2 C2 Bb1 D2',
       },
       choir: {
         voice: 'choir', step: '4n', gain: 0.34,
-        pattern: 'G3+Bb3+D4*3 Eb3+Gb3+Bb3*2',
+        pattern: 'G3+Bb3+D4*3 Eb3+G3+Bb3*2 G3+Bb3+D4*3 F3+A3+C4*2 G3+Bb3+D4*3 Eb3+G3+Bb3*2 C3+Eb3+G3*2 D3+F3+A3*3',
       },
       // transformed Lumen motif again, low and menacing, drifting against the ostinato.
       motif: {

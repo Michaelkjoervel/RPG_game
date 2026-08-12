@@ -4,7 +4,7 @@
 // sweeps composed to *mean* the thing they represent (a fire crackle is not
 // the same recipe as a water splash). audio.js owns the AudioContext and the
 // sfx mix bus; this module only asks for them lazily.
-import { getCtx, getSfxRoutes, getNoiseBuffer } from './audio.js';
+import { getCtx, getSfxRoutes, getNoiseBuffer, whenReady } from './audio.js';
 
 // ---------------------------------------------------------------------------
 // Small synthesis primitives
@@ -155,6 +155,17 @@ const RECIPES = {
     const dest = mix(ctx, routes, 0.9, 0.2);
     noiseBurst(ctx, dest, noiseBuf, { t, dur: 0.1, filter: 'bandpass', freq: 3200, freqEnd: 900, Q: 2.4, a: 0.001, d: 0.06, r: 0.05, peak: 0.4 });
   },
+  // organic whip-crack + leaf-flutter — the dedicated bloom-aspect hit
+  bloom: (ctx, routes, t, noiseBuf) => {
+    const dest = mix(ctx, routes, 0.9, 0.2);
+    // vine whip: fast band sweep down, softer/rounder than the metallic slash
+    noiseBurst(ctx, dest, noiseBuf, { t, dur: 0.07, filter: 'bandpass', freq: 2600, freqEnd: 700, Q: 1.8, a: 0.001, d: 0.05, r: 0.04, peak: 0.38 });
+    // two quick leaf-cut flutters trailing the crack
+    noiseBurst(ctx, dest, noiseBuf, { t: t + 0.05, dur: 0.09, filter: 'bandpass', freq: 1500, Q: 1.1, a: 0.004, d: 0.06, r: 0.06, peak: 0.16 });
+    noiseBurst(ctx, dest, noiseBuf, { t: t + 0.11, dur: 0.08, filter: 'bandpass', freq: 1100, Q: 1.2, a: 0.004, d: 0.05, r: 0.06, peak: 0.12 });
+    // green sap body underneath
+    tone(ctx, dest, { type: 'triangle', freq: 320, freqEnd: 180, t: t + 0.01, dur: 0.14, a: 0.004, d: 0.09, r: 0.08, peak: 0.2 });
+  },
 
   // ---- aspect-flavored hits
   fire_small: (ctx, routes, t, noiseBuf) => {
@@ -286,6 +297,13 @@ const RECIPES = {
     const dest = mix(ctx, routes, 0.9, 0.16);
     noiseBurst(ctx, dest, noiseBuf, { t, dur: 0.18, filter: 'bandpass', freq: 1800, freqEnd: 300, Q: 1, a: 0.001, d: 0.1, r: 0.08, peak: 0.3 });
   },
+  // wild-encounter alert: a grass rustle under a short tension riser
+  encounter: (ctx, routes, t, noiseBuf) => {
+    const dest = mix(ctx, routes, 0.9, 0.18);
+    noiseBurst(ctx, dest, noiseBuf, { t, dur: 0.12, filter: 'bandpass', freq: 1900, freqEnd: 2600, Q: 0.8, a: 0.006, d: 0.08, r: 0.06, peak: 0.22 });
+    tone(ctx, dest, { type: 'triangle', freq: 340, freqEnd: 680, t: t + 0.03, dur: 0.22, a: 0.02, d: 0.12, r: 0.1, peak: 0.26 });
+    fmTink(ctx, dest, { t: t + 0.16, freq: 1500, ratio: 2.8, index: 420, dur: 0.14, peak: 0.2 });
+  },
   burst_ready: (ctx, routes, t) => {
     const dest = mix(ctx, routes, 0.85, 0.3);
     [0, 1, 2].forEach((i) => fmTink(ctx, dest, { t: t + i * 0.05, freq: 1200 * Math.pow(1.33, i), ratio: 2.2, index: 700, dur: 0.2, peak: 0.28 }));
@@ -321,6 +339,51 @@ const RECIPES = {
     [MOTIF[0], MOTIF[2], MOTIF[3]].forEach((f, i) => fmTink(ctx, dest, { t: t + 0.15 + i * 0.16, freq: f * 1.5, ratio: 3, index: 450, dur: 0.4, peak: 0.24 }));
   },
 };
+
+// ---------------------------------------------------------------------------
+// Burst aspect layering — audio.js's battle:event listener primes the burst's
+// aspect on 'burstUsed'; the next burst-base one-shot ('burst_fire', or 'song'
+// for song-anim bursts) then layers that aspect's own hit recipe underneath,
+// so every ultimate carries its element instead of one shared whump.
+// ---------------------------------------------------------------------------
+const ASPECT_SFX = {
+  ember: 'fire_big', tide: 'water', bloom: 'bloom', gale: 'wind', terra: 'earth',
+  volt: 'thunder', frost: 'ice', venom: 'venom', lumen: 'light', umbra: 'dark',
+  neutral: 'slash',
+};
+const BURST_ASPECT_TTL_MS = 4000;
+let primedAspect = null;
+let primedAt = -1e9;
+
+/** Called (by audio.js) when a burstUsed battle event arrives. */
+export function primeBurstAspect(aspect) {
+  if (!ASPECT_SFX[aspect]) return;
+  primedAspect = aspect;
+  primedAt = Date.now();
+}
+
+function takePrimedAspect() {
+  if (!primedAspect || Date.now() - primedAt > BURST_ASPECT_TTL_MS) { primedAspect = null; return null; }
+  const a = primedAspect;
+  primedAspect = null;
+  return a;
+}
+
+/** Wrap a base recipe so it also plays the primed aspect's recipe, attenuated. */
+function withAspectLayer(base, layerGain = 0.7) {
+  return (ctx, routes, t, noiseBuf) => {
+    base(ctx, routes, t, noiseBuf);
+    const aspect = takePrimedAspect();
+    const fn = aspect && RECIPES[ASPECT_SFX[aspect]];
+    if (!fn) return;
+    // attenuated sub-routes keep the summed peak inside mix-safety territory
+    const dry = ctx.createGain(); dry.gain.value = layerGain; dry.connect(routes.input);
+    const wet = ctx.createGain(); wet.gain.value = layerGain; wet.connect(routes.verb);
+    fn(ctx, { input: dry, verb: wet }, t + 0.03, noiseBuf);
+  };
+}
+RECIPES.burst_fire = withAspectLayer(RECIPES.burst_fire, 0.7);
+RECIPES.song = withAspectLayer(RECIPES.song, 0.55);
 
 // per-name minimum gap so a lag spike or double bus-emit can't stack a dozen
 // copies of the same one-shot in a single frame.
@@ -385,6 +448,7 @@ let ambientState = null;
 
 function teardownAmbient(state) {
   for (const s of state.sources) {
+    if (!s) continue;
     try { s.src.stop(); } catch (e) { /* already stopped */ }
     try { s.lfo?.stop(); } catch (e) { /* already stopped */ }
     try { s.extra?.stop(); } catch (e) { /* already stopped */ }
@@ -392,9 +456,9 @@ function teardownAmbient(state) {
   for (const id of state.timers) clearTimeout(id);
 }
 
-function scheduleFlourish(state, fn, minSec, maxSec) {
+function scheduleFlourish(state, fn, minSec, maxSec, isLive = () => ambientState === state) {
   const go = () => {
-    if (ambientState !== state) return;
+    if (!isLive()) return;
     const ctx = getCtx();
     if (ctx) { try { fn(ctx); } catch (e) { console.error('[sfx ambient]', e); } }
     state.timers.push(setTimeout(go, (minSec + Math.random() * (maxSec - minSec)) * 1000));
@@ -469,4 +533,94 @@ export function startAmbient(biome, fadeSec = 2.5) {
   const builder = AMBIENT_BUILDERS[biome] || AMBIENT_BUILDERS.meadow;
   try { builder(ctx, gain, getNoiseBuffer(), state); } catch (e) { console.error('[sfx] ambient build failed', e); }
   ambientState = state;
+}
+
+// ---------------------------------------------------------------------------
+// Weather beds — a second looping layer that rides on top of the biome
+// ambient (rain patter, storm roar, snow hush, gloom murmur). Owned by
+// world/weather.js via startWeatherBed/stopWeatherBed; kept separate from
+// ambientState so zone ambience and weather crossfade independently.
+// ---------------------------------------------------------------------------
+let weatherState = null;      // {kind, gain, timers, sources}
+let desiredWeather = null;    // survives until the AudioContext unlocks
+let weatherResumeHooked = false;
+
+const WEATHER_BUILDERS = {
+  rain: (ctx, dest, noiseBuf, state) => {
+    // broadband patter + a high sheen band, both slowly breathing
+    state.sources.push(noiseBed(ctx, dest, noiseBuf, { type: 'lowpass', freq: 2400, Q: 0.5, gain: 0.085, lfoRate: 0.13, lfoDepth: 420 }));
+    state.sources.push(noiseBed(ctx, dest, noiseBuf, { type: 'highpass', freq: 5000, Q: 0.6, gain: 0.03, lfoRate: 0.21, lfoDepth: 800 }));
+    scheduleFlourish(state, (c) => fmTink(c, dest, { t: c.currentTime + 0.02, freq: 2300 + Math.random() * 1300, ratio: 2.1, index: 220, dur: 0.1, peak: 0.035 }), 0.7, 2.0, () => weatherState === state);
+  },
+  storm: (ctx, dest, noiseBuf, state) => {
+    // heavier rain + a low pressure drone; thunder itself stays event-driven
+    state.sources.push(noiseBed(ctx, dest, noiseBuf, { type: 'lowpass', freq: 2000, Q: 0.5, gain: 0.12, lfoRate: 0.17, lfoDepth: 520 }));
+    state.sources.push(noiseBed(ctx, dest, noiseBuf, { type: 'highpass', freq: 4600, Q: 0.6, gain: 0.045, lfoRate: 0.31, lfoDepth: 900 }));
+    state.sources.push(droneBed(ctx, dest, { freq: 52, gain: 0.06, lfoRate: 0.06, lfoDepth: 0.5 }));
+    scheduleFlourish(state, (c) => noiseBurst(c, dest, getNoiseBuffer(), { t: c.currentTime + 0.02, dur: 1.6, filter: 'bandpass', freq: 380, freqEnd: 900, Q: 0.7, a: 0.5, d: 0.6, r: 0.5, peak: 0.09 }), 5, 12, () => weatherState === state);
+  },
+  snow: (ctx, dest, noiseBuf, state) => {
+    // a hushed, airy wind — snow is mostly the absence of sound
+    state.sources.push(noiseBed(ctx, dest, noiseBuf, { type: 'bandpass', freq: 900, Q: 0.5, gain: 0.05, lfoRate: 0.07, lfoDepth: 300 }));
+    state.sources.push(noiseBed(ctx, dest, noiseBuf, { type: 'highpass', freq: 6000, Q: 0.5, gain: 0.014, lfoRate: 0.16, lfoDepth: 1000 }));
+    scheduleFlourish(state, (c) => fmTink(c, dest, { t: c.currentTime + 0.02, freq: 3400 + Math.random() * 800, ratio: 4.4, index: 500, dur: 0.3, peak: 0.03 }), 6, 14, () => weatherState === state);
+  },
+  gloom: (ctx, dest, noiseBuf, state) => {
+    // uneasy low murmur + whispery mid band, sparse dark swells
+    state.sources.push(droneBed(ctx, dest, { freq: 47, gain: 0.055, lfoRate: 0.05, lfoDepth: 0.4 }));
+    state.sources.push(noiseBed(ctx, dest, noiseBuf, { type: 'bandpass', freq: 620, Q: 1.4, gain: 0.035, lfoRate: 0.09, lfoDepth: 160 }));
+    scheduleFlourish(state, (c) => reverseSwell(c, dest, { t: c.currentTime + 0.02, dur: 0.9, freq: 55, peak: 0.05 }), 9, 20, () => weatherState === state);
+  },
+};
+
+/**
+ * Start (or crossfade to) the looping weather bed for `kind`
+ * ('rain'|'storm'|'snow'|'gloom'). Safe before audio unlock: the request is
+ * remembered and starts the moment the context exists.
+ */
+export function startWeatherBed(kind, fadeSec = 3.0) {
+  if (!WEATHER_BUILDERS[kind]) { stopWeatherBed(fadeSec); return; }
+  desiredWeather = kind;
+  const ctx = getCtx();
+  if (!ctx) { hookWeatherResume(); return; }
+  const routes = getSfxRoutes();
+  if (!routes) return;
+  if (weatherState && weatherState.kind === kind) return;
+  const now = ctx.currentTime;
+  const old = weatherState;
+  if (old) {
+    old.gain.gain.cancelScheduledValues(now);
+    old.gain.gain.setValueAtTime(old.gain.gain.value, now);
+    old.gain.gain.linearRampToValueAtTime(0.0001, now + fadeSec);
+    setTimeout(() => teardownAmbient(old), (fadeSec + 0.4) * 1000);
+  }
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0.0001, now);
+  gain.gain.linearRampToValueAtTime(1, now + fadeSec);
+  const dry = ctx.createGain(); dry.gain.value = 0.85; gain.connect(dry); dry.connect(routes.input);
+  const wet = ctx.createGain(); wet.gain.value = 0.3; gain.connect(wet); wet.connect(routes.verb);
+  const state = { kind, gain, timers: [], sources: [] };
+  try { WEATHER_BUILDERS[kind](ctx, gain, getNoiseBuffer(), state); } catch (e) { console.error('[sfx] weather bed build failed', e); }
+  weatherState = state;
+}
+
+/** Fade out and dispose the current weather bed (zone change / clear skies). */
+export function stopWeatherBed(fadeSec = 2.0) {
+  desiredWeather = null;
+  const old = weatherState;
+  weatherState = null;
+  if (!old) return;
+  const ctx = getCtx();
+  if (!ctx) { teardownAmbient(old); return; }
+  const now = ctx.currentTime;
+  old.gain.gain.cancelScheduledValues(now);
+  old.gain.gain.setValueAtTime(old.gain.gain.value, now);
+  old.gain.gain.linearRampToValueAtTime(0.0001, now + fadeSec);
+  setTimeout(() => teardownAmbient(old), (fadeSec + 0.4) * 1000);
+}
+
+function hookWeatherResume() {
+  if (weatherResumeHooked) return;
+  weatherResumeHooked = true;
+  whenReady(() => { if (desiredWeather) startWeatherBed(desiredWeather, 3.5); });
 }

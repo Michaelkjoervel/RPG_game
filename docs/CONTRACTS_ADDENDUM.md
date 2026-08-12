@@ -82,11 +82,14 @@ SHOPS = { shop_brighthollow: {name, stock:[itemId...]}, shop_driftmoor: {...} }
 Music (tracks.js): title, town, meadow, forest, cave, lake, mountain, ruins, spire, glade,
 battle_wild, battle_warden, battle_boss, victory, awakening, gameover
 SFX (sfx.js): ui_move, ui_confirm, ui_cancel, ui_open, ui_close, hit_light, hit_heavy, slash,
-fire_small, fire_big, water, thunder, wind, earth, ice, venom, light, dark, heal, buff, debuff,
-song, faint, catch_throw, catch_shake, catch_success, catch_fail, levelup, awaken, chest,
-item_get, glim, quest_done, sigil, flee, burst_ready, burst_fire, step_grass, step_stone,
-step_wood, step_sand, step_snow, step_water, splash, door, shrine_heal
+bloom, fire_small, fire_big, water, thunder, wind, earth, ice, venom, light, dark, heal, buff,
+debuff, song, faint, catch_throw, catch_shake, catch_success, catch_fail, levelup, awaken,
+chest, item_get, glim, quest_done, sigil, flee, encounter, burst_ready, burst_fire, step_grass,
+step_stone, step_wood, step_sand, step_snow, step_water, splash, door, shrine_heal
 Footstep surfaces: grass, stone, wood, sand, snow, water
+Weather beds (sfx.js startWeatherBed/stopWeatherBed, driven by world/weather.js):
+rain, storm, snow, gloom. Bursts: 'burst_fire'/'song' layer the burst's aspect hit
+underneath, primed via the battle:event burstUsed listener in audio.js.
 
 ## Extra bus events (beyond ARCHITECTURE list)
 `prompt:show {text}`, `prompt:hide`, `sfx:footstep {surface}`, `zone:title {name, sub?}`,

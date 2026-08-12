@@ -14,6 +14,8 @@ import { bus } from '../core/events.js';
 import { settings } from '../core/settings.js';
 import { clamp, clamp01, damp, lerp, TAU } from '../core/math.js';
 import { Particles } from '../gfx/particles.js';
+import { startWeatherBed, stopWeatherBed } from '../audio/sfx.js';
+import { duckMusic } from '../audio/audio.js';
 
 const QUALITY_SCALE = { low: 0.35, med: 0.7, high: 1 };
 
@@ -22,6 +24,11 @@ export function createWeather(zone, scene) {
   if (kind !== 'rain' && kind !== 'storm' && kind !== 'snow' && kind !== 'gloom') {
     return { update() {}, dispose() {} };
   }
+
+  // ---------------------------------------------------------- weather audio
+  // Looping ambient layer (rain patter / storm roar / snow hush / gloom
+  // murmur) lives in sfx.js; started here, faded out on zone change.
+  startWeatherBed(kind, 3.0);
 
   const qScale = QUALITY_SCALE[settings.quality] ?? 1;
   const disposables = []; // {geo?|mat?}
@@ -183,6 +190,7 @@ export function createWeather(zone, scene) {
       bolt.thunderAt -= dt;
       if (bolt.thunderAt <= 0) {
         bolt.thunderAt = -1;
+        duckMusic(0.5, 1.7); // let the thunder own the moment
         bus.emit('ui:sfx', { name: 'thunder' });
       }
     }
@@ -198,6 +206,7 @@ export function createWeather(zone, scene) {
   }
 
   function dispose() {
+    stopWeatherBed(2.0);
     ambientHandle?.stop?.();
     ambientFx?.dispose?.();
     fxLayer?.dispose?.();

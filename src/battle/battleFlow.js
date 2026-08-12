@@ -26,6 +26,7 @@ export async function runBattle(game, config = {}) {
 
     const engine = new BattleEngine(config);
     engine.onEvent = async (ev) => {
+      bus.emit('battle:event', ev); // canonical bus mirror (ARCHITECTURE.md) — audio.js listens
       try { await presentation.handle(ev); } catch (e) { console.error('[battleFlow] presentation handler threw', e); }
       try { await ui.handleEvent(ev); } catch (e) { console.error('[battleFlow] battleUI handler threw', e); }
     };

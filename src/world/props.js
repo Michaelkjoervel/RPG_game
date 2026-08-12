@@ -5,6 +5,11 @@
 //
 // Contract (docs/CONTRACTS_ADDENDUM.md):
 //   buildProps(zone, heightAt) -> { group, colliders, updaters:[fn(dt,time)], dispose() }
+// Additionally exposes `surfacePatches`: oriented rectangles registered by
+// walkable wooden props (bridge planks, dock boards, house floors) so
+// player.js footsteps can resolve step_wood on them —
+//   [{x, z, hx, hz, cos, sin, r2, surface:'wood'}] (cos/sin of the prop yaw,
+//   r2 = squared broad-phase radius).
 import * as THREE from 'three';
 import { windSway } from '../gfx/materials.js';
 import { G } from '../core/state.js';
@@ -43,6 +48,7 @@ export function buildProps(zone, heightAt) {
   group.name = 'props';
   const colliders = [];
   const updaters = [];
+  const surfacePatches = []; // wood-footstep rectangles (see header)
   const disposables = []; // {geo?|mat?|fn?}
 
   // Per-build caches so dispose() is airtight and zones never leak into each other.
@@ -492,6 +498,9 @@ export function buildProps(zone, heightAt) {
     },
     house_small: {
       variants: 2, collider: 2.5, faceCenter: true, sinkY: 0.25,
+      surface: 'wood', surfaceRect: [1.8, 1.55], // plank floor: footprint + doorstep
+
+
       make: (rng) => {
         const wall = rng() > 0.5 ? 0xe8dcc2 : 0xdcd2c0;
         return [
@@ -517,6 +526,8 @@ export function buildProps(zone, heightAt) {
     },
     house_large: {
       variants: 1, collider: 3.6, faceCenter: true, sinkY: 0.3,
+      surface: 'wood', surfaceRect: [2.7, 2.0],
+
       make: () => [
         P(boxG(5.2, 2.6, 3.8), SOLID_S, 0xe8dcc2, [0, 1.3, 0]),
         P(boxG(3.0, 2.0, 3.0), SOLID_S, 0xdcd2c0, [1.8, 3.4, 0]),
@@ -558,6 +569,8 @@ export function buildProps(zone, heightAt) {
     },
     bridge: {
       variants: 1, collider: 0,
+      surface: 'wood', surfaceRect: [2.5, 1.1], // plank span (local x) × width (local z)
+
       make: (rng) => {
         const parts = [];
         const n = 9;
@@ -767,6 +780,8 @@ export function buildProps(zone, heightAt) {
     // ------------------------------------------------------------- water structures
     dock: {
       variants: 1, collider: 0, ground: 'water', faceWater: true,
+      surface: 'wood', surfaceRect: [1.0, 2.4], surfaceOff: [0, 2.3], // boards run +z from the shore
+
       make: (rng) => {
         const parts = [];
         for (let i = 0; i < 6; i++) {
@@ -1155,6 +1170,18 @@ export function buildProps(zone, heightAt) {
       // Colliders + effects per placement.
       for (const pl of bucket) {
         if (def.collider) colliders.push({ x: pl.x, z: pl.z, r: def.collider * pl.s });
+        if (def.surface) {
+          // oriented footstep-surface rectangle (see file header)
+          const [shx, shz] = def.surfaceRect ?? [1, 1];
+          const [ox, oz] = def.surfaceOff ?? [0, 0];
+          const cos = Math.cos(pl.yaw), sin = Math.sin(pl.yaw);
+          const hx = shx * pl.s, hz = shz * pl.s;
+          surfacePatches.push({
+            x: pl.x + (ox * cos + oz * sin) * pl.s,
+            z: pl.z + (-ox * sin + oz * cos) * pl.s,
+            hx, hz, cos, sin, r2: hx * hx + hz * hz, surface: def.surface,
+          });
+        }
         if (def.effect) {
           ctx.count++;
           ctx.yaw = pl.yaw;
@@ -1237,8 +1264,9 @@ export function buildProps(zone, heightAt) {
     matCache.clear();
     pulseMats.length = nightMats.length = nightLights.length = pulseLights.length = 0;
     updaters.length = 0;
+    surfacePatches.length = 0;
     group.clear();
   }
 
-  return { group, colliders, updaters, dispose };
+  return { group, colliders, updaters, surfacePatches, dispose };
 }

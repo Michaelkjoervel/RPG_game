@@ -9,6 +9,8 @@
 //   'zone:enter' {zoneId}    -> zone theme crossfade + ambient bed per biome
 //   'battle:start' / 'transition:battle' (battle mode) -> sting + battle track
 //   'battle:end'             -> victory/gameover flourish, then zone theme
+//   'battle:event'           -> burstUsed primes the burst's aspect layer in
+//                               sfx.js; end{outcome:'flee'} plays the flee sfx
 //   'creature:awakened' / 'sigil:gained' / 'quest:completed' /
 //   'item:gained' / 'glim:changed' -> tasteful, rate-limited accents
 //   'settings:changed'       -> live musicVol/sfxVol
@@ -260,6 +262,26 @@ function endBattleMusic(result) {
 }
 
 // ---------------------------------------------------------------------------
+// Burst aspect resolution — burstUsed events carry the FULL resolved burst
+// definition (engine.js contract), so `burst.aspect` is normally right there;
+// an id-only payload falls back to the BURSTS table in data/abilities.js.
+// ---------------------------------------------------------------------------
+let abilitiesP = null;
+async function resolveBurstAspect(burst) {
+  if (burst && typeof burst === 'object' && burst.aspect) return burst.aspect;
+  const id = typeof burst === 'string' ? burst : burst?.id;
+  if (!id) return null;
+  try {
+    abilitiesP = abilitiesP || import('../data/abilities.js');
+    const { BURSTS } = await abilitiesP;
+    return BURSTS?.[id]?.aspect ?? null;
+  } catch (e) {
+    abilitiesP = null; // allow a later retry
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Bus wiring
 // ---------------------------------------------------------------------------
 function wireBus() {
@@ -299,6 +321,19 @@ function wireBus() {
   });
 
   bus.on('battle:end', (p) => endBattleMusic(p?.result));
+
+  // Fine-grained battle events (battleFlow re-emits the engine's stream).
+  // - burstUsed: resolve the burst's aspect and prime sfx.js so the upcoming
+  //   'burst_fire'/'song' one-shot layers that aspect's hit underneath it.
+  // - end with outcome 'flee': the successful-escape whoosh.
+  bus.on('battle:event', (ev) => {
+    if (!ev?.type) return;
+    if (ev.type === 'burstUsed') {
+      resolveBurstAspect(ev.burst).then((aspect) => { if (aspect) sfx.primeBurstAspect(aspect); });
+    } else if (ev.type === 'end' && ev.result?.outcome === 'flee') {
+      sfx.play('flee');
+    }
+  });
 
   // ---- tasteful accents (rate-limited; sfx.play adds per-name limits too)
   bus.on('sigil:gained', () => sfx.play('sigil'));

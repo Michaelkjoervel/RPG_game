@@ -428,7 +428,28 @@ export function createPlayer(world) {
     if (Math.abs(x - wx) > half || Math.abs(z - wz) > half) return 0;
     return Math.max(0, (w.level ?? 0) - heightAt(x, z));
   }
+  /**
+   * Walkable wooden props (bridges, docks, house floors) register oriented
+   * rectangles in props.js's `surfacePatches`; standing inside one overrides
+   * the biome surface (checked before water so a bridge OVER water still
+   * sounds like planks).
+   */
+  function surfacePatchAt(x, z) {
+    const patches = world.props?.surfacePatches;
+    if (!patches || !patches.length) return null;
+    for (let i = 0; i < patches.length; i++) {
+      const p = patches[i];
+      const dx = x - p.x, dz = z - p.z;
+      if (dx * dx + dz * dz > p.r2) continue; // cheap broad-phase
+      const lx = dx * p.cos - dz * p.sin;     // world -> prop-local
+      const lz = dx * p.sin + dz * p.cos;
+      if (Math.abs(lx) <= p.hx && Math.abs(lz) <= p.hz) return p.surface;
+    }
+    return null;
+  }
   function surfaceAt(x, z, y) {
+    const patch = surfacePatchAt(x, z);
+    if (patch) return patch;
     const depth = waterDepthAt(x, z);
     if (depth > 0.05) return 'water';
     const biome = world.zone?.biome ?? 'meadow';
@@ -515,6 +536,24 @@ export function createPlayer(world) {
   function emitStep() {
     const surface = surfaceAt(group.position.x, group.position.z, group.position.y);
     bus.emit('sfx:footstep', { surface });
+  }
+
+  /* -------- wading: one splash when entering/leaving water level -------- */
+  const WADE_DEPTH = 0.06;
+  let wading = waterDepthAt(group.position.x, group.position.z) > WADE_DEPTH;
+  let splashCd = 0;
+  function pollWading(dt) {
+    splashCd -= dt;
+    // ignore while a wooden patch (bridge/dock) carries us over the water
+    const nowWading = !surfacePatchAt(group.position.x, group.position.z)
+      && waterDepthAt(group.position.x, group.position.z) > WADE_DEPTH;
+    if (nowWading !== wading) {
+      wading = nowWading;
+      if (splashCd <= 0) {
+        splashCd = 0.35;
+        bus.emit('ui:sfx', { name: 'splash' });
+      }
+    }
   }
 
   /* -------- procedural animation -------- */
@@ -709,9 +748,10 @@ export function createPlayer(world) {
       }
     }
 
-    /* --- animation, prompts, follower, save-state mirror --- */
+    /* --- animation, prompts, wading splash, follower, save-state mirror --- */
     animate(dt);
     pollPrompt(dt);
+    pollWading(dt);
     pushTrailPoint(group.position.x, group.position.z);
     updateFollower(dt);
     G.pos.x = group.position.x;
@@ -735,6 +775,7 @@ export function createPlayer(world) {
       group.position.set(x, heightAt(x, z), z);
       prevY = group.position.y;
       vx = 0; vz = 0; speed = 0; vy = 0; wasFalling = false;
+      wading = waterDepthAt(x, z) > WADE_DEPTH; // no splash on teleports
       if (newFace !== undefined) { face = newFace; group.rotation.y = newFace; }
       resetTrail(x, z);
       if (follower) {
