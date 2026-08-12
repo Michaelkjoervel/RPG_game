@@ -1,5 +1,5 @@
 // LUMENFALL — Kindred Codex: unknown/seen/caught grid, detail pane with a live rotating
-// 3D preview (its own small dedicated renderer, disposed on close), lore, stats, awakening
+// 3D preview (one small module-level renderer, reused across opens), lore, stats, awakening
 // chain pips and cry playback. renderCodex(container, opts?) -> { destroy(), setActive(active) }
 import * as THREE from 'three';
 import { bus } from '../core/events.js';
@@ -11,6 +11,16 @@ import { ASPECTS } from '../data/aspects.js';
 
 const sfx = (name) => bus.emit('ui:sfx', { name });
 const cssHex = (n) => (typeof n === 'number' ? `#${n.toString(16).padStart(6, '0')}` : (n || '#c8c2b8'));
+
+// One small preview renderer, created lazily and REUSED for every detail-pane
+// open — a fresh WebGLRenderer per open risks browser context eviction. It
+// lives for the module's lifetime (never disposed / never force-context-lost);
+// per open we just size it and move its canvas into the pane.
+let _previewRenderer = null;
+function getPreviewRenderer() {
+  if (!_previewRenderer) _previewRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  return _previewRenderer;
+}
 
 let _speciesP = null, _speciesListP = null;
 const loadSpecies = () => (_speciesP ??= import('../data/creatures.js').then((m) => m.SPECIES ?? {}).catch(() => ({})));
@@ -238,18 +248,16 @@ export function renderCodex(container, opts = {}) {
       }
     }
 
-    // Dedicated small 3D preview renderer.
+    // Shared small 3D preview renderer (module-level, sized per use).
     const canvasWrap = det.querySelector('.cd-canvas-wrap');
-    const canvas = document.createElement('canvas');
-    canvas.width = 240; canvas.height = 240;
-    canvas.style.cssText = 'width:220px;height:220px;';
-    canvasWrap.appendChild(canvas);
     try {
       const { buildCreature } = await import('../creatures/registry.js');
       if (detailId !== id) return; // closed while loading
-      const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+      const renderer = getPreviewRenderer();
       renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
       renderer.setSize(220, 220, false);
+      renderer.domElement.style.cssText = 'width:220px;height:220px;';
+      canvasWrap.appendChild(renderer.domElement);
       const scene = new THREE.Scene();
       const camera = new THREE.PerspectiveCamera(34, 1, 0.05, 40);
       const hemi = new THREE.HemisphereLight(0x8890c8, 0x141018, 0.7);
@@ -283,7 +291,7 @@ export function renderCodex(container, opts = {}) {
         dispose() {
           cancelAnimationFrame(raf);
           group.traverse((o) => { if (o.isMesh) { o.geometry?.dispose(); (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => m?.dispose()); } });
-          renderer.dispose();
+          renderer.domElement.remove(); // renderer itself stays alive for reuse
         },
       };
     } catch (e) {

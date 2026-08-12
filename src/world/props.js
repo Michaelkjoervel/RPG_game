@@ -101,7 +101,7 @@ export function buildProps(zone, heightAt) {
       depthWrite: opts.depthWrite ?? true,
     });
     if (opts.sway) {
-      try { windSway(m, { strength: opts.sway }); }
+      try { disposables.push({ fn: windSway(m, { strength: opts.sway }) }); } // fn = sway unregister
       catch (e) { warnOnce('windSway unavailable: ' + e.message); }
     }
     if (opts.pulse) pulseMats.push({ m, base: opts.emissiveIntensity ?? 1, amp: opts.pulse.amp ?? 0.4, speed: opts.pulse.speed ?? 1.2, phase: opts.pulse.phase ?? 0 });
@@ -1227,9 +1227,11 @@ export function buildProps(zone, heightAt) {
   });
 
   function dispose() {
+    group.traverse((o) => { if (o.isInstancedMesh) o.dispose(); }); // frees instance attribute buffers
     for (const d of disposables) {
       if (d.geo) d.geo.dispose();
       if (d.mat) d.mat.dispose();
+      if (d.fn) d.fn();
     }
     geoCache.clear();
     matCache.clear();

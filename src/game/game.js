@@ -31,6 +31,11 @@ class Game {
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this._resize();
     window.addEventListener('resize', () => this._resize());
+    bus.on('settings:changed', ({ key, value }) => {
+      if (key !== 'quality') return;
+      this.renderer.shadowMap.enabled = value !== 'low';
+      this._resize(); // re-clamps pixelRatio for the new quality immediately
+    });
   }
 
   _resize() {

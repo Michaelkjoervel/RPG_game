@@ -14,6 +14,7 @@ import { bus } from '../core/events.js';
 import { G } from '../core/state.js';
 import { input } from '../core/input.js';
 import { clamp, clamp01, lerp, damp, dampAngle, shortAngle, TAU } from '../core/math.js';
+import { disposeGroup } from '../gfx/materials.js';
 
 /* ----------------------------- movement tuning ----------------------------- */
 const WALK_SPEED = 3.2;        // u/s — contract value
@@ -338,6 +339,7 @@ export function createPlayer(world) {
   function detachFollower() {
     if (!follower) return;
     world.scene?.remove(follower.group);
+    disposeGroup(follower.group); // registry builds are per-call, safe to free
     follower = null;
   }
   async function buildFollower() {
@@ -761,6 +763,7 @@ export function createPlayer(world) {
       followerToken++; // cancel any in-flight follower build
       detachFollower();
       world.scene?.remove(group);
+      disposeGroup(group); // warden geometries/materials are built per-instance
       if (promptText) bus.emit('prompt:hide');
       if (_current === api) _current = null;
     },

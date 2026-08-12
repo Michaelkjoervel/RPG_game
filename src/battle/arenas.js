@@ -39,6 +39,7 @@ class Bag {
   dispose(group) {
     for (const g of this.geos) g.dispose();
     for (const m of this.mats) m.dispose();
+    for (const l of this.lights) l.dispose?.(); // frees shadow render targets
     for (const h of this.handles) h.stop?.();
     group.traverse((o) => { if (o.isReflector) o.dispose?.(); });
   }

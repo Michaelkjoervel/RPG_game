@@ -1,7 +1,8 @@
 // LUMENFALL — the Awakening cinematic. Fullscreen overlay: rotating light rays,
-// drifting motes, a small dedicated 3D viewport (its own renderer, disposed on
-// close) showing the pre-awakening silhouette flash into the fully-revealed
-// awakened form, then a serif name reveal. Freezing the player / pausing other
+// drifting motes, a small dedicated 3D viewport (one module-level renderer,
+// reused across opens) showing the pre-awakening silhouette flash into the
+// fully-revealed awakened form, then a serif name reveal. Freezing the player /
+// pausing other
 // systems is the CALLER's job (story.js, bagUI's stone-use flow, party.js) —
 // this module only renders and resolves when dismissed.
 //
@@ -14,6 +15,22 @@ import { delay } from '../core/tween.js';
 import { easeOutBack } from '../core/math.js';
 
 const sfx = (name) => bus.emit('ui:sfx', { name });
+
+// One viewport renderer, created lazily and REUSED for every awakening — a
+// fresh WebGLRenderer per open risks browser context eviction. It lives for
+// the module's lifetime (never disposed / never force-context-lost); per open
+// we size it and move its canvas into the stage.
+let _renderer = null;
+function getRenderer() {
+  if (!_renderer) {
+    _renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'low-power' });
+    _renderer.outputColorSpace = THREE.SRGBColorSpace;
+    _renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    _renderer.toneMappingExposure = 1.1;
+    _renderer.domElement.className = 'awk-canvas';
+  }
+  return _renderer;
+}
 
 let _speciesP = null;
 const getSpecies = () =>
@@ -117,7 +134,7 @@ const TEMPLATE = `
   <div class="awk-rays awk-rays-a"></div>
   <div class="awk-rays awk-rays-b"></div>
   <div class="awk-motes"></div>
-  <div class="awk-stage"><canvas class="awk-canvas"></canvas></div>
+  <div class="awk-stage"></div>
   <div class="awk-flash"></div>
   <div class="awk-caption">
     <div class="awk-eyebrow">Awakening</div>
@@ -142,7 +159,6 @@ export async function showAwakening({ mon, fromId, toId } = {}) {
   const titleEl = root.querySelector('.awk-title');
   const flashEl = root.querySelector('.awk-flash');
   const hintEl = root.querySelector('.awk-hint');
-  const canvas = root.querySelector('.awk-canvas');
   const stage = root.querySelector('.awk-stage');
 
   requestAnimationFrame(() => root.classList.add('in'));
@@ -151,14 +167,12 @@ export async function showAwakening({ mon, fromId, toId } = {}) {
   // so a WebGL failure (context limits, etc.) degrades to text-only, never crashes.
   let renderer = null, raf = 0, onResize = null, fromGroup = null, toGroup = null;
   try {
-    renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'low-power' });
-    renderer.outputColorSpace = THREE.SRGBColorSpace;
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.1;
+    renderer = getRenderer(); // shared module-level renderer, sized per use
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     const sizePx = () => Math.max(120, Math.min(stage.clientWidth, stage.clientHeight) || 320);
     let s = sizePx();
     renderer.setSize(s, s, false);
+    stage.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(32, 1, 0.05, 30);
@@ -247,6 +261,6 @@ export async function showAwakening({ mon, fromId, toId } = {}) {
   if (onResize) window.removeEventListener('resize', onResize);
   disposeGroup(fromGroup);
   disposeGroup(toGroup);
-  renderer?.dispose();
+  renderer?.domElement.remove(); // renderer itself stays alive for reuse
   root.remove();
 }

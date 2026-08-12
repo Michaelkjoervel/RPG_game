@@ -8,11 +8,13 @@ import * as THREE from 'three';
 import { G } from '../core/state.js';
 import { clamp, clamp01, damp, dampAngle, lerp, TAU } from '../core/math.js';
 import { hashStr, seededRandom, randInt, pick } from '../core/rng.js';
-import { mat, groundPalette } from '../gfx/materials.js';
+import { mat, groundPalette, disposeGroup } from '../gfx/materials.js';
 import { Particles } from '../gfx/particles.js';
 
 const warned = new Set();
 const warnOnce = (msg) => { if (!warned.has(msg)) { warned.add(msg); console.warn('[wildlife]', msg); } };
+
+const _resolved = [0, 0]; // scratch — resolveRoamCollision runs per roamer per frame
 
 // Day factor: 0 = full night, 1 = full day (matches props.js's convention).
 function daylight(t) {
@@ -312,7 +314,8 @@ export function createWildlife(zone, world) {
       const d2 = dx * dx + dz * dz;
       if (d2 < rr * rr && d2 > 1e-8) { const d = Math.sqrt(d2), push = (rr - d) / d; px += dx * push; pz += dz * push; }
     }
-    return [px, pz];
+    _resolved[0] = px; _resolved[1] = pz;
+    return _resolved;
   }
 
   function moveRoamer(rec, tx, tz, dt, speedMul = 1) {
@@ -341,6 +344,7 @@ export function createWildlife(zone, world) {
         battleBusy = false;
         if (result?.outcome === 'caught') {
           scene.remove(rec.group);
+          disposeGroup(rec.group); // registry builds are per-call, safe to free
           rec.dead = true;
           return;
         }
@@ -427,7 +431,7 @@ export function createWildlife(zone, world) {
     for (const b of birds) scene.remove(b.group);
     for (const b of butterflies) scene.remove(b.group);
     for (const b of bats) scene.remove(b.group);
-    for (const rec of roamers) if (!rec.dead) scene.remove(rec.group);
+    for (const rec of roamers) if (!rec.dead) { scene.remove(rec.group); disposeGroup(rec.group); }
     for (const d of disposables) { d.geo?.dispose?.(); d.mat?.dispose?.(); }
     geoCache.clear();
     roamers.length = 0;

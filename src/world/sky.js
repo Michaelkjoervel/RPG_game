@@ -25,6 +25,7 @@ import { clamp, clamp01, lerp, TAU } from '../core/math.js';
 import { seededRandom, hashStr } from '../core/rng.js';
 
 const INDOOR_BIOMES = new Set(['cave', 'spire']);
+const WHITE = new THREE.Color(0xffffff); // lerp target only — never mutated
 
 // ---------------------------------------------------------------- day/night curve
 // dayTime: 0 = midnight, 0.5 = noon (per docs/ARCHITECTURE.md G.calendar.dayTime).
@@ -298,7 +299,7 @@ export function createSky(zone, scene) {
       domeUniforms.uTop.value.copy(_tc);
       _tc2.copy(colors.night.bottom).lerp(dusk ? colors.dusk.bottom : colors.dawn.bottom, ddw).lerp(colors.day.bottom, dw);
       domeUniforms.uBottom.value.copy(_tc2);
-      domeUniforms.uHorizon.value.copy(_tc2).lerp(new THREE.Color(0xffffff), 0.1 + ddw * 0.12);
+      domeUniforms.uHorizon.value.copy(_tc2).lerp(WHITE, 0.1 + ddw * 0.12);
 
       const sunCol = _tc.copy(colors.sunNight).lerp(dusk ? colors.sunDusk : colors.sunDawn, ddw).lerp(colors.sunNoon, dw);
       domeUniforms.uSunColor.value.copy(sunCol);
@@ -320,7 +321,7 @@ export function createSky(zone, scene) {
       if (clouds) {
         const data = clouds.userData.data, wrap = clouds.userData.wrap;
         const m4 = clouds.userData.m4, q = clouds.userData.q, s = clouds.userData.s;
-        const cloudTint = _tc2.copy(colors.night.top).lerp(colors.day.top, dw).lerp(new THREE.Color(0xffffff), 0.5);
+        const cloudTint = _tc2.copy(colors.night.top).lerp(colors.day.top, dw).lerp(WHITE, 0.5);
         cloudMat.uniforms.uColor.value.copy(cloudTint);
         cloudMat.uniforms.uAlpha.value = lerp(0.18, 0.55, dw);
         for (let i = 0; i < data.length; i++) {
@@ -350,6 +351,7 @@ export function createSky(zone, scene) {
     if (clouds) scene.remove(clouds);
     scene.remove(sunLight, sunLight.target, hemi);
     if (fillLight) scene.remove(fillLight);
+    sunLight.dispose(); // frees the 2048 shadow render target
     for (const d of disposables) { d.geo?.dispose(); d.mat?.dispose(); }
     scene.fog = null;
   }

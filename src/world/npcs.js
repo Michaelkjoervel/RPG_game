@@ -28,7 +28,7 @@ import { bus } from '../core/events.js';
 import { G, hasFlag } from '../core/state.js';
 import { clamp, damp, dampAngle, lerp, TAU } from '../core/math.js';
 import { hashStr, seededRandom } from '../core/rng.js';
-import { windSway } from '../gfx/materials.js';
+import { windSway, disposeGroup } from '../gfx/materials.js';
 
 const INTERACT_RADIUS = 2.3;
 const INTERACT_CONE = Math.cos((50 * Math.PI) / 180); // half-angle cutoff -> ~100deg total talk cone
@@ -573,7 +573,12 @@ export function createNpcs(zone, world) {
   }
 
   function dispose() {
-    for (const rec of records) scene.remove(rec.group);
+    for (const rec of records) {
+      scene.remove(rec.group);
+      // Materials only — every geometry lives in the module-level geoCache on
+      // purpose (reused across zones). Also unregisters sway (capes/coats).
+      disposeGroup(rec.group, { skipCachedGeometries: true });
+    }
     records.length = 0;
     colliders.length = 0;
   }

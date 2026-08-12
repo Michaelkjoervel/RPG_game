@@ -61,7 +61,9 @@ export const TRACKS = {
       },
       melody: {
         voice: 'flute', step: '8n', gain: 0.85,
-        pattern: '.*6 E4 G4 C5*2 . B4 A4*2 . G4 A4 B4 C5*2 . . G4 A4 C5*2 E5*2 D5*2 G5*3 . F#5 E5*2 D5 C5 B4*2 . A4 G4*2 . . .',
+        // beat 17 falls on the D-minor pad chord (D3+F3+A3) — the motif quote's
+        // descent is reharmonized to F5 there so the borrowed F# never clashes.
+        pattern: '.*6 E4 G4 C5*2 . B4 A4*2 . G4 A4 B4 C5*2 . . G4 A4 C5*2 E5*2 D5*2 G5*3 . F5 E5*2 D5 C5 B4*2 . A4 G4*2 . . .',
       },
     },
   },
@@ -81,7 +83,9 @@ export const TRACKS = {
       },
       melody: {
         voice: 'flute', step: '8n', gain: 0.8,
-        pattern: 'G4 A4 B4 . D5 B4 A4 . G4 A4 D5 B4 A4 G4*2 . E5 D5 B4 A4 G4*2 . A4 B4 D5*2 E5*2 D5 B4 A4*2 G4*3',
+        // 18 beats of phrase + 14 beats of rest = exactly 32, so every re-entry
+        // lands back on the G3+D4 downbeat of the pad/bass foundation.
+        pattern: 'G4 A4 B4 . D5 B4 A4 . G4 A4 D5 B4 A4 G4*2 . E5 D5 B4 A4 G4*2 . A4 B4 D5*2 E5*2 D5 B4 A4*2 G4*3 .*28',
       },
       arp: {
         voice: 'arp', step: '16n', gain: 0.26,
@@ -105,7 +109,8 @@ export const TRACKS = {
       },
       flute: {
         voice: 'flute', step: '8n', gain: 0.42,
-        pattern: '.*8 D4 F4 A4*2 .*4 G4 F4 E4*2 .*6 C5 A4 F4*2 .*4 E4 D4*3 .*8',
+        // 23 beats of phrase padded to 32 so the melody re-enters on the chord.
+        pattern: '.*8 D4 F4 A4*2 .*4 G4 F4 E4*2 .*6 C5 A4 F4*2 .*4 E4 D4*3 .*8 .*18',
       },
       bell: {
         voice: 'bell', step: '4n', gain: 0.3,
@@ -149,7 +154,8 @@ export const TRACKS = {
       },
       flute: {
         voice: 'flute', step: '8n', gain: 0.68,
-        pattern: '.*8 G4*2 B4*2 D5*3 . F#5*2 E5*2 D5*3 . B4*2 A4*2 G4*4 .*4 D5*2 C#5*2 B4*3 . A4*2 G4*2 D4*4',
+        // 26 beats of phrase padded to 32 so the melody re-enters on the chord.
+        pattern: '.*8 G4*2 B4*2 D5*3 . F#5*2 E5*2 D5*3 . B4*2 A4*2 G4*4 .*4 D5*2 C#5*2 B4*3 . A4*2 G4*2 D4*4 .*12',
       },
       arp: {
         voice: 'arp', step: '16n', gain: 0.22,
@@ -238,7 +244,8 @@ export const TRACKS = {
       },
       flute: {
         voice: 'flute', step: '8n', gain: 0.6,
-        pattern: '.*8 D5 B4 G4*2 . A4 B4 C5*2 . D5 C5 B4*2 . A4 G4*3 .*4 B4 D5 G5*2 . E5 D5 C5*2 . B4 A4 G4*4',
+        // 23.5 beats of phrase padded to 32 so the melody re-enters on the chord.
+        pattern: '.*8 D5 B4 G4*2 . A4 B4 C5*2 . D5 C5 B4*2 . A4 G4*3 .*4 B4 D5 G5*2 . E5 D5 C5*2 . B4 A4 G4*4 .*17',
       },
       bell: {
         voice: 'bell', step: '4n', gain: 0.3,

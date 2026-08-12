@@ -225,6 +225,7 @@ function voiceFor(name) {
 let layers = [];
 let currentTrackId = null;
 let schedulerHandle = null;
+let returnTimer = null; // pending playOnce return-crossfade (cancelled by any new track)
 const LOOKAHEAD = 0.12;
 const TICK_MS = 25;
 
@@ -286,6 +287,9 @@ function stepPart(ctx, track, cursor, nowPlus, noiseBuf) {
 function schedulerTick() {
   const ctx = getCtx();
   if (!ctx) return;
+  // Idle shutdown: once every layer has faded out and been reaped there is
+  // nothing left to schedule — stop ticking. crossfadeTo/playOnce restart it.
+  if (!layers.length) { stopScheduler(); return; }
   const noiseBuf = getNoiseBuffer();
   const nowPlus = ctx.currentTime + LOOKAHEAD;
   for (const layer of layers) {
@@ -297,6 +301,16 @@ function schedulerTick() {
 function ensureScheduler() {
   if (schedulerHandle) return;
   schedulerHandle = setInterval(schedulerTick, TICK_MS);
+}
+
+function stopScheduler() {
+  if (!schedulerHandle) return;
+  clearInterval(schedulerHandle);
+  schedulerHandle = null;
+}
+
+function cancelReturnTimer() {
+  if (returnTimer) { clearTimeout(returnTimer); returnTimer = null; }
 }
 
 function fadeOutAllLayers(ctx, sec) {
@@ -319,6 +333,9 @@ function fadeOutAllLayers(ctx, sec) {
 /** Crossfade the looping soundscape to `trackId` over `sec` seconds. */
 export function crossfadeTo(trackId, sec = 1.5) {
   if (!TRACKS[trackId]) { console.warn(`[music] unknown track "${trackId}"`); return; }
+  // A new track supersedes any pending playOnce return-crossfade — without
+  // this, a victory jingle's timer would stomp e.g. freshly started battle music.
+  cancelReturnTimer();
   const alreadyPlaying = trackId === currentTrackId && layers.some((l) => l.trackId === trackId && l.active);
   currentTrackId = trackId;
   if (alreadyPlaying) return;
@@ -346,6 +363,7 @@ export function playOnce(trackId, { returnTo, fadeIn = 1.2 } = {}) {
   const routes = getMusicRoutes();
   if (!routes) return;
   ensureScheduler();
+  cancelReturnTimer();
   fadeOutAllLayers(ctx, 0.35);
   const layer = makeLayer(ctx, trackId, routes);
   const now = ctx.currentTime;
@@ -357,10 +375,16 @@ export function playOnce(trackId, { returnTo, fadeIn = 1.2 } = {}) {
   const secPerBeat = 60 / layer.track.tempo;
   const longestBeats = layer.cursors.reduce((m, c) => Math.max(m, c.loopBeats), 4);
   const durMs = Math.max(600, longestBeats * secPerBeat * 1000);
-  setTimeout(() => {
+  const timer = setTimeout(() => {
+    if (returnTimer === timer) returnTimer = null;
     layer.active = false;
-    if (returnTo) crossfadeTo(returnTo, 1.6);
+    layers = layers.filter((l) => l !== layer);
+    // Guard: only return if this once-track is still the current one — if a
+    // new track started meanwhile, crossfadeTo already cancelled this timer,
+    // but currentTrackId is a second line of defense against races.
+    if (returnTo && currentTrackId === trackId) crossfadeTo(returnTo, 1.6);
   }, durMs);
+  returnTimer = timer;
 }
 
 /** Quick musical stab for a battle transition; also dips the music bed. */

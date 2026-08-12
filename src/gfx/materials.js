@@ -3,9 +3,10 @@
 //
 // Exports (pinned — other areas import these; do not rename):
 //   mat(color, opts) -> MeshStandardMaterial   stylized/toonish factory
-//   windSway(material, opts) -> material        cheap time-based vertex sway
+//   windSway(material, opts) -> unregister()    cheap time-based vertex sway
 //   tickWind(dt)                                advances the shared sway clock
 //   groundPalette(biome) -> {grass,grass2,dirt,stone,stoneDark,sand,snow,path}
+//   disposeGroup(group, opts)                   traverse + dispose geos/materials
 //
 // `windSway` is consumed directly by src/world/props.js (foliage/cloth/fronds)
 // and by this module's own `mat({sway})` sugar. It self-registers into a
@@ -26,6 +27,9 @@ let _windClock = 0;
  * plain Meshes) using its own world position as a phase seed, so a whole
  * forest/field never sways in lockstep.
  *   opts: { strength=0.3 (~0..1), speed=1.3, heightScale=3.2 }
+ * Returns an unregister function that removes this material's uniforms from
+ * the shared sway clock — call it when the material is disposed (disposeGroup
+ * does this automatically via `userData.unregisterSway`).
  */
 export function windSway(material, opts = {}) {
   const strength = opts.strength ?? 0.3;
@@ -68,13 +72,49 @@ uniform float uSwayHeight;`,
   material.needsUpdate = true;
   material.userData.isSway = true;
   _swayUniformSets.push(uniforms);
-  return material;
+  const unregister = () => {
+    const i = _swayUniformSets.indexOf(uniforms);
+    if (i !== -1) _swayUniformSets.splice(i, 1);
+  };
+  material.userData.unregisterSway = unregister;
+  return unregister;
 }
 
 /** Advance the shared wind clock — world.js calls this once per frame. */
 export function tickWind(dt) {
   _windClock += dt;
   for (let i = 0; i < _swayUniformSets.length; i++) _swayUniformSets[i].uWindTime.value = _windClock;
+}
+
+// ---------------------------------------------------------------- dispose helper
+/**
+ * Traverse a group and dispose every geometry + material found, each exactly
+ * once. Shared/cached resources are guarded: anything flagged with
+ * `userData.shared = true` or present in the `exclude` set is skipped, and
+ * `skipCachedGeometries: true` skips geometry disposal entirely (for builders
+ * whose geometries live in an intentional module-level cache). Sway materials
+ * are unregistered from the wind clock automatically.
+ *   opts: { skipCachedGeometries=false, exclude: Set|null }
+ */
+export function disposeGroup(group, opts = {}) {
+  if (!group) return;
+  const { skipCachedGeometries = false, exclude = null } = opts;
+  const seen = new Set();
+  group.traverse((o) => {
+    if (!o.isMesh && !o.isPoints && !o.isLine && !o.isSprite) return;
+    const g = o.geometry;
+    if (g && !skipCachedGeometries && !seen.has(g) && !g.userData?.shared && !exclude?.has(g)) {
+      seen.add(g);
+      g.dispose();
+    }
+    const mats = Array.isArray(o.material) ? o.material : o.material ? [o.material] : [];
+    for (const m of mats) {
+      if (!m || seen.has(m) || m.userData?.shared || exclude?.has(m)) continue;
+      seen.add(m);
+      m.userData?.unregisterSway?.();
+      m.dispose();
+    }
+  });
 }
 
 // ---------------------------------------------------------------- material factory
