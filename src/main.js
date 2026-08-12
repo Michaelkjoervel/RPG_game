@@ -28,6 +28,6 @@ boot().catch((e) => {
 window.addEventListener('unhandledrejection', (e) => console.error('[unhandled]', e.reason));
 
 // Debug/test handle (harness + QA drivers). Not referenced by gameplay code.
-Promise.all([import('./core/state.js'), import('./core/input.js')])
-  .then(([{ G }, { input }]) => { window.LF = { game, bus, G, input }; });
+Promise.all([import('./core/state.js'), import('./core/input.js'), import('./core/tween.js')])
+  .then(([{ G }, { input }, tweenMod]) => { window.LF = { game, bus, G, input, tween: tweenMod }; });
 export { game, bus };

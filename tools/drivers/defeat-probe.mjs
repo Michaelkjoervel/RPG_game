@@ -27,6 +27,15 @@ export async function run(page, h) {
   });
   console.log('PROBE1:', JSON.stringify(probe1));
   if (!probe1.defeatShown) return;
+  const live = await page.evaluate(() => new Promise((resolve) => {
+    const out = { rafFrames: 0, delayResolved: false };
+    const t0 = performance.now();
+    const f = () => { out.rafFrames++; if (performance.now() - t0 < 1500) requestAnimationFrame(f); };
+    requestAnimationFrame(f);
+    window.LF.tween.delay(0.4).then(() => { out.delayResolved = true; });
+    setTimeout(() => resolve(out), 1800);
+  }));
+  console.log('LIVENESS:', JSON.stringify(live));
   // manually fire the confirm action from inside the page
   await page.evaluate(() => window.LF.input._fire('confirm'));
   await h.sleep(1500);
