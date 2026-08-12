@@ -26,6 +26,7 @@ import { seededRandom, hashStr } from '../core/rng.js';
 
 const INDOOR_BIOMES = new Set(['cave', 'spire']);
 const WHITE = new THREE.Color(0xffffff); // lerp target only — never mutated
+const CLOUD_DAY = new THREE.Color(0xf2e9d8); // warm off-white daylight cloud body
 
 // ---------------------------------------------------------------- day/night curve
 // dayTime: 0 = midnight, 0.5 = noon (per docs/ARCHITECTURE.md G.calendar.dayTime).
@@ -58,7 +59,10 @@ uniform vec3 uSunDir, uSunColor;
 uniform float uSunAmt;
 void main() {
   float h = clamp(vDir.y, -1.0, 1.0);
-  vec3 col = mix(uHorizon, uTop, smoothstep(0.0, 0.62, h));
+  // Horizon haze hands over to the zenith color quickly (fully by ~13 deg
+  // elevation) so midday skies keep their blue in the band gameplay cameras
+  // actually see, instead of washing to white.
+  vec3 col = mix(uHorizon, uTop, smoothstep(0.0, 0.22, h));
   col = mix(uBottom, col, smoothstep(-0.12, 0.05, h));
   float sunDot = max(dot(vDir, uSunDir), 0.0);
   float disc = smoothstep(0.9985, 0.9997, sunDot);
@@ -112,18 +116,30 @@ void main() {
   vec2 uv = vUv - 0.5;
   float d = length(uv * vec2(1.0, 1.55));
   float a = smoothstep(0.5, 0.05, d);
-  gl_FragColor = vec4(uColor, a * uAlpha);
+  // Gentle top-lit form: lit crown, softly shaded warm-gray underside, so
+  // clouds keep tonal separation from the sky even at bright noon.
+  float shade = mix(0.7, 1.05, smoothstep(0.12, 0.78, vUv.y));
+  gl_FragColor = vec4(uColor * shade, a * uAlpha);
 }`;
 
 function makeColorSet(zone) {
   const top = new THREE.Color(zone.ambient?.skyTop ?? 0x8ecbff);
+  // Deepen the daylight zenith: zone skyTop values are authored bright, and
+  // an un-deepened top washes out entirely at noon. A saturation push plus a
+  // modest lightness cut keeps a real blue overhead (haze stays at the
+  // horizon via uBottom/uHorizon) while preserving each zone's hue identity.
+  const topHSL = { h: 0, s: 0, l: 0 };
+  top.getHSL(topHSL);
+  top.setHSL(topHSL.h, Math.min(1, topHSL.s * 1.15 + 0.05), topHSL.l * 0.82);
   const bottom = new THREE.Color(zone.ambient?.skyBottom ?? 0xdff2e0);
   const sun = new THREE.Color(zone.ambient?.sun ?? 0xfff2d0);
   const night = { top: top.clone().lerp(new THREE.Color(0x060814), 0.86), bottom: bottom.clone().lerp(new THREE.Color(0x141c30), 0.8) };
   const dawn = { top: top.clone().lerp(new THREE.Color(0x87a6d8), 0.35), bottom: bottom.clone().lerp(new THREE.Color(0xffb98a), 0.55) };
   const dusk = { top: top.clone().lerp(new THREE.Color(0x5b4a8a), 0.4), bottom: bottom.clone().lerp(new THREE.Color(0xff9a5c), 0.5) };
   return {
-    day: { top, bottom },
+    // Daylight horizon keeps haze but tinted toward the sky hue, never raw
+    // white — dawn/dusk/night derive from the zone's authored bottom.
+    day: { top, bottom: bottom.clone().lerp(top, 0.28) },
     night,
     dawn,
     dusk,
@@ -227,8 +243,10 @@ export function createSky(zone, scene) {
     for (let i = 0; i < COUNT; i++) {
       const a = cloudRng() * TAU, r = cloudR * (0.4 + cloudRng() * 0.6);
       const x = Math.cos(a) * r, z = Math.sin(a) * r;
-      const y = 26 + cloudRng() * 22;
-      const scale = 10 + cloudRng() * 16;
+      // Kept low enough that a good share of the layer drifts through the
+      // near-horizon band gameplay cameras actually frame.
+      const y = 16 + cloudRng() * 26;
+      const scale = 13 + cloudRng() * 19;
       cloudData.push({ x, y, z, scale, speed: 0.35 + cloudRng() * 0.5 });
       m4.compose(new THREE.Vector3(x, y, z), q, s.set(scale, scale, scale));
       clouds.setMatrixAt(i, m4);
@@ -299,7 +317,7 @@ export function createSky(zone, scene) {
       domeUniforms.uTop.value.copy(_tc);
       _tc2.copy(colors.night.bottom).lerp(dusk ? colors.dusk.bottom : colors.dawn.bottom, ddw).lerp(colors.day.bottom, dw);
       domeUniforms.uBottom.value.copy(_tc2);
-      domeUniforms.uHorizon.value.copy(_tc2).lerp(WHITE, 0.1 + ddw * 0.12);
+      domeUniforms.uHorizon.value.copy(_tc2).lerp(WHITE, 0.05 + ddw * 0.1);
 
       const sunCol = _tc.copy(colors.sunNight).lerp(dusk ? colors.sunDusk : colors.sunDawn, ddw).lerp(colors.sunNoon, dw);
       domeUniforms.uSunColor.value.copy(sunCol);
@@ -321,9 +339,11 @@ export function createSky(zone, scene) {
       if (clouds) {
         const data = clouds.userData.data, wrap = clouds.userData.wrap;
         const m4 = clouds.userData.m4, q = clouds.userData.q, s = clouds.userData.s;
-        const cloudTint = _tc2.copy(colors.night.top).lerp(colors.day.top, dw).lerp(WHITE, 0.5);
+        // Warm off-white by day (never pure white — clouds must separate from
+        // the sky tonally at noon), dim slate at night.
+        const cloudTint = _tc2.copy(colors.night.top).lerp(WHITE, 0.3).lerp(CLOUD_DAY, dw);
         cloudMat.uniforms.uColor.value.copy(cloudTint);
-        cloudMat.uniforms.uAlpha.value = lerp(0.18, 0.55, dw);
+        cloudMat.uniforms.uAlpha.value = lerp(0.18, 0.78, dw);
         for (let i = 0; i < data.length; i++) {
           const c = data[i];
           c.x += cloudDrift.x * c.speed * dt;

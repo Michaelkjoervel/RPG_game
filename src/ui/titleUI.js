@@ -65,6 +65,25 @@ function buildFireflies(count, radius) {
   return new THREE.Points(geo, mat);
 }
 
+// Soft radial-gradient texture for glow sprites. A mapless SpriteMaterial
+// renders as a hard-edged square — this gives the shard's halo a proper
+// falloff so it reads as light, not a bright slab over the menu.
+function makeGlowTexture(size = 128) {
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const ctx = c.getContext('2d');
+  const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  g.addColorStop(0.0, 'rgba(255, 236, 190, 0.9)');
+  g.addColorStop(0.25, 'rgba(255, 220, 150, 0.42)');
+  g.addColorStop(0.55, 'rgba(255, 205, 130, 0.14)');
+  g.addColorStop(1.0, 'rgba(255, 200, 120, 0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, size, size);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 function buildGlowTree(rng) {
   const g = new THREE.Group();
   const trunkMat = new THREE.MeshStandardMaterial({ color: 0x3a2c22, roughness: 0.9, flatShading: true });
@@ -139,8 +158,10 @@ async function buildScene() {
     trees.push(t);
   }
 
-  // Shard crystal centerpiece.
+  // Shard crystal centerpiece — floated high above the glade so its bright
+  // mass and halo sit with the title's star badge, clear of the menu text.
   const crystalGroup = new THREE.Group();
+  crystalGroup.position.y = 1.85;
   const crystalMat = new THREE.MeshStandardMaterial({
     color: 0xffe9b0, emissive: 0xffd166, emissiveIntensity: 1.1, metalness: 0.15, roughness: 0.2, flatShading: true,
   });
@@ -149,9 +170,10 @@ async function buildScene() {
   crystal.castShadow = true;
   crystalGroup.add(crystal);
   const glowSprite = new THREE.Sprite(new THREE.SpriteMaterial({
-    color: 0xffe9b0, transparent: true, opacity: 0.35, depthWrite: false, blending: THREE.AdditiveBlending,
+    map: makeGlowTexture(), color: 0xffe9b0, transparent: true, opacity: 0.5,
+    depthWrite: false, blending: THREE.AdditiveBlending,
   }));
-  glowSprite.scale.setScalar(2.4);
+  glowSprite.scale.setScalar(2.2);
   glowSprite.position.y = 1.0;
   crystalGroup.add(glowSprite);
   scene.add(crystalGroup);
@@ -166,8 +188,8 @@ async function buildScene() {
   const key = new THREE.DirectionalLight(0xb69cff, 0.55);
   key.position.set(-6, 8, 4);
   scene.add(key);
-  const crystalLight = new THREE.PointLight(0xffd166, 1.6, 9, 2);
-  crystalLight.position.set(0, 1.3, 0);
+  const crystalLight = new THREE.PointLight(0xffd166, 2.2, 11, 2);
+  crystalLight.position.set(0, 2.9, 0);
   scene.add(crystalLight);
 
   // Starters idling around the crystal.
@@ -200,8 +222,8 @@ async function buildScene() {
     crystalGroup.rotation.y += dt * 0.22;
     const pulse = 1 + Math.sin(time * 1.6) * 0.05;
     crystal.scale.setScalar(pulse);
-    crystalLight.intensity = 1.4 + Math.sin(time * 1.6) * 0.3;
-    glowSprite.material.opacity = 0.28 + Math.sin(time * 1.6) * 0.08;
+    crystalLight.intensity = 2.0 + Math.sin(time * 1.6) * 0.35;
+    glowSprite.material.opacity = 0.5 + Math.sin(time * 1.6) * 0.1;
     fireflies.material.uniforms.uTime.value = time;
     for (const t of trees) t.userData.canopy.rotation.z = Math.sin(time * 0.6 + t.userData.sway) * 0.05;
     for (const s of starterRigs) s.animator.update?.(dt);

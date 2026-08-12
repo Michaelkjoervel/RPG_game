@@ -16,9 +16,11 @@ import * as kitDefault from '../kit.js';
 
 export function build_vantash(kit = kitDefault) {
   const pal = kit.palette(['umbra']);
-  const fur = kit.mat(0x241f30, { rough: 0.4 });
-  const furLight = kit.mat(0x362c48, { rough: 0.42 });
-  const glowMat = kit.mat(0x9a7fd8, { unlit: true, transparent: true, opacity: 0.7 });
+  // Void-panther fur lifted to a readable dark violet-slate (~10% albedo +
+  // faint violet self-glow) — sleek and shadowy, but never a black blob.
+  const fur = kit.mat(0x5e5484, { rough: 0.4, emissive: 0x262042, emissiveIntensity: 0.5 });
+  const furLight = kit.mat(0x776b9e, { rough: 0.42 });
+  const glowMat = kit.mat(0x9a7fd8, { unlit: true, transparent: true, opacity: 0.75 });
 
   const root = new THREE.Group();
 
@@ -27,14 +29,21 @@ export function build_vantash(kit = kitDefault) {
   root.add(body);
   body.position.y = 0.3;
 
-  // Faint void-glow stripe down the spine.
+  // Faint void-glow stripe down the spine, plus a subtle glow seam along
+  // each flank so the silhouette edge reads even in deep shadow.
   const spineGlow = kit.capsule(0.02, 0.32, glowMat, { capSeg: 3, radSeg: 6 });
   spineGlow.geometry.rotateZ(Math.PI / 2);
   kit.at(body, spineGlow, 0, 0.11, 0);
+  const seamMat = kit.mat(0x9a7fd8, { unlit: true, transparent: true, opacity: 0.35 });
+  for (const sx of [1, -1]) {
+    const seam = kit.capsule(0.008, 0.26, seamMat, { capSeg: 3, radSeg: 5 });
+    seam.geometry.rotateZ(Math.PI / 2);
+    kit.at(body, seam, sx * 0.115, 0.045, 0);
+  }
 
   const head = kit.at(body, kit.blob(0.115, fur, { seed: 160, squash: { x: 0.9, y: 0.85, z: 1.15 } }), 0, 0.06, 0.28);
-  const eyeL = kit.at(head, kit.eye(0.034, { irisColor: 0xc8b0ff, scleraColor: 0x120e1c, skinColor: 0x241f30, glintSize: 0.014 }), 0.07, 0.02, 0.09, { ry: 0.35 });
-  const eyeR = kit.at(head, kit.eye(0.034, { irisColor: 0xc8b0ff, scleraColor: 0x120e1c, skinColor: 0x241f30, glintSize: 0.014 }), -0.07, 0.02, 0.09, { ry: -0.35 });
+  const eyeL = kit.at(head, kit.eye(0.034, { irisColor: 0xc8b0ff, scleraColor: 0x120e1c, skinColor: 0x5e5484, glintSize: 0.014 }), 0.07, 0.02, 0.09, { ry: 0.35 });
+  const eyeR = kit.at(head, kit.eye(0.034, { irisColor: 0xc8b0ff, scleraColor: 0x120e1c, skinColor: 0x5e5484, glintSize: 0.014 }), -0.07, 0.02, 0.09, { ry: -0.35 });
   const earL = kit.at(head, kit.ear(0.055, fur), 0.07, 0.08, -0.01, { rz: 0.2 });
   const earR = kit.at(head, kit.ear(0.055, fur), -0.07, 0.08, -0.01, { rz: -0.2 });
 

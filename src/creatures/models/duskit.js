@@ -14,9 +14,12 @@ import * as kitDefault from '../kit.js';
 
 export function build_duskit(kit = kitDefault) {
   const pal = kit.palette(['umbra']);
-  const skin = kit.mat(0x2e2438, { rough: 0.6 });          // deep twilight-plum plumage
+  // Twilight-plum plumage lifted to a readable dark violet-slate (~10% albedo
+  // + a faint violet self-glow) so the silhouette reads in any light — the
+  // moody identity comes from hue and the pale disc's contrast, not darkness.
+  const skin = kit.mat(0x5b5180, { rough: 0.6, emissive: 0x2a2348, emissiveIntensity: 0.55 });
   const discMat = kit.mat(0xb8b0c4, { rough: 0.5 });       // pale mask-disc
-  const beakMat = kit.mat(0x3a3040, { rough: 0.35 });
+  const beakMat = kit.mat(0x453a56, { rough: 0.35 });
 
   const root = new THREE.Group();
 

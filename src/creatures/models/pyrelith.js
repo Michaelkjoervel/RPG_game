@@ -16,8 +16,11 @@ import * as kitDefault from '../kit.js';
 
 export function build_pyrelith(kit = kitDefault) {
   const pal = kit.palette(['ember', 'terra']);
-  const obsidian = kit.mat(0x1a1714, { rough: 0.35, metal: 0.15 }); // glassy volcanic rock
-  const plate = kit.mat(0x24201d, { rough: 0.5 });
+  // Glassy volcanic rock, lifted out of near-black: warm charcoal with a
+  // faint ember underglow so the heavy silhouette reads, while the magma
+  // cracks/mane carry the real fire (Bible §8: colors must READ).
+  const obsidian = kit.mat(0x453c42, { rough: 0.35, metal: 0.15, emissive: 0x38160a, emissiveIntensity: 0.5 });
+  const plate = kit.mat(0x554a44, { rough: 0.5, emissive: 0x2a1208, emissiveIntensity: 0.35 });
   const magma = kit.mat(pal.primary, { unlit: true, transparent: true, opacity: 0.95 });
 
   const root = new THREE.Group();
@@ -27,6 +30,18 @@ export function build_pyrelith(kit = kitDefault) {
   root.add(body);
   body.position.y = 0.5;
 
+  // Magma crack-seams across the flanks — thin emissive strips of molten
+  // light breaking through the cooled shell, so the obsidian mass glows from
+  // within and the silhouette reads even backlit.
+  const crackDefs = [
+    [0.4, 0.06, 0.2, 0.2, 0.5, 0.3], [-0.42, 0.02, 0.1, 0.24, -0.4, -0.25],
+    [0.38, -0.1, -0.15, 0.18, 0.9, 0.4], [-0.36, -0.06, -0.25, 0.2, -0.8, -0.35],
+    [0.3, 0.14, -0.35, 0.16, 0.3, 0.6], [-0.28, 0.18, 0.34, 0.15, -0.3, -0.5],
+  ];
+  for (const [x, y, z, len, ry, rz] of crackDefs) {
+    kit.at(body, kit.box(0.02, len, 0.014, magma.clone()), x, y, z, { ry, rz });
+  }
+
   // Obsidian back plates — overlapping armor scutes down the spine.
   const plateSpots = [[0, 0.28, 0.2, 0.22], [0, 0.3, -0.02, 0.24], [0, 0.28, -0.25, 0.2], [0, 0.22, -0.42, 0.15]];
   for (const [x, y, z, sz] of plateSpots) {
@@ -35,8 +50,8 @@ export function build_pyrelith(kit = kitDefault) {
 
   const head = kit.at(body, kit.blob(0.22, obsidian, { seed: 10, squash: { x: 1, y: 0.85, z: 1.25 } }), 0, 0.24, 0.44);
 
-  const eyeL = kit.at(head, kit.eye(0.05, { irisColor: 0xff9a3c, scleraColor: 0x2a1c14, skinColor: 0x1a1714, glintSize: 0.018 }), 0.11, 0.03, 0.13, { ry: 0.3 });
-  const eyeR = kit.at(head, kit.eye(0.05, { irisColor: 0xff9a3c, scleraColor: 0x2a1c14, skinColor: 0x1a1714, glintSize: 0.018 }), -0.11, 0.03, 0.13, { ry: -0.3 });
+  const eyeL = kit.at(head, kit.eye(0.05, { irisColor: 0xff9a3c, scleraColor: 0x2a1c14, skinColor: 0x453c42, glintSize: 0.018 }), 0.11, 0.03, 0.13, { ry: 0.3 });
+  const eyeR = kit.at(head, kit.eye(0.05, { irisColor: 0xff9a3c, scleraColor: 0x2a1c14, skinColor: 0x453c42, glintSize: 0.018 }), -0.11, 0.03, 0.13, { ry: -0.3 });
 
   // Crown of embers: a ring of curved horns, each tipped with a small
   // steady ember glow.
@@ -68,7 +83,7 @@ export function build_pyrelith(kit = kitDefault) {
   // each is a self-driving fx object (flicker), so all go into parts.fx.
   const maneSpots = [[0, 0.34, 0.32], [0, 0.4, 0.14], [0, 0.42, -0.06], [0, 0.38, -0.24]];
   const manes = maneSpots.map(([x, y, z], i) => {
-    const f = kit.flame(0.16 - i * 0.015, { seed: 20 + i, colors: [0x8a2a0a, 0xd8571a, 0xffb85c] });
+    const f = kit.flame(0.22 - i * 0.02, { seed: 20 + i, colors: [0xa83a0e, 0xf06a20, 0xffcf70] });
     kit.at(body, f, x, y, z);
     return f;
   });

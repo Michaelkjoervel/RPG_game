@@ -16,18 +16,22 @@ import * as kitDefault from '../kit.js';
 
 export function build_sancturne(kit = kitDefault) {
   const pal = kit.palette(['lumen', 'umbra']);
-  const urnMat = kit.mat(0x5c5468, { rough: 0.55 });
-  const crackMat = kit.mat(0xffe9b0, { unlit: true, transparent: true, opacity: 0.8 });
-  const wispMat = kit.mat(0xcfc0ff, { unlit: true, additive: true, opacity: 0.45, side: THREE.DoubleSide });
-  const wispCore = kit.mat(0xe8e0ff, { unlit: true, transparent: true, opacity: 0.6 });
+  // Urn lifted to a readable violet-slate stone (~14% albedo) and the ghost
+  // wisp made more present — the keeper should read as a figure, not a haze.
+  const urnMat = kit.mat(0x6f6488, { rough: 0.55, emissive: 0x241f38, emissiveIntensity: 0.35 });
+  const crackMat = kit.mat(0xffe9b0, { unlit: true, transparent: true, opacity: 0.95 });
+  const wispMat = kit.mat(0xcfc0ff, { unlit: true, additive: true, opacity: 0.6, side: THREE.DoubleSide });
+  const wispCore = kit.mat(0xe8e0ff, { unlit: true, transparent: true, opacity: 0.75 });
 
   const root = new THREE.Group();
 
   // The reliquary urn — grounded, static, unmoving.
   const urn = kit.bulb(urnMat, { height: 0.32, width: 0.2, neck: 0.3, segments: 12 });
   root.add(urn);
-  const crack = kit.box(0.012, 0.26, 0.006, crackMat);
+  const crack = kit.box(0.014, 0.26, 0.006, crackMat);
   kit.at(urn, crack, 0.13, 0.16, 0.05, { ry: 0.5, rz: 0.06 });
+  const crack2 = kit.box(0.01, 0.16, 0.006, crackMat.clone());
+  kit.at(urn, crack2, -0.12, 0.1, -0.08, { ry: -0.7, rz: -0.1 });
   const urnRimGlow = kit.heartspark(0.03, pal.eye, { seed: 150 });
   kit.at(urn, urnRimGlow, 0, 0.31, 0);
 

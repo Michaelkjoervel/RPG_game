@@ -825,6 +825,15 @@ export function palette(aspectIds = ['neutral']) {
   const b = ASPECTS[ids[1]] || a;
   const primary = new THREE.Color(a.color);
   const secondary = new THREE.Color(b.color);
+  // Umbra species must still READ (Design Bible §8: "colors must READ").
+  // The umbra base is a dark violet-slate pinned to ~12-18% relative
+  // luminance — moody, never near-black — and single-aspect umbra species
+  // get a clearly lighter lavender secondary so every shadow creature has a
+  // readable two-tone to build with instead of black-on-black.
+  if (ids[0] === 'umbra') {
+    primary.set(0x7a6f9e);            // dark violet-slate, ~18% rel-lum
+    if (!ASPECTS[ids[1]]) secondary.set(0xa89ecb); // lighter lavender, ~26% rel-lum
+  }
   const accent = primary.clone().lerp(new THREE.Color(0xffffff), 0.5);
   const eye = ids.length > 1
     ? secondary.clone().lerp(new THREE.Color(0xffffff), 0.3)

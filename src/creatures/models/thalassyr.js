@@ -52,9 +52,11 @@ function bioluminescentSpots(kit, parent, spots, color, seed) {
 
 export function build_thalassyr(kit = kitDefault) {
   const pal = kit.palette(['tide', 'umbra']);
-  const skin = kit.mat(0x121c2c, { rough: 0.35, metal: 0.06 });
-  const belly = kit.mat(0x3a4a5c, { rough: 0.5 });
-  const finMat = kit.mat(0x5c7a9e, { unlit: true, additive: true, opacity: 0.4, side: THREE.DoubleSide });
+  // Abyssal blue-slate lifted out of near-black (~8% albedo + faint deep-sea
+  // self-glow) — vast and moody, but the silhouette and coils always read.
+  const skin = kit.mat(0x3d5378, { rough: 0.35, metal: 0.06, emissive: 0x14243c, emissiveIntensity: 0.55 });
+  const belly = kit.mat(0x60789a, { rough: 0.5 });
+  const finMat = kit.mat(0x5c7a9e, { unlit: true, additive: true, opacity: 0.55, side: THREE.DoubleSide });
   const glowCyan = 0x7ae0e0;
 
   const root = new THREE.Group();
@@ -71,8 +73,8 @@ export function build_thalassyr(kit = kitDefault) {
   kit.at(body, bellyStripe, 0, -0.18, 0);
 
   const head = kit.at(body, kit.blob(0.28, skin, { seed: 190, squash: { x: 0.85, y: 0.8, z: 1.3 } }), 0, 0.08, 0.55);
-  const eyeL = kit.at(head, kit.eye(0.075, { irisColor: 0xcfeeff, pupil: true, scleraColor: 0x081018, skinColor: 0x121c2c, glintSize: 0.026 }), 0.16, 0.03, 0.22, { ry: 0.35 });
-  const eyeR = kit.at(head, kit.eye(0.075, { irisColor: 0xcfeeff, pupil: true, scleraColor: 0x081018, skinColor: 0x121c2c, glintSize: 0.026 }), -0.16, 0.03, 0.22, { ry: -0.35 });
+  const eyeL = kit.at(head, kit.eye(0.075, { irisColor: 0xcfeeff, pupil: true, scleraColor: 0x081018, skinColor: 0x3d5378, glintSize: 0.026 }), 0.16, 0.03, 0.22, { ry: 0.35 });
+  const eyeR = kit.at(head, kit.eye(0.075, { irisColor: 0xcfeeff, pupil: true, scleraColor: 0x081018, skinColor: 0x3d5378, glintSize: 0.026 }), -0.16, 0.03, 0.22, { ry: -0.35 });
 
   // Deep-sea barbels near the jaw.
   const finL = kit.at(head, kit.fin(0.1, finMat), 0.17, -0.06, 0.12, { rx: -0.2, ry: 0.7 });

@@ -46,10 +46,13 @@ function starfield(kit, wingBone, count, spanLen, spanW, seed) {
 
 export function build_nyxmara(kit = kitDefault) {
   const pal = kit.palette(['umbra', 'gale']);
-  const fur = kit.mat(0x171320, { rough: 0.4 });
-  const furLight = kit.mat(0x231d34, { rough: 0.42 });
-  const wingMat = kit.mat(0x2a2440, { rough: 0.3, transparent: true, opacity: 0.92, side: THREE.DoubleSide });
-  const glowMat = kit.mat(0xb09fe0, { unlit: true, transparent: true, opacity: 0.75 });
+  // The night legendary stays the darkest of the umbra set, but lifted to a
+  // readable violet-slate with a faint self-glow — its "night-sky" identity
+  // lives in the starfield wings and glow accents, not in a black mass.
+  const fur = kit.mat(0x4e4472, { rough: 0.4, emissive: 0x241d42, emissiveIntensity: 0.55 });
+  const furLight = kit.mat(0x5c5288, { rough: 0.42 });
+  const wingMat = kit.mat(0x4c4276, { rough: 0.3, transparent: true, opacity: 0.94, side: THREE.DoubleSide, emissive: 0x2a2154, emissiveIntensity: 0.45 });
+  const glowMat = kit.mat(0xb09fe0, { unlit: true, transparent: true, opacity: 0.8 });
 
   const root = new THREE.Group();
 
@@ -63,8 +66,8 @@ export function build_nyxmara(kit = kitDefault) {
   kit.at(body, spineGlow, 0, 0.2, 0);
 
   const head = kit.at(body, kit.blob(0.2, fur, { seed: 180, squash: { x: 0.9, y: 0.85, z: 1.15 } }), 0, 0.1, 0.46);
-  const eyeL = kit.at(head, kit.eye(0.055, { irisColor: 0xd8c8ff, scleraColor: 0x0c0a14, pupil: true, skinColor: 0x171320, glintSize: 0.02 }), 0.11, 0.02, 0.15, { ry: 0.35 });
-  const eyeR = kit.at(head, kit.eye(0.055, { irisColor: 0xd8c8ff, scleraColor: 0x0c0a14, pupil: true, skinColor: 0x171320, glintSize: 0.02 }), -0.11, 0.02, 0.15, { ry: -0.35 });
+  const eyeL = kit.at(head, kit.eye(0.055, { irisColor: 0xd8c8ff, scleraColor: 0x0c0a14, pupil: true, skinColor: 0x4e4472, glintSize: 0.02 }), 0.11, 0.02, 0.15, { ry: 0.35 });
+  const eyeR = kit.at(head, kit.eye(0.055, { irisColor: 0xd8c8ff, scleraColor: 0x0c0a14, pupil: true, skinColor: 0x4e4472, glintSize: 0.02 }), -0.11, 0.02, 0.15, { ry: -0.35 });
   const earL = kit.at(head, kit.ear(0.09, fur), 0.11, 0.13, -0.02, { rz: 0.2 });
   const earR = kit.at(head, kit.ear(0.09, fur), -0.11, 0.13, -0.02, { rz: -0.2 });
   const muzzle = kit.at(head, kit.orb(0.08, furLight, { sz: 1.15, sy: 0.65 }), 0, -0.06, 0.17);

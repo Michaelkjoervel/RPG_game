@@ -35,10 +35,13 @@ function blurFringe(parent, m, count, len, x, y, z, spreadRz) {
 
 export function build_noctyra(kit = kitDefault) {
   const pal = kit.palette(['umbra', 'gale']);
-  const skin = kit.mat(0x3a2c4a, { rough: 0.55 });          // deep dusk purple-blue
+  // Dusk purple-blue lifted to a readable violet-slate (~11% albedo + faint
+  // violet self-glow) — the shadow-blur identity lives in the fringe and hue,
+  // not in a near-black silhouette.
+  const skin = kit.mat(0x625693, { rough: 0.55, emissive: 0x2c2450, emissiveIntensity: 0.5 });
   const discMat = kit.mat(0xa89ec4, { rough: 0.5 });
-  const beakMat = kit.mat(0x2a2034, { rough: 0.35 });
-  const fringeMat = kit.mat(0x241a30, { unlit: true, transparent: true, opacity: 0.4, side: THREE.DoubleSide });
+  const beakMat = kit.mat(0x3d3455, { rough: 0.35 });
+  const fringeMat = kit.mat(0x4a3f6e, { unlit: true, transparent: true, opacity: 0.45, side: THREE.DoubleSide });
 
   const root = new THREE.Group();
 

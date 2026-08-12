@@ -45,7 +45,7 @@ export function build_gloomel(kit = kitDefault) {
   // with a slow-pulsing shadowlight glow.
   const lureStalk = kit.horn(0.24, skin, { baseR: 0.014, tipR: 0.006, bend: -0.15, segments: 6 });
   const lure = kit.at(head, lureStalk, 0, 0.06, 0.05, { rx: -0.25 });
-  const lureGlow = kit.heartspark(0.026, 0x8fb8ff, { seed: 73 });
+  const lureGlow = kit.heartspark(0.032, 0x8fb8ff, { seed: 73 });
   kit.at(lure, lureGlow, 0, 0.235, 0);
 
   // Small barbel fins at the jaw, and a low dorsal fin along the neck.
