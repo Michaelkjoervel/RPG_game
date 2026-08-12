@@ -237,7 +237,9 @@
   background: rgba(4,5,9,0); opacity: 0; pointer-events: none; transition: opacity 320ms ease, background 320ms ease;
 }
 .bui-end.hidden { display: none; }
-.bui-end.show { opacity: 1; pointer-events: auto; background: rgba(4,5,9,.62); backdrop-filter: blur(3px); }
+/* No backdrop-filter here: a full-screen blur over the WebGL canvas collapses
+   framerate on software/low-end renderers. A radial dim reads nearly the same. */
+.bui-end.show { opacity: 1; pointer-events: auto; background: radial-gradient(ellipse at 50% 45%, rgba(4,5,9,.55) 0%, rgba(4,5,9,.8) 100%); }
 .bui-end-card {
   width: min(420px, 88vw); background: var(--slate); border: 1px solid var(--slate-line); border-radius: var(--radius);
   box-shadow: var(--shadow); padding: 26px 30px 22px; text-align: center;

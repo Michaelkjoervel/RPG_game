@@ -72,7 +72,7 @@
 /* ---------------------------------------------------------------- Shared modal shell */
 .modal-scrim {
   position: absolute; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center;
-  background: rgba(8, 9, 15, 0.6); backdrop-filter: blur(3px);
+  background: radial-gradient(ellipse at 50% 45%, rgba(8,9,15,.62) 0%, rgba(8,9,15,.82) 100%);
   animation: fade-in 200ms ease; transition: opacity 220ms ease;
 }
 .modal-scrim.out { opacity: 0; }
