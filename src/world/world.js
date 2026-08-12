@@ -263,6 +263,8 @@ export class World {
   /** Wraps game.startBattle for a wild encounter. Battle owns its own transition overlay. */
   async startWildBattle(speciesId, level, opts = {}) {
     if (!this.zone || this._battleStarting || this.game.mode !== 'overworld') return null;
+    // Never open a battle the player cannot act in (e.g. racing the defeat-heal flow).
+    if (!G.party.some((m) => m && m.hp > 0)) return null;
     this._battleStarting = true;
     try {
       const { makeCreature } = await import('../game/creatures.js');
