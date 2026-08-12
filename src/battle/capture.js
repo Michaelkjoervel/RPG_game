@@ -8,7 +8,7 @@
 export const CHARM_BASE = {
   woven_charm: 0.50,
   glazed_charm: 0.62,
-  gilded_charm: 0.60,
+  gilded_charm: 0.72, // must stay above glazed (0.62) — tier order is price order
   starwoven_charm: 0.85,
 };
 

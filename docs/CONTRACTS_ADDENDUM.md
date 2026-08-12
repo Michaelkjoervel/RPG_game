@@ -109,7 +109,7 @@ One status at a time; later replaces earlier only if target has none. Auras: emb
 (+30% ember dmg, frost −30%), tidesurge (+30% tide, ember −30%), gloom (+30% umbra, lumen −30%).
 
 ## Catching (capture.js)
-Only wild battles. rate = charmBase (woven .50, glazed .62, gilded .60, starwoven .85)
+Only wild battles. rate = charmBase (woven .50, glazed .62, gilded .72, starwoven .85)
 × (1 − 0.7·hp/maxHp) × statusBonus (root/frostbite/shock 1.35, others 1.15) × rarityFactor
 (C 1.0, U .7, R .35, L .12) — clamp .02–.95. 0–3 shake events then result. Hollowed: uncatchable.
 

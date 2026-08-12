@@ -231,7 +231,7 @@ export const SPECIES = {
     habitat: 'Shrine clearings deep in the wood' }),
   duskit: S({ id: 'duskit', name: 'Duskit', aspects: ['umbra'], stage: 1, rarity: 'C',
     growth: 'fast', awakensTo: { id: 'noctyra', level: 21 },
-    w: { vigor: 1.0, might: 0.8, ward: 1.0, focus: 1.2, aegis: 1.1, haste: 1.0 },
+    w: { vigor: 1.0, might: 0.8, ward: 1.0, focus: 1.3, aegis: 1.0, haste: 1.0 },
     learnset: [[1, 'graze'], [1, 'shadowjab'], [5, 'duskclaw'], [9, 'nightguard'], [13, 'eclipseveil'],
       [18, 'voidlash'], [23, 'hollowmend'], [28, 'gloomwave'], [34, 'nightfallcrash']],
     trait: 'unblinkingeye', burst: 'silentmaskgaze', size: 0.4, cry: { pitch: 1.0, timbre: 'hum' },

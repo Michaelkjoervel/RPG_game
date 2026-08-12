@@ -214,7 +214,8 @@ export const NPCS = {
     wanderRadius: 1,
     dialogue: (G) => G.flags.sk_a_beat ? 'dlg_seeker_a_after' : 'dlg_seeker_a_taunt',
     battle: {
-      team: [{ speciesId: 'oozel', level: 16 }, { speciesId: 'oozel', level: 17 }],
+      // Balance: double-oozel's ramping venom walled two starter lines (~20% avg win).
+      team: [{ speciesId: 'sonark', level: 16 }, { speciesId: 'oozel', level: 17 }],
       ai: 'basic', reward: { glim: 70 }, once: 'sk_a_beat',
     },
     postWinDialogue: 'dlg_seeker_a_lose',
