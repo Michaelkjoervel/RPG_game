@@ -4,6 +4,10 @@
 export async function run(page, h) {
   await h.waitFor(`!!window.LF`, 20000);
   await h.sleep(1500);
+  await page.evaluate(() => {
+    document.getElementById('ui-root').style.display = 'none';
+    document.getElementById('boot-screen')?.remove();
+  });
   const batches = await page.evaluate(async () => {
     const { SPECIES_LIST } = await import('/src/data/creatures.js');
     return Math.ceil(SPECIES_LIST.length / 12);
@@ -18,9 +22,9 @@ export async function run(page, h) {
       scene.background = new THREE.Color(0x2a2e40);
       const cam = new THREE.PerspectiveCamera(35, innerWidth / innerHeight, 0.1, 100);
       cam.position.set(0, 6.5, 14); cam.lookAt(0, 0.8, 0);
-      scene.add(new THREE.HemisphereLight(0xdfe8ff, 0x4a4436, 1.0));
-      const sun = new THREE.DirectionalLight(0xfff2d0, 2.2); sun.position.set(4, 8, 6); scene.add(sun);
-      const rim = new THREE.DirectionalLight(0x9ad1ff, 0.9); rim.position.set(-5, 4, -6); scene.add(rim);
+      scene.add(new THREE.HemisphereLight(0xeef2ff, 0x5a5446, 1.6));
+      const sun = new THREE.DirectionalLight(0xfff2d0, 3.2); sun.position.set(4, 8, 6); scene.add(sun);
+      const rim = new THREE.DirectionalLight(0x9ad1ff, 1.4); rim.position.set(-5, 4, -6); scene.add(rim);
       scene.add(new THREE.Mesh(new THREE.CylinderGeometry(14, 14, 0.1, 48), new THREE.MeshStandardMaterial({ color: 0x3d4257 })));
       const animators = [];
       ids.forEach((id, i) => {
@@ -37,7 +41,7 @@ export async function run(page, h) {
           ctx2.fillText(SPECIES[id]?.name ?? id, 128, 34);
           const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), transparent: true }));
           spr.scale.set(2.6, 0.5, 1);
-          spr.position.set((col - 1.5) * 4.2, -0.65, (row - 1) * 4.2 + 1.2);
+          spr.position.set((col - 1.5) * 4.2, 0.3, (row - 1) * 4.2 + 1.7);
           scene.add(spr);
         } catch (e) { console.error('build failed', id, e.message); }
       });
