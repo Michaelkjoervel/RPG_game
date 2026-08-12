@@ -64,6 +64,7 @@
 .hud-compass {
   position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 6;
   width: 58px; height: 58px; display: flex; align-items: center; justify-content: center;
+  opacity: .55; /* ambient wayfinding rune — never competes with the scene */
   transition: opacity 300ms ease, transform 300ms ease;
 }
 .hud-compass.hidden { opacity: 0; transform: translateX(-50%) translateY(-10px); }

@@ -265,7 +265,9 @@ export function createPlayer(world) {
   const spawn = zone?.spawn ?? [G.pos.x ?? 0, G.pos.z ?? 0];
   group.position.set(spawn[0], 0, spawn[1]);
   if (world.heightAt) group.position.y = world.heightAt(spawn[0], spawn[1]);
-  let face = G.pos.face ?? 0;
+  // zone.spawnFace: authored first-view framing for the zone's default spawn
+  // (an explicit portal/teleport spawn overrides this via teleport() right after).
+  let face = zone?.spawnFace ?? G.pos.face ?? 0;
   group.rotation.y = face;
   world.scene?.add(group);
 

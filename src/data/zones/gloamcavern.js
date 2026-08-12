@@ -19,7 +19,9 @@ export const ZONE = {
 
   ambient: {
     skyTop: 0x1c2030, skyBottom: 0x141826,
-    fogColor: 0x171b28, fogDensity: 0.03,
+    // base density authored low: the 'gloom' weather multiplies it ~1.45x at
+    // runtime — 0.013 lands on the intended ~0.018 effective in-game
+    fogColor: 0x171b28, fogDensity: 0.013,
     sun: 0x8fa0c8,
     music: 'cave',
     weather: 'gloom',

@@ -373,7 +373,8 @@ export function initHud() {
   bus.on('prompt:hide', () => el.prompt.classList.remove('show'));
 
   // ---- Letterbox --------------------------------------------------------
-  bus.on('letterbox', ({ on } = {}) => el.lbRoot.classList.toggle('on', !!on));
+  let lbOn = false; // compass hides during cinematic letterbox (see tickCompass)
+  bus.on('letterbox', ({ on } = {}) => { lbOn = !!on; el.lbRoot.classList.toggle('on', lbOn); });
 
   // ---- Battle transition swirl overlay ---------------------------------
   // 'transition:battle' irises the screen to dark (battle intros AND zone
@@ -410,7 +411,7 @@ export function initHud() {
   (function tickCompass() {
     requestAnimationFrame(tickCompass);
     const cam = game?.activeScene?.camera;
-    const show = game?.mode === 'overworld' && !!cam && !root.classList.contains('battle-dim');
+    const show = game?.mode === 'overworld' && !!cam && !lbOn && !root.classList.contains('battle-dim');
     el.compass.classList.toggle('hidden', !show);
     if (!show) return;
     const e = cam.matrixWorld?.elements;

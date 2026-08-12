@@ -17,6 +17,7 @@ export const ZONE = {
     sun: 0xffcf9c,
     music: 'glade',
     weather: 'clear',
+    stars: true, // permanent twilight — sky.js keeps starfields visible at any dayTime
   },
 
   terrain: { kind: 'glade', hills: 0.6, seed: 91 },
@@ -29,6 +30,24 @@ export const ZONE = {
   ],
 
   props: [
+    // — the crater centerpiece: a ring of rune-lit shrine stones at the pool's rim,
+    //   where legend says Aurios first touched down —
+    { kind: 'shrine_stone', at: [0, -21], scale: 1.25 },
+    { kind: 'shrine_stone', at: [19, -19], scale: 0.95 },
+    { kind: 'shrine_stone', at: [21, 0], scale: 1.15 },
+    { kind: 'shrine_stone', at: [19, 19], scale: 0.95 },
+    { kind: 'shrine_stone', at: [0, 21], scale: 1.25 },
+    { kind: 'shrine_stone', at: [-19, 19], scale: 0.95 },
+    { kind: 'shrine_stone', at: [-21, 0], scale: 1.15 },
+    { kind: 'shrine_stone', at: [-19, -19], scale: 0.95 },
+    // — starfall crystal, scattered where shards struck —
+    { kind: 'crystal_cluster', at: [12, -26], scale: 1.1 },
+    { kind: 'crystal_cluster', at: [-26, -12], scale: 1.0 },
+    { kind: 'crystal_cluster', at: [26, 14], scale: 0.95 },
+    { kind: 'crystal_cluster', at: [-14, 27], scale: 1.1 },
+    { kind: 'crystal_cluster', at: [34, -22], scale: 0.9 },
+    { kind: 'crystal_cluster', at: [-36, -20], scale: 1.0 },
+    { kind: 'crystal_cluster', at: [24, 30], scale: 0.85 }, // beside the entry path — first thing the Warden passes
     // — the glow-tree ring around the crater pool —
     { kind: 'tree_glow', at: [0, -28], scale: 1.1 },
     { kind: 'tree_glow', at: [20, -20], scale: 1.05 },
@@ -72,4 +91,5 @@ export const ZONE = {
   ],
 
   spawn: [32, 32],
+  spawnFace: -Math.PI * 0.75, // face the crater pool — the hero view
 };

@@ -6,6 +6,7 @@
 //   createWildlife(zone, world) -> { update(dt), dispose() }
 import * as THREE from 'three';
 import { G } from '../core/state.js';
+import { settings } from '../core/settings.js';
 import { clamp, clamp01, damp, dampAngle, lerp, TAU } from '../core/math.js';
 import { hashStr, seededRandom, randInt, pick } from '../core/rng.js';
 import { mat, groundPalette, disposeGroup } from '../gfx/materials.js';
@@ -60,34 +61,55 @@ export function createWildlife(zone, world) {
   // =================================================================
   const amb = BIOME_AMBIENT[biome] ?? {};
 
+  // Ambient life concentrates around the Warden and drifts with them — the
+  // old zone-wide static fields diluted everything into invisibility (a
+  // handful of motes across a 240u zone reads as a dead world). Particle
+  // fields emit in a tight disc around the player; mesh critters
+  // (birds/butterflies/bats) relocate into a 12–25u annulus when the player
+  // walks away from them. Density scales with the quality setting.
+  const qMul = { low: 0.55, med: 0.8, high: 1 }[settings.quality] ?? 1;
+  const anchor = { x: zone.spawn?.[0] ?? 0, y: 2, z: zone.spawn?.[1] ?? 0 };
+  const AMB_R = Math.min(half * 0.9, 20);       // particle-field radius around the player
+  const NEAR_MIN = 12, NEAR_MAX = 25;           // critter relocation annulus
+  const followers = [];                         // fx.ambient handles whose y-band tracks ground height
+  const followed = (handle, y0, y1) => { followers.push({ handle, y0, y1 }); return handle; };
+  const annulusPoint = (out, rmin = NEAR_MIN, rmax = NEAR_MAX) => {
+    const a = rng() * TAU, r = rmin + rng() * (rmax - rmin);
+    out.x = clamp(anchor.x + Math.cos(a) * r, -half, half);
+    out.z = clamp(anchor.z + Math.sin(a) * r, -half, half);
+    return out;
+  };
+  const _pt = { x: 0, z: 0 }; // scratch for annulusPoint
+
   // ---- floating motes (pollen / spore / dust / ash), biome-tinted
   if (amb.pollen || amb.spore || amb.dust || amb.ash) {
     const color = amb.pollen ? 0xffe9b0 : amb.spore ? palette.grass2 : amb.ash ? 0x8a7a72 : palette.stone;
-    fx.ambient({
-      getCenter: () => ({ x: 0, y: 6, z: 0 }), radius: half * 0.9, y0: 0.3, y1: amb.ash ? 9 : 5,
-      rate: amb.ash ? 3 : 5, life: 10, size: amb.ash ? 0.05 : 0.045, color, color2: null,
+    followed(fx.ambient({
+      getCenter: () => anchor, radius: AMB_R, y0: 0.3, y1: amb.ash ? 9 : 5,
+      rate: (amb.ash ? 4 : 7) * qMul, life: 10, size: amb.ash ? 0.05 : 0.045, color, color2: null,
       vel: { x: 0.05, y: amb.ash ? 0.35 : 0.06, z: 0.03 }, sway: 0.35, additive: !amb.dust,
-    });
+    }), 0.3, amb.ash ? 9 : 5);
   }
 
   // ---- fireflies (dusk/night or always, per biome)
   let fireflyHandle = null, fireflyActive = false;
+  const FIREFLY_RATE = 8 * qMul;
   if (amb.fireflies) {
-    fireflyHandle = fx.ambient({
-      getCenter: () => ({ x: 0, y: 1.2, z: 0 }), radius: half * 0.85, y0: 0.3, y1: 2.2,
-      rate: 0, life: 3.2, size: 0.045, color: 0xdfffb0, color2: 0xffe9b0,
+    fireflyHandle = followed(fx.ambient({
+      getCenter: () => anchor, radius: Math.min(half * 0.85, 15), y0: 0.3, y1: 2.2,
+      rate: 0, life: 3.6, size: 0.09, color: 0xdfffb0, color2: 0xffe9b0,
       vel: { x: 0, y: 0.05, z: 0 }, sway: 0.9, additive: true,
-    });
+    }), 0.3, 2.2);
     fireflyHandle.opts.flicker = true;
   }
 
   // ---- falling leaves (forest)
   if (amb.leaves) {
-    fx.ambient({
-      getCenter: () => ({ x: 0, y: 10, z: 0 }), radius: half * 0.9, y0: 0, y1: 11,
-      rate: 2.2, life: 6, size: 0.09, color: palette.grass, color2: palette.dirt,
+    followed(fx.ambient({
+      getCenter: () => anchor, radius: AMB_R, y0: 0, y1: 11,
+      rate: 3 * qMul, life: 6, size: 0.09, color: palette.grass, color2: palette.dirt,
       vel: { x: 0.15, y: -0.5, z: 0.1 }, sway: 0.8, additive: false,
-    });
+    }), 0, 11);
   }
 
   // ---- fish ripples (any zone with visible water)
@@ -109,7 +131,7 @@ export function createWildlife(zone, world) {
   const birdMat = amb.birds ? matOwned(lerpHex(0x8a6a48, 0x4a4038, rng()), { rough: 0.85 }) : null;
   const birds = [];
   if (amb.birds) {
-    const n = 3 + Math.floor(rng() * 3);
+    const n = Math.max(2, Math.round((3 + Math.floor(rng() * 3)) * qMul));
     for (let i = 0; i < n; i++) birds.push(spawnBird(i));
   }
   function buildBirdGeo() {
@@ -137,6 +159,18 @@ export function createWildlife(zone, world) {
   }
   function updateBirds(dt, playerPos) {
     for (const b of birds) {
+      // Drift with the traveling player: a bird left >34u behind quietly
+      // rehomes into the 12–25u annulus ahead (far enough to never pop on-screen).
+      if (playerPos) {
+        const hx = b.home.x - playerPos.x, hz = b.home.z - playerPos.z;
+        if (hx * hx + hz * hz > 34 * 34 && b.state !== 'flee') {
+          annulusPoint(_pt);
+          b.home.x = _pt.x; b.home.z = _pt.z;
+          b.x = _pt.x; b.z = _pt.z;
+          b.state = 'perch'; b.t = 1 + rng() * 2; b.hopTarget = null;
+          b.group.position.set(b.x, heightAt(b.x, b.z) + b.baseY, b.z);
+        }
+      }
       const dx = (playerPos ? playerPos.x - b.x : 999), dz = (playerPos ? playerPos.z - b.z : 999);
       const nearPlayer = dx * dx + dz * dz < 10;
       if (b.state !== 'flee' && nearPlayer) {
@@ -182,14 +216,15 @@ export function createWildlife(zone, world) {
   if (amb.butterflies) {
     const wingM = matOwned(pick([0xffd94f, 0xff9fb0, 0xb0a8ff, 0xffffff, 0xffb85c], rng), { rough: 0.6, side: THREE.DoubleSide, emissive: 0x221a10, emissiveIntensity: 0.05 });
     const wingGeo = geo('butterfly_wing', () => new THREE.CircleGeometry(0.055, 8, 0, Math.PI));
-    const n = 4 + Math.floor(rng() * 4);
+    const n = Math.max(2, Math.round((4 + Math.floor(rng() * 4)) * qMul));
     for (let i = 0; i < n; i++) {
       const g = new THREE.Group();
       const wL = new THREE.Mesh(wingGeo, wingM); wL.rotation.y = Math.PI / 2; wL.position.x = -0.005;
       const wR = new THREE.Mesh(wingGeo, wingM); wR.rotation.y = -Math.PI / 2; wR.position.x = 0.005;
       g.add(wL, wR);
-      const a = rng() * TAU, r = rng() * half * 0.75;
-      const x = Math.cos(a) * r, z = Math.sin(a) * r;
+      // seed the flock near the spawn point — the player's first view has life in it
+      const a = rng() * TAU, r = 3 + rng() * 11;
+      const x = clamp(anchor.x + Math.cos(a) * r, -half, half), z = clamp(anchor.z + Math.sin(a) * r, -half, half);
       g.position.set(x, heightAt(x, z) + 0.9 + rng() * 0.8, z);
       scene.add(g);
       butterflies.push({ group: g, wL, wR, x, z, y: g.position.y, target: null, phase: rng() * TAU, speed: 0.55 + rng() * 0.35 });
@@ -200,9 +235,21 @@ export function createWildlife(zone, world) {
       b.phase += dt * 11;
       const flap = Math.sin(b.phase) * 0.85 + 0.85;
       b.wL.rotation.z = flap; b.wR.rotation.z = -flap;
+      // left far behind the traveling player? rehome into the near annulus
+      const pdx = b.x - anchor.x, pdz = b.z - anchor.z;
+      if (pdx * pdx + pdz * pdz > 30 * 30) {
+        annulusPoint(_pt);
+        b.x = _pt.x; b.z = _pt.z;
+        b.y = heightAt(b.x, b.z) + 0.9 + rng() * 0.8;
+        b.target = null;
+      }
       if (!b.target || Math.hypot(b.target.x - b.x, b.target.z - b.z) < 0.3) {
-        const a = rng() * TAU, r = rng() * half * 0.75;
-        b.target = { x: Math.cos(a) * r, z: Math.sin(a) * r, y: heightAt(Math.cos(a) * r, Math.sin(a) * r) + 0.7 + rng() * 1.0 };
+        // wander targets stay within ~15u of the player so the flutter is
+        // always where the camera is
+        const a = rng() * TAU, r = 2 + rng() * 13;
+        const tx = clamp(anchor.x + Math.cos(a) * r, -half, half);
+        const tz = clamp(anchor.z + Math.sin(a) * r, -half, half);
+        b.target = { x: tx, z: tz, y: heightAt(tx, tz) + 0.7 + rng() * 1.0 };
       }
       const dx = b.target.x - b.x, dz = b.target.z - b.z, dy = b.target.y - b.y;
       const d = Math.hypot(dx, dz) || 1;
@@ -220,7 +267,7 @@ export function createWildlife(zone, world) {
     const batMat = matOwned(0x2a2630, { rough: 0.9, side: THREE.DoubleSide });
     const bodyGeo = geo('bat_body', () => new THREE.SphereGeometry(0.045, 5, 4));
     const wingGeo = geo('bat_wing', () => new THREE.CircleGeometry(0.11, 6, -0.5, 2.1));
-    const n = 4 + Math.floor(rng() * 3);
+    const n = Math.max(2, Math.round((4 + Math.floor(rng() * 3)) * qMul));
     for (let i = 0; i < n; i++) {
       const g = new THREE.Group();
       const body = new THREE.Mesh(bodyGeo, batMat); body.scale.set(1, 0.8, 1.6);
@@ -237,6 +284,9 @@ export function createWildlife(zone, world) {
   }
   function updateBats(dt) {
     for (const b of bats) {
+      // circle centers drift with the traveling player (rehome when far off-screen)
+      const cdx = b.center.x - anchor.x, cdz = b.center.z - anchor.z;
+      if (cdx * cdx + cdz * cdz > 32 * 32) annulusPoint(b.center, 8, 18);
       b.phase += dt * b.speed;
       b.flap += dt * 14;
       const wob = Math.sin(b.phase * 2.3) * 0.6;
@@ -411,9 +461,18 @@ export function createWildlife(zone, world) {
     const player = world.player;
     const ppos = player?.pos ?? null;
 
+    // keep the ambient-life anchor glued to the Warden (particle fields emit
+    // around it; the y-band follows the ground height under the player)
+    if (ppos) { anchor.x = ppos.x; anchor.y = ppos.y; anchor.z = ppos.z; }
+    for (let i = 0; i < followers.length; i++) {
+      const f = followers[i];
+      f.handle.opts.y0 = anchor.y + f.y0;
+      f.handle.opts.y1 = anchor.y + f.y1;
+    }
+
     if (fireflyHandle) {
       const want = amb.fireflies === 'always' ? true : (1 - daylight(G.calendar?.dayTime ?? 0.5)) > 0.45;
-      if (want !== fireflyActive) { fireflyActive = want; fireflyHandle.rate = want ? 4 : 0; }
+      if (want !== fireflyActive) { fireflyActive = want; fireflyHandle.rate = want ? FIREFLY_RATE : 0; }
     }
 
     if (amb.birds) updateBirds(dt, ppos);

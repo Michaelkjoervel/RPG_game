@@ -42,6 +42,17 @@ export const ZONE = {
     { kind: 'mushroom_giant', at: [-42, 30], scale: 1.1 },
     { kind: 'mushroom_cluster', density: 0.5, area: [-36, 34, 16] },
     { kind: 'fern', density: 0.4, area: [-36, 34, 20] },
+    // — the grove spills onto the main trail: mushrooms all along the walk so the
+    //   wood's identity is visible from the south gate to the cavern gate —
+    { kind: 'mushroom_cluster', density: 0.4, area: [4, 90, 16] },
+    { kind: 'mushroom_cluster', density: 0.38, area: [14, 62, 15] },
+    { kind: 'mushroom_cluster', density: 0.36, area: [32, 38, 16] },
+    { kind: 'mushroom_cluster', density: 0.36, area: [62, 16, 16] },
+    { kind: 'mushroom_cluster', density: 0.32, area: [96, 6, 14] },
+    { kind: 'mushroom_giant', at: [-4, 84], scale: 1.0 },
+    { kind: 'mushroom_giant', at: [18, 52], scale: 1.15 },
+    { kind: 'mushroom_giant', at: [46, 28], scale: 0.95 },
+    { kind: 'mushroom_giant', at: [84, 4], scale: 1.1 },
     // — Keeper Liora's light-shaft glade —
     { kind: 'shrine_stone', at: [52, -35], scale: 1.15 },
     { kind: 'shrine_stone', at: [46, -33], scale: 0.85 },
@@ -81,6 +92,7 @@ export const ZONE = {
     { kind: 'rock_mossy', at: [70, -60] },
     { kind: 'rock_mossy', at: [-60, 70] },
     { kind: 'stump', at: [0, 40] },
+    { kind: 'log', at: [14, 87], rot: Math.PI / 3 }, // beside the spawn trail — mossy fallen trunk greets the walk in
     { kind: 'log', at: [-10, -10], rot: Math.PI / 4 },
     { kind: 'fence', at: [0, 108], rot: 0 },
     { kind: 'fence', at: [12, 108], rot: 0 },

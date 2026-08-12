@@ -19,7 +19,7 @@ export const ZONE = {
 
   ambient: {
     skyTop: 0x9aa8b8, skyBottom: 0xc7d0c2,
-    fogColor: 0xaab4ac, fogDensity: 0.014,
+    fogColor: 0x8fa39b, fogDensity: 0.014, // cooled so pale stone separates from the sky
     sun: 0xe4e8d8,
     music: 'ruins',
     weather: 'clear',
@@ -40,6 +40,17 @@ export const ZONE = {
   ],
 
   props: [
+    // — the south gate approach: broken colonnade framing the spawn sightline —
+    // (hand-placed so the first view north is unmistakably "drowned temple",
+    //  never an empty lot; the broken arch is the landmark over the main path)
+    { kind: 'ruin_arch', at: [0, 76], rot: 0, scale: 1.15 },      // broken-arch landmark straddling the path
+    { kind: 'ruin_pillar', at: [-7, 84], scale: 1.1 },
+    { kind: 'ruin_pillar', at: [8, 88], scale: 0.9 },
+    { kind: 'ruin_wall', at: [-13, 70], rot: 0.35 },
+    { kind: 'ruin_wall', at: [14, 79], rot: -0.5, scale: 0.9 },
+    { kind: 'ruin_pillar', at: [-11, 94], scale: 0.85 },
+    { kind: 'rock_mossy', at: [5, 80] },
+    { kind: 'fern', density: 0.35, area: [0, 80, 16] },
     // — flooded colonnaded terraces —
     { kind: 'ruin_arch', at: [-18, 60], rot: Math.PI / 2 },
     { kind: 'ruin_arch', at: [18, 60], rot: -Math.PI / 2 },
@@ -111,4 +122,5 @@ export const ZONE = {
   ],
 
   spawn: [0, 90],
+  spawnFace: Math.PI, // face north — down the colonnade into the drowned terraces
 };

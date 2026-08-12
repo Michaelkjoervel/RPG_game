@@ -161,25 +161,33 @@ export function buildProps(zone, heightAt) {
   const P = (g, m, tint, off = [0, 0, 0], scl = 1, rot = [0, 0, 0], jit = 0.06, shadow = true) =>
     ({ g, m, tint, off, scl, rot, jit, shadow });
 
+  // Canopy hue variation: ~±12° per instance (0.034 turns) so neighbouring
+  // trees never read as copy-paste, while lightness keeps a wider ±0.09 band.
+  // (part.jitH — when set — overrides part.jit for the HUE axis only.)
+  const CANOPY_HUE_JIT = 0.034;
+
   function canopyStack(rng, mat, tints, n, r0, y0, spread) {
     const parts = [];
     for (let i = 0; i < n; i++) {
       const t = n === 1 ? 0 : i / (n - 1);
       const r = r0 * lerp(1, 0.55, t) * (0.85 + rng() * 0.3);
       const a = rng() * TAU, rad = spread * (1 - t) * rng();
-      parts.push(P(blobG(1, 100 + i * 17, 0.3), mat, tints[i % tints.length],
-        [Math.cos(a) * rad, y0 + t * r0 * 1.6 + r * 0.4, Math.sin(a) * rad], [r, r * 0.85, r], [0, rng() * TAU, 0], 0.08));
+      const p = P(blobG(1, 100 + i * 17, 0.3), mat, tints[i % tints.length],
+        [Math.cos(a) * rad, y0 + t * r0 * 1.6 + r * 0.4, Math.sin(a) * rad], [r, r * 0.85, r], [0, rng() * TAU, 0], 0.09);
+      p.jitH = CANOPY_HUE_JIT;
+      parts.push(p);
     }
     return parts;
   }
+  const asCanopy = (p) => { p.jitH = CANOPY_HUE_JIT; return p; };
 
   const KINDS = {
     // ------------------------------------------------------------- trees
     tree_oak: {
       variants: 3, collider: 0.55, cluster: true,
       make: (rng) => [
-        P(cylG(0.14, 0.26, 1.7, 6), SOLID, 0x6b4a33, [0, 0.85, 0], 1, [0, 0, (rng() - 0.5) * 0.12]),
-        P(cylG(0.07, 0.11, 0.9, 5), SOLID, 0x6b4a33, [0.25, 1.55, 0.1], 1, [0, 0, -0.7]),
+        P(cylG(0.14, 0.26, 1.7, 6), SOLID, 0x5d3f2b, [0, 0.85, 0], 1, [0, 0, (rng() - 0.5) * 0.12]),
+        P(cylG(0.07, 0.11, 0.9, 5), SOLID, 0x5d3f2b, [0.25, 1.55, 0.1], 1, [0, 0, -0.7]),
         ...canopyStack(rng, FOLIAGE, [0x4f9e4f, 0x63b356, 0x7ec850], 4, 1.15, 1.9, 0.7),
       ],
     },
@@ -187,15 +195,15 @@ export function buildProps(zone, heightAt) {
       variants: 2, collider: 0.5, cluster: true,
       make: (rng) => [
         P(cylG(0.1, 0.2, 1.4, 6), SOLID, 0x5d4130, [0, 0.7, 0]),
-        P(coneG(1.25, 1.7, 8), FOLIAGE, 0x2f6b46, [0, 1.9, 0], [1, 1, 1], [0, rng() * TAU, 0]),
-        P(coneG(0.95, 1.5, 8), FOLIAGE, 0x37784e, [0, 2.85, 0], 1, [0, rng(), 0]),
-        P(coneG(0.62, 1.3, 8), FOLIAGE, 0x418a58, [0, 3.7, 0], 1, [0, rng() * 2, 0]),
+        asCanopy(P(coneG(1.25, 1.7, 8), FOLIAGE, 0x2f6b46, [0, 1.9, 0], [1, 1, 1], [0, rng() * TAU, 0])),
+        asCanopy(P(coneG(0.95, 1.5, 8), FOLIAGE, 0x37784e, [0, 2.85, 0], 1, [0, rng(), 0])),
+        asCanopy(P(coneG(0.62, 1.3, 8), FOLIAGE, 0x418a58, [0, 3.7, 0], 1, [0, rng() * 2, 0])),
       ],
     },
     tree_birch: {
       variants: 2, collider: 0.32, cluster: true,
       make: (rng) => [
-        P(cylG(0.08, 0.13, 2.3, 6), SOLID, 0xe8e2d4, [0, 1.15, 0], 1, [0, 0, (rng() - 0.5) * 0.1]),
+        P(cylG(0.08, 0.13, 2.3, 6), SOLID, 0xd6cfbe, [0, 1.15, 0], 1, [0, 0, (rng() - 0.5) * 0.1]),
         P(boxG(0.16, 0.08, 0.05), SOLID, 0x3a3a38, [0.02, 0.8, 0.09]),
         P(boxG(0.14, 0.07, 0.05), SOLID, 0x3a3a38, [-0.04, 1.6, 0.08], 1, [0, 0.5, 0]),
         ...canopyStack(rng, FOLIAGE, [0x8fce62, 0xa5d86e, 0x79bd58], 3, 0.85, 2.3, 0.45),
@@ -206,12 +214,12 @@ export function buildProps(zone, heightAt) {
       make: (rng) => {
         const parts = [
           P(cylG(0.16, 0.3, 1.6, 6), SOLID, 0x6a5540, [0, 0.8, 0], 1, [0, 0, 0.12]),
-          P(blobG(1, 300, 0.22), FOLIAGE2, 0x5f9e57, [0, 2.3, 0], [1.5, 0.9, 1.5]),
+          asCanopy(P(blobG(1, 300, 0.22), FOLIAGE2, 0x5f9e57, [0, 2.3, 0], [1.5, 0.9, 1.5])),
         ];
         for (let i = 0; i < 9; i++) {
           const a = (i / 9) * TAU + rng() * 0.4;
-          parts.push(P(planeG(0.22, 1.5), FROND, 0x6fb35f,
-            [Math.cos(a) * 1.35, 1.65, Math.sin(a) * 1.35], [1, 0.8 + rng() * 0.5, 1], [0, -a + Math.PI / 2, 0], 0.1, false));
+          parts.push(asCanopy(P(planeG(0.22, 1.5), FROND, 0x6fb35f,
+            [Math.cos(a) * 1.35, 1.65, Math.sin(a) * 1.35], [1, 0.8 + rng() * 0.5, 1], [0, -a + Math.PI / 2, 0], 0.1, false)));
         }
         return parts;
       },
@@ -440,10 +448,22 @@ export function buildProps(zone, heightAt) {
     },
     log: {
       variants: 2, collider: 0.35,
+      // A real fallen trunk: rounder body, bark ridge, and proper sawn end
+      // faces with growth rings on BOTH ends (the old single dark cylinder
+      // read as a flat smear on the forest floor).
       make: (rng) => [
-        P(cylG(0.22, 0.26, 1.9, 7), SOLID, 0x715039, [0, 0.24, 0], 1, [0, 0, Math.PI / 2]),
-        P(cylG(0.21, 0.21, 0.03, 7), SOLID_S, 0xc9a878, [0.97, 0.24, 0], 1, [0, 0, Math.PI / 2]),
-        P(blobG(1, 530, 0.2), FOLIAGE2, 0x5c8a4a, [-0.3, 0.42, 0], [0.35, 0.14, 0.28], [0, 0, 0], 0.1, false),
+        P(cylG(0.23, 0.27, 1.9, 9), SOLID, 0x8a6647, [0, 0.27, 0], 1, [0, 0, Math.PI / 2]),
+        P(boxG(1.6, 0.06, 0.09), SOLID, 0x6f5138, [0, 0.5, 0.04], 1, [0, 0, 0], 0.04, false),
+        // +X end: pale disc, darker growth ring, heartwood dot
+        P(cylG(0.24, 0.24, 0.025, 9), SOLID_S, 0xcfa87a, [0.96, 0.27, 0], 1, [0, 0, Math.PI / 2], 0, false),
+        P(cylG(0.155, 0.155, 0.032, 9), SOLID_S, 0xa8804e, [0.96, 0.27, 0], 1, [0, 0, Math.PI / 2], 0, false),
+        P(cylG(0.06, 0.06, 0.038, 8), SOLID_S, 0x7d5b38, [0.96, 0.27, 0], 1, [0, 0, Math.PI / 2], 0, false),
+        // -X end (slightly narrower — the trunk tapers)
+        P(cylG(0.245, 0.245, 0.025, 9), SOLID_S, 0xc9a06f, [-0.96, 0.27, 0], 1, [0, 0, Math.PI / 2], 0, false),
+        P(cylG(0.15, 0.15, 0.032, 9), SOLID_S, 0x9e7644, [-0.96, 0.27, 0], 1, [0, 0, Math.PI / 2], 0, false),
+        // snapped branch stub + moss saddle
+        P(cylG(0.05, 0.07, 0.32, 5), SOLID, 0x6b4a33, [0.35, 0.5, 0.06], 1, [0.9, 0, 0.5], 0.05, false),
+        P(blobG(1, 530, 0.2), FOLIAGE2, 0x5c8a4a, [-0.35, 0.47, 0], [0.4, 0.14, 0.3], [0, 0, 0], 0.1, false),
       ],
     },
     // ------------------------------------------------------------- town & structures
@@ -477,9 +497,14 @@ export function buildProps(zone, heightAt) {
     },
     shrine_stone: {
       variants: 2, collider: 0.5,
+      // Two-tone stonework: darker footing + bevel lip, mid-tone monolith with
+      // a chiseled shadow edge and a pale capstone — no more flat single gray.
       make: (rng) => [
-        P(boxG(0.9, 0.3, 0.9), SOLID, 0x7d7a74, [0, 0.15, 0], 1, [0, rng() * 0.3, 0]),
+        P(boxG(0.9, 0.3, 0.9), SOLID, 0x6f6c66, [0, 0.15, 0], 1, [0, rng() * 0.3, 0]),
+        P(boxG(0.97, 0.08, 0.97), SOLID_S, 0x8d8a84, [0, 0.31, 0], 1, [0, rng() * 0.3, 0], 0.04, false),
         P(boxG(0.5, 1.5, 0.34), SOLID, 0x8d8a84, [0, 1.0, 0], 1, [0, 0, (rng() - 0.5) * 0.06]),
+        P(boxG(0.09, 1.32, 0.37), SOLID_S, 0x7b786f, [-0.22, 0.96, 0], 1, [0, 0, 0.03], 0.04, false),
+        P(boxG(0.55, 0.13, 0.4), SOLID_S, 0xa8a49a, [0, 1.76, 0], 1, [0, 0, (rng() - 0.5) * 0.08]),
         P(boxG(0.3, 1.0, 0.02), GLOW_RUNE, 0xffe9b0, [0, 1.05, 0.18], 1, [0, 0, 0], 0, false),
         P(blobG(1, 540, 0.2), FOLIAGE2, 0x5c8a4a, [0.3, 0.32, 0.25], [0.28, 0.12, 0.22], [0, rng() * TAU, 0], 0.1, false),
       ],
@@ -557,9 +582,22 @@ export function buildProps(zone, heightAt) {
           P(boxG(0.08, 2.4, 0.08), SOLID, 0x6b4a33, [1.2, 1.2, 0.62]),
         ];
         for (let i = 0; i < 5; i++) {
-          parts.push(P(planeG(0.52, 1.5), CLOTH, i % 2 ? 0xf0e8d8 : stripe,
+          const c = i % 2 ? 0xf0e8d8 : stripe;
+          // lit top face…
+          parts.push(P(planeG(0.52, 1.5), CLOTH, c,
             [-1.04 + i * 0.52, 2.25, 0.15], 1, [-0.42, 0, 0], 0.03, false));
+          // …with a shaded underside (offset down the awning normal) so the
+          // canopy is never a single unshaded quad when seen from below.
+          parts.push(P(planeG(0.52, 1.5), CLOTH, lerpColorHex(c, 0x2a2018, 0.5),
+            [-1.04 + i * 0.52, 2.235, 0.117], 1, [-0.42, 0, 0], 0.02, false));
+          // hanging valance skirt along the awning's front edge
+          parts.push(P(planeG(0.52, 0.24), CLOTH, lerpColorHex(c, 0x2a2018, 0.2),
+            [-1.04 + i * 0.52, 1.46, 0.46], 1, [0, 0, 0], 0.02, false));
         }
+        // front rail + diagonal struts carrying the awning
+        parts.push(P(boxG(2.62, 0.07, 0.07), SOLID, 0x6b4a33, [0, 1.58, 0.47], 1, [0, 0, 0], 0.02, false));
+        parts.push(P(boxG(0.06, 0.06, 0.85), SOLID, 0x6b4a33, [-1.18, 1.95, 0.12], 1, [-0.55, 0, 0], 0.02, false));
+        parts.push(P(boxG(0.06, 0.06, 0.85), SOLID, 0x6b4a33, [1.18, 1.95, 0.12], 1, [-0.55, 0, 0], 0.02, false));
         // wares
         parts.push(P(sphereG(0.14, 6, 5), SOLID_S, 0xd8a05a, [-0.6, 1.06, 0.2], 1, [0, 0, 0], 0.15, false));
         parts.push(P(sphereG(0.12, 6, 5), SOLID_S, 0xc25a6e, [-0.28, 1.05, 0.05], 1, [0, 0, 0], 0.15, false));
@@ -684,14 +722,24 @@ export function buildProps(zone, heightAt) {
     },
     statue_warden: {
       variants: 1, collider: 0.8,
+      // Two-tone carved stone: dark bevel courses between plinth steps, a
+      // darker hem/under-robe beneath a lighter over-robe, sash + cuff trim —
+      // reads as sculpted work instead of one flat gray cone.
       make: () => [
         P(boxG(1.5, 0.5, 1.5), SOLID, 0x8d8a84, [0, 0.25, 0]),
+        P(boxG(1.56, 0.1, 1.56), SOLID_S, 0x6f6c66, [0, 0.52, 0], 1, [0, 0, 0], 0.03, false), // bevel course
         P(boxG(1.1, 0.35, 1.1), SOLID, 0x9a978e, [0, 0.67, 0]),
+        P(boxG(1.16, 0.07, 1.16), SOLID_S, 0xb0ada4, [0, 0.86, 0], 1, [0, 0, 0], 0.03, false), // pale cap lip
+        P(coneG(0.64, 0.75, 7), SOLID_S, 0x7e7b74, [0, 1.22, 0]),      // robe hem (darker under-tone)
         P(coneG(0.55, 1.9, 7), SOLID_S, 0x9a978e, [0, 1.8, 0]),        // robed body
+        P(coneG(0.42, 1.05, 7), SOLID_S, 0xa8a49a, [0, 2.38, 0]),      // chest fold (lighter over-tone)
+        P(boxG(0.12, 1.45, 0.5), SOLID_S, 0x84817a, [0, 1.85, 0.16], 1, [0.06, 0, 0], 0.03, false), // front sash
         P(sphereG(0.3, 7, 6), SOLID_S, 0xa8a49a, [0, 2.95, 0]),        // head
-        P(coneG(0.34, 0.5, 6), SOLID_S, 0x9a978e, [0, 3.15, -0.08], 1, [0.4, 0, 0]), // hood
+        P(coneG(0.34, 0.5, 6), SOLID_S, 0x8b887f, [0, 3.15, -0.08], 1, [0.4, 0, 0]), // hood (darker than the face)
         P(cylG(0.1, 0.12, 1.0, 6), SOLID_S, 0x9a978e, [0.55, 2.2, 0.25], 1, [0.5, 0, -0.5]), // offering arm
+        P(cylG(0.14, 0.13, 0.2, 6), SOLID_S, 0x84817a, [0.72, 2.5, 0.44], 1, [0.5, 0, -0.5], 0.03, false), // sleeve cuff
         P(sphereG(0.2, 7, 6), GLOW_RUNE, 0xffe9b0, [0.8, 2.7, 0.55], 1, [0, 0, 0], 0, false), // held shard
+        P(blobG(1, 545, 0.2), FOLIAGE2, 0x5c8a4a, [-0.55, 0.56, 0.5], [0.32, 0.12, 0.26], [0, 0.6, 0], 0.1, false), // moss on the plinth
       ],
     },
     // ------------------------------------------------------------- mountain / cold / fire
@@ -1158,9 +1206,11 @@ export function buildProps(zone, heightAt) {
           _m4.compose(_pos.set(pl.x, pl.y, pl.z), _quat.setFromEuler(_eul), _scl.set(pl.s, pl.sy ?? pl.s, pl.s));
           _m4b.multiplyMatrices(_m4, locals[pi]);
           im.setMatrixAt(i, _m4b);
-          // Per-instance hue/light jitter around the part tint.
+          // Per-instance hue/light jitter around the part tint (jitH, when
+          // present, decouples the hue band from the lightness band).
           _col.set(part.tint);
-          if (part.jit > 0) _col.offsetHSL((pl.hueJ) * part.jit, 0, (pl.lumJ) * part.jit);
+          const jH = part.jitH ?? part.jit;
+          if (jH > 0 || part.jit > 0) _col.offsetHSL((pl.hueJ) * jH, 0, (pl.lumJ) * part.jit);
           im.setColorAt(i, _col);
         }
         im.instanceMatrix.needsUpdate = true;

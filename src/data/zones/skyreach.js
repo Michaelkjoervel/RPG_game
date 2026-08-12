@@ -57,6 +57,17 @@ export const ZONE = {
     // — the snow line near the top —
     { kind: 'snow_pile', density: 0.3, area: [0, -68, 55] },
     { kind: 'ice_spike', density: 0.14, area: [0, -75, 45] },
+    // — hand-placed markers up the ascent so the switchbacks never read as a
+    //   featureless snowfield: frost-heaved boulders and ice teeth by the trail —
+    { kind: 'rock', at: [-24, 20], scale: 1.5 },
+    { kind: 'ice_spike', at: [-14, 8], scale: 1.1 },
+    { kind: 'ice_spike', at: [16, -4], scale: 0.9 },
+    { kind: 'rock', at: [-4, -34], scale: 1.6 },
+    { kind: 'ice_spike', at: [-18, -40], scale: 1.2 },
+    { kind: 'ice_spike', at: [6, -48], scale: 1.0 },
+    { kind: 'rock', at: [-20, -76], scale: 1.4 },
+    { kind: 'ice_spike', at: [10, -82], scale: 1.15 },
+    { kind: 'ice_spike', density: 0.1, area: [0, -30, 30] },
     // — the magmite vent pocket, a warm scar amid the cold —
     { kind: 'lava_rock', density: 0.3, area: [58, -10, 18] },
     { kind: 'ember_vent', at: [58, -10] },

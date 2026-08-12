@@ -121,5 +121,6 @@ export const ZONE = {
     { kind: 'sparkle', at: [-60, -20], item: 'honey_drop', qty: 1, flag: 'ml_spark1' },
   ],
 
-  spawn: [-66, 0],
+  spawn: [-52, 18],
+  spawnFace: Math.PI * 0.38, // face east-southeast — the first view frames the glass water and Driftmoor's stilts
 };

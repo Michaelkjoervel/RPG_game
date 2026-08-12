@@ -273,20 +273,36 @@ export function createSky(zone, scene) {
   sunLight.shadow.camera.updateProjectionMatrix();
   scene.add(sunLight, sunLight.target);
 
+  // Indoor ambience: the cave/spire floor palettes are dark *linear* albedos
+  // behind ACES tonemapping — a timid hemisphere reads as a black screen.
+  // These values are tuned empirically against a median-luminance target of
+  // ~12% for caves (readable silhouettes) while the near-black dome keeps the
+  // mood. The spire's fortress-black walls swallow far more light, so it gets
+  // a stronger fill just to hold silhouette readability.
+  const indoorHemiI = biome === 'spire' ? 7.0 : 4.0;
+  const indoorFillI = biome === 'spire' ? 9.0 : 7.5;
   const hemi = new THREE.HemisphereLight(
-    indoor ? 0x2a3040 : colors.day.top.getHex(),
-    indoor ? 0x0e0f18 : colors.day.bottom.getHex(),
-    indoor ? 0.35 : 0.55,
+    indoor ? 0x8a96ad : colors.day.top.getHex(),
+    indoor ? 0x4a4f62 : colors.day.bottom.getHex(),
+    indoor ? indoorHemiI : 0.55,
   );
   hemi.name = 'skyHemi';
   scene.add(hemi);
 
-  // cave/spire: a soft player-following fill light (world.js repositions it each frame)
+  // Player-following fill light (world.js repositions it each frame).
+  // cave/spire: the main readability light — bright enough that silhouettes
+  // and crystal emissives read against the dark, wide + soft falloff.
+  // outdoor: a faint warm "lantern" glow that only wakes at deep night so the
+  // Warden never dissolves into the dark (see update()).
   let fillLight = null;
   if (indoor) {
     const fillColor = biome === 'cave' ? 0x8fb8ff : 0xb8b0ff;
-    fillLight = new THREE.PointLight(fillColor, 1.25, 14, 2);
+    fillLight = new THREE.PointLight(fillColor, indoorFillI, 30, 1.2);
     fillLight.name = 'skyFill';
+    scene.add(fillLight);
+  } else {
+    fillLight = new THREE.PointLight(0xffc27a, 0, 11, 1.8);
+    fillLight.name = 'skyLantern';
     scene.add(fillLight);
   }
 
@@ -319,31 +335,60 @@ export function createSky(zone, scene) {
       domeUniforms.uBottom.value.copy(_tc2);
       domeUniforms.uHorizon.value.copy(_tc2).lerp(WHITE, 0.05 + ddw * 0.1);
 
-      const sunCol = _tc.copy(colors.sunNight).lerp(dusk ? colors.sunDusk : colors.sunDawn, ddw).lerp(colors.sunNoon, dw);
+      // Warm-weighted color: any presence in the dawn/dusk band commits the key
+      // light to amber (ddw peaks at only ~0.26 by 0.8 dayTime — unweighted it
+      // stayed a cold blue while the ground went black).
+      const sunCol = _tc.copy(colors.sunNight).lerp(dusk ? colors.sunDusk : colors.sunDawn, clamp01(ddw * 2.2)).lerp(colors.sunNoon, dw);
       domeUniforms.uSunColor.value.copy(sunCol);
-      domeUniforms.uSunAmt.value = clamp01(0.12 + dw * 0.88 + ddw * 0.25);
+      let sunAmt = clamp01(0.12 + dw * 0.88 + ddw * 0.25);
+      // Storm zones (Skyreach): no cheerful sun-glow bleeding through the
+      // storm dome — keep the mood cold.
+      if (zone.ambient?.weather === 'storm') sunAmt = Math.min(sunAmt, 0.25);
+      domeUniforms.uSunAmt.value = sunAmt;
 
       sunLight.color.copy(sunCol);
-      sunLight.intensity = Math.pow(clamp01(dw), 0.75) * 2.6;
+      // dawn/dusk keeps a warm horizontal key (ddw term) instead of collapsing
+      // straight to unlit night the moment dayWeight hits zero. (1.45 tuned
+      // up from the reviewer's suggested 1.1 — at dayTime 0.8 ddw is only
+      // ~0.26, and 1.1 left the warm key too faint to read on the ground.)
+      sunLight.intensity = Math.pow(clamp01(dw), 0.75) * 2.6 + ddw * 1.45;
       // Position is NOT set here — world.js's per-frame "shadow-follow" step
       // keeps the light (and its tight shadow frustum) centered on the
       // player using this same `sunDir`, so the two never fight.
 
-      hemi.color.copy(colors.day.top).lerp(colors.night.top, 1 - dw);
-      hemi.groundColor.copy(colors.day.bottom).lerp(colors.night.bottom, 1 - dw);
-      hemi.intensity = lerp(0.22, 0.62, dw);
+      // Dusk/dawn hemisphere: the WARM horizon color rides the sky side (it
+      // lights up-facing ground — that's where "amber ground light" comes
+      // from), the purple zenith rides the ground side. Warm-weighted like the
+      // sun so even the shoulder of the band (ddw ~0.26 at dayTime 0.8) reads
+      // clearly amber instead of collapsing to near-black night colors.
+      const warmW = clamp01(ddw * 1.9);
+      hemi.color.copy(colors.night.top).lerp(dusk ? colors.dusk.bottom : colors.dawn.bottom, warmW).lerp(colors.day.top, dw);
+      hemi.groundColor.copy(colors.night.bottom).lerp(dusk ? colors.dusk.top : colors.dawn.top, warmW).lerp(colors.day.bottom, dw);
+      // Floor the ambience at ~0.35 through the dawn/dusk band (smoothly
+      // ramped so there's no pop when ddw crosses zero).
+      hemi.intensity = Math.max(lerp(0.22, 0.62, dw), 0.35 * clamp01(ddw * 5));
 
-      if (stars) starUniforms.uAlpha.value = damp01(starUniforms.uAlpha.value, clamp01(1 - dw * 1.4), dt);
+      if (stars) {
+        // zone.ambient.stars: permanent-twilight zones (Starfall Glade) keep
+        // their stars visible regardless of dayTime — it's their identity.
+        const starFloor = zone.ambient?.stars ? 0.6 : 0;
+        starUniforms.uAlpha.value = damp01(starUniforms.uAlpha.value, Math.max(clamp01(1 - dw * 1.4), starFloor), dt);
+      }
       if (starUniforms) starUniforms.uTime.value = time;
+
+      // Warden lantern glow — wakes only in deep night (dayWeight < 0.25).
+      if (fillLight) fillLight.intensity = clamp01((0.25 - dw) / 0.25) * 1.9;
 
       if (clouds) {
         const data = clouds.userData.data, wrap = clouds.userData.wrap;
         const m4 = clouds.userData.m4, q = clouds.userData.q, s = clouds.userData.s;
         // Warm off-white by day (never pure white — clouds must separate from
-        // the sky tonally at noon), dim slate at night.
+        // the sky tonally at noon), dim slate at night. Storm zones keep their
+        // clouds dark — a bright warm puff over Skyreach broke the cold mood.
         const cloudTint = _tc2.copy(colors.night.top).lerp(WHITE, 0.3).lerp(CLOUD_DAY, dw);
+        if (zone.ambient?.weather === 'storm') cloudTint.multiplyScalar(0.38);
         cloudMat.uniforms.uColor.value.copy(cloudTint);
-        cloudMat.uniforms.uAlpha.value = lerp(0.18, 0.78, dw);
+        cloudMat.uniforms.uAlpha.value = lerp(0.18, zone.ambient?.weather === 'storm' ? 0.6 : 0.78, dw);
         for (let i = 0; i < data.length; i++) {
           const c = data[i];
           c.x += cloudDrift.x * c.speed * dt;
@@ -355,9 +400,11 @@ export function createSky(zone, scene) {
         clouds.instanceMatrix.needsUpdate = true;
       }
     } else {
-      // indoor: gentle flicker-free steady ambience; fillLight followed by world.js
-      hemi.intensity = 0.34 + Math.sin(time * 0.15) * 0.02;
-      if (fillLight) fillLight.intensity = 1.2 + Math.sin(time * 0.4) * 0.08;
+      // indoor: gentle flicker-free steady ambience; fillLight followed by world.js.
+      // Tuned bright enough that cave/spire floors and silhouettes actually read
+      // (median luminance target ≥12% in caves) while the dark dome keeps the mood.
+      hemi.intensity = indoorHemiI * (1 + Math.sin(time * 0.15) * 0.025);
+      if (fillLight) fillLight.intensity = indoorFillI * (1 + Math.sin(time * 0.4) * 0.05);
     }
   }
 
