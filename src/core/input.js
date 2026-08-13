@@ -43,7 +43,14 @@ class Input {
   }
 
   _fire(action) {
-    this._listeners.get(action)?.forEach((fn) => { try { fn(); } catch (e) { console.error(e); } });
+    // Snapshot before iterating: handlers registered DURING dispatch (e.g. a menu
+    // re-binding its parent layer's keys) must not receive this same keypress.
+    const hs = this._listeners.get(action);
+    if (!hs) return;
+    for (const fn of [...hs]) {
+      if (!hs.has(fn)) continue; // removed mid-dispatch
+      try { fn(); } catch (e) { console.error(e); }
+    }
   }
   onAction(action, fn) {
     if (!this._listeners.has(action)) this._listeners.set(action, new Set());
