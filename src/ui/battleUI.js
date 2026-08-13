@@ -475,7 +475,7 @@ export function createBattleUI(ctx = {}) {
     const r = pendingResolve;
     pendingResolve = null;
     nav = null;
-    stopNavGamepadPoll();
+    // (gamepad nav now lives in core/input.js — no local poll to stop)
     hideDock();
     r(action);
   }

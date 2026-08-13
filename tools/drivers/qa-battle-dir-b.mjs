@@ -2,8 +2,11 @@
 export async function run(page, h) {
   await h.waitFor(`!!window.LF`, 30000);
   await h.sleep(4000);
-  await page.evaluate(() => { document.querySelector('.title-root')?.remove(); });
-  await page.evaluate(async () => { await window.LF.game.enterOverworld('dawnmeadow'); });
+  await page.evaluate(() => {
+    document.querySelector('.title-root')?.remove();
+    window.stopNavGamepadPoll = () => {};
+  });
+  await page.evaluate(async () => { await window.LF.game.enterOverworld('mirrorlake'); });
   await h.sleep(1500);
   await page.evaluate(async () => {
     const { makeCreature } = await import('/src/game/creatures.js');
@@ -17,21 +20,23 @@ export async function run(page, h) {
       ai: 'basic', arena: 'cave', canFlee: false, canCatch: false,
     }).then((r) => (window.__result = r)).catch((e) => console.error('battle err', e));
   });
-  await h.sleep(1800); await h.shot('b-cave-sendin');
+  await h.sleep(2000); await h.shot('b-cave-sendin');
   await h.waitFor(`!!document.querySelector('.bui-dock:not(.hidden)')`, 30000);
   await h.shot('b-dock-burst-ready');
-  // Fight -> navigate to burst card (3rd: 2 moves + burst)
-  await h.press('Enter'); await h.sleep(800);
+  await page.click('.bui-ring .bui-card:nth-child(1)'); await h.sleep(700);
   await h.shot('b-moves-with-burst');
-  await h.press('ArrowRight', { times: 2, delay: 200 });
-  await h.press('Enter');
-  await h.sleep(120);
-  for (let i = 0; i < 10; i++) { await h.shot(`b-burst-${i}`); await h.sleep(300); }
-  // victory panel
+  const hasBurst = await page.evaluate(`!!document.querySelector('.bui-burst-card')`);
+  console.log('BURST CARD:', hasBurst);
+  if (hasBurst) await page.click('.bui-burst-card');
+  else await page.click('.bui-moves-grid .bui-move-card:nth-child(1)');
+  await h.sleep(100);
+  for (let i = 0; i < 10; i++) {
+    await h.shot(`b-burst-${i}`);
+    console.log('DMG-ELS', i, await page.evaluate(`[...document.querySelectorAll('.bui-dmg')].map(e=>e.textContent).join('|') || 'none'`));
+    await h.sleep(250);
+  }
   const v = await h.waitFor(`!!document.querySelector('.bui-end.show')`, 30000);
   await h.sleep(800);
   await h.shot('b-victory-panel');
-  console.log('VICTORY PANEL:', !!v);
-  await h.press('Enter'); await h.sleep(500);
-  console.log('B RESULT:', await page.evaluate(`JSON.stringify(window.__result)`));
+  console.log('VICTORY PANEL:', !!v, 'B RESULT:', await page.evaluate(`JSON.stringify(window.__result)`));
 }
