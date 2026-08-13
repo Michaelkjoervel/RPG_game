@@ -6,6 +6,7 @@ import { bus } from '../core/events.js';
 import { input } from '../core/input.js';
 import { settings, updateSetting } from '../core/settings.js';
 import { clamp01 } from '../core/math.js';
+import { pushLayer } from './uiStack.js';
 
 const sfx = (name) => bus.emit('ui:sfx', { name });
 const DEFAULTS = { musicVol: 0.7, sfxVol: 0.8, quality: 'high', textSpeed: 'normal', camShake: true, invertY: false, showDamageNumbers: true };
@@ -142,6 +143,11 @@ function buildPanel(host) {
   });
   resetWrap.appendChild(resetBtn);
   panel.appendChild(resetWrap);
+  // Reset joins the keyboard focus ring like any other row.
+  rows.push({
+    el: resetWrap, type: 'button', btn: resetBtn,
+    setFocused: (f) => resetBtn.classList.toggle('focused', f),
+  });
 
   const credits = document.createElement('div');
   credits.className = 'settings-credits';
@@ -162,7 +168,12 @@ function attachNav(rows, root, { onBack } = {}) {
     rows[idx].el.scrollIntoView({ block: 'nearest' });
   }
   function nudge(dir) { rows[idx]?.nudge?.(dir); }
-  function confirmRow() { if (rows[idx]?.type === 'toggle') { sfx('ui_confirm'); rows[idx].toggle(); } }
+  function confirmRow() {
+    const r = rows[idx];
+    if (!r) return;
+    if (r.type === 'toggle') { sfx('ui_confirm'); r.toggle(); }
+    else if (r.type === 'button') r.btn?.click();
+  }
   const unsubs = [
     input.onAction('up', () => { if (active) move(-1); }),
     input.onAction('down', () => { if (active) move(1); }),
@@ -199,19 +210,30 @@ export function showSettings(target, opts = {}) {
     titleEl.textContent = 'Settings';
     host.appendChild(titleEl);
     const { panel, rows } = buildPanel(host);
-    const nav = attachNav(rows, host, { onBack: close });
-    nav.setActive(true);
     const closeBtn = document.createElement('div');
     closeBtn.style.cssText = 'display:flex;justify-content:flex-end;margin-top:14px;';
     closeBtn.innerHTML = `<button class="btn-gold">Close</button>`;
     host.appendChild(closeBtn);
-    closeBtn.querySelector('button').addEventListener('click', close);
+    const closeButton = closeBtn.querySelector('button');
+    closeButton.addEventListener('click', close);
+    // Close is part of the modal's focus ring too.
+    rows.push({
+      el: closeBtn, type: 'button', btn: closeButton,
+      setFocused: (f) => closeButton.classList.toggle('focused', f),
+    });
+    const nav = attachNav(rows, host, { onBack: close });
+    nav.setActive(true);
     scrim.addEventListener('pointerdown', (e) => { if (e.target === scrim) close(); });
+    const popLayer = pushLayer('settings', close);
     sfx('ui_open');
 
+    let closed = false;
     function close() {
+      if (closed) return;
+      closed = true;
       sfx('ui_close');
       nav.destroy();
+      popLayer();
       scrim.classList.add('out');
       setTimeout(() => { scrim.remove(); resolve(); }, 220);
     }

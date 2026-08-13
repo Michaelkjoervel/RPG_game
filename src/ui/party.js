@@ -1,4 +1,5 @@
-// LUMENFALL — Party management: cards, reorder, details (stats/moves/talisman/lore), Awaken.
+// LUMENFALL — Party management: cards, reorder, Haven (reserve) storage,
+// details (stats/moves/talisman/lore), Awaken.
 // renderParty(container, opts?) -> { destroy(), setActive(active) }  (opts.onBack: bubble cancel)
 import { bus } from '../core/events.js';
 import { G } from '../core/state.js';
@@ -6,6 +7,7 @@ import { input } from '../core/input.js';
 import { hashStr, seededRandom } from '../core/rng.js';
 import { clamp01, TAU } from '../core/math.js';
 import { ASPECTS } from '../data/aspects.js';
+import { makeListPicker } from './widgets.js';
 
 const sfx = (name) => bus.emit('ui:sfx', { name });
 const hpColor = (f) => (f > 0.5 ? 'var(--hp)' : f > 0.25 ? 'var(--hp-low)' : 'var(--hp-crit)');
@@ -75,9 +77,11 @@ function portraitCanvas(speciesId, species, size = 58) {
 // ---------------------------------------------------------------------------
 export function renderParty(container, opts = {}) {
   let active = false;
-  let focusIdx = 0;
+  let focusIdx = 0;        // -1 = toolbar (Reorder button); 0..party-1 = party; party.. = Haven
+  let cols = 2;            // measured from the rendered grid (2D nav)
   let reorderMode = false, reorderSel = -1;
   let detailMon = null;
+  let detailFocus = 0, detailItems = [];
   const unsubs = [];
 
   const root = document.createElement('div');
@@ -96,13 +100,50 @@ export function renderParty(container, opts = {}) {
     } catch (e) { return false; }
   }
 
+  function monCard(mon, focused, { selecting = false } = {}) {
+    const sp = SPECIES[mon.speciesId];
+    const card = document.createElement('div');
+    card.className = 'party-card';
+    if ((mon.hp ?? 1) <= 0) card.classList.add('fainted');
+    if (focused) card.classList.add('focused');
+    if (selecting) card.classList.add('selecting');
+    const f = clamp01((mon.hp ?? 0) / (mon.maxHp || 1));
+    card.innerHTML = `
+      <div class="pc-slot"></div>
+      <div class="pc-name"></div>
+      <div class="pc-lv"></div>
+      <div class="pc-hp-track"><div class="pc-hp-fill"></div></div>
+      <div class="pc-aspects"></div>
+      <div class="pc-resonance"></div>
+    `;
+    card.querySelector('.pc-slot').appendChild(portraitCanvas(mon.speciesId, sp, 58));
+    card.querySelector('.pc-name').textContent = mon.nickname || sp?.name || mon.speciesId;
+    card.querySelector('.pc-lv').textContent = `Lv ${mon.level ?? 1}`;
+    const fill = card.querySelector('.pc-hp-fill');
+    fill.style.width = `${Math.round(f * 100)}%`;
+    fill.style.background = hpColor(f);
+    const chips = card.querySelector('.pc-aspects');
+    (sp?.aspects ?? []).forEach((a) => { const c = document.createElement('span'); c.className = `aspect-chip chip-${a}`; c.style.padding = '1px 6px'; c.style.fontSize = '8px'; c.textContent = ''; chips.appendChild(c); });
+    const res = card.querySelector('.pc-resonance');
+    for (let h = 0; h < 5; h++) { const s = document.createElement('span'); s.textContent = '♥'; if (h < (mon.resonance ?? 0)) s.classList.add('filled'); res.appendChild(s); }
+    if (mon.status) { const st = document.createElement('div'); st.className = 'pc-status'; st.textContent = mon.status; card.appendChild(st); }
+    if (isReady(mon)) { const aw = document.createElement('div'); aw.className = 'pc-awaken'; aw.textContent = 'Awaken'; card.appendChild(aw); }
+    return card;
+  }
+
   function drawGrid() {
     root.innerHTML = '';
+    const party = G.party || [];
+    const reserve = G.reserve || [];
+    const total = party.length + reserve.length;
+    if (focusIdx >= total) focusIdx = Math.max(0, total - 1);
+
     const toolbar = document.createElement('div');
     toolbar.className = 'party-toolbar';
     toolbar.style.cssText = 'display:flex;justify-content:flex-end;margin-bottom:10px;';
     const reorderBtn = document.createElement('button');
     reorderBtn.className = 'btn-ghost';
+    if (focusIdx === -1 && active) reorderBtn.classList.add('focused');
     reorderBtn.textContent = reorderMode ? 'Done reordering' : 'Reorder';
     reorderBtn.addEventListener('click', () => { reorderMode = !reorderMode; reorderSel = -1; sfx('ui_move'); drawGrid(); });
     toolbar.appendChild(reorderBtn);
@@ -112,7 +153,6 @@ export function renderParty(container, opts = {}) {
     grid.className = 'party-grid';
     root.appendChild(grid);
 
-    const party = G.party || [];
     for (let i = 0; i < 5; i++) {
       const mon = party[i];
       if (!mon) {
@@ -122,44 +162,94 @@ export function renderParty(container, opts = {}) {
         grid.appendChild(empty);
         continue;
       }
-      const sp = SPECIES[mon.speciesId];
-      const card = document.createElement('div');
-      card.className = 'party-card';
-      if ((mon.hp ?? 1) <= 0) card.classList.add('fainted');
-      if (i === focusIdx && active) card.classList.add('focused');
-      if (reorderMode && reorderSel === i) card.classList.add('selecting');
-      const f = clamp01((mon.hp ?? 0) / (mon.maxHp || 1));
-      card.innerHTML = `
-        <div class="pc-slot"></div>
-        <div class="pc-name"></div>
-        <div class="pc-lv"></div>
-        <div class="pc-hp-track"><div class="pc-hp-fill"></div></div>
-        <div class="pc-aspects"></div>
-        <div class="pc-resonance"></div>
-      `;
-      card.querySelector('.pc-slot').appendChild(portraitCanvas(mon.speciesId, sp, 58));
-      card.querySelector('.pc-name').textContent = mon.nickname || sp?.name || mon.speciesId;
-      card.querySelector('.pc-lv').textContent = `Lv ${mon.level ?? 1}`;
-      const fill = card.querySelector('.pc-hp-fill');
-      fill.style.width = `${Math.round(f * 100)}%`;
-      fill.style.background = hpColor(f);
-      const chips = card.querySelector('.pc-aspects');
-      (sp?.aspects ?? []).forEach((a) => { const c = document.createElement('span'); c.className = `aspect-chip chip-${a}`; c.style.padding = '1px 6px'; c.style.fontSize = '8px'; c.textContent = ''; chips.appendChild(c); });
-      const res = card.querySelector('.pc-resonance');
-      for (let h = 0; h < 5; h++) { const s = document.createElement('span'); s.textContent = '♥'; if (h < (mon.resonance ?? 0)) s.classList.add('filled'); res.appendChild(s); }
-      if (mon.status) { const st = document.createElement('div'); st.className = 'pc-status'; st.textContent = mon.status; card.appendChild(st); }
-      if (isReady(mon)) { const aw = document.createElement('div'); aw.className = 'pc-awaken'; aw.textContent = 'Awaken'; card.appendChild(aw); }
+      const card = monCard(mon, i === focusIdx && active, { selecting: reorderMode && reorderSel === i });
       card.addEventListener('click', () => { focusIdx = i; onConfirmCard(); });
       grid.appendChild(card);
     }
+
+    // Haven (reserve) — stored Kindred, swappable into the party (finding 8).
+    if (reserve.length) {
+      const label = document.createElement('div');
+      label.className = 'quest-section-label';
+      label.textContent = 'Haven (Reserve)';
+      root.appendChild(label);
+      const rGrid = document.createElement('div');
+      rGrid.className = 'party-grid party-reserve-grid';
+      root.appendChild(rGrid);
+      reserve.forEach((mon, j) => {
+        const idx = party.length + j;
+        const card = monCard(mon, idx === focusIdx && active);
+        card.addEventListener('click', () => { focusIdx = idx; onConfirmCard(); });
+        rGrid.appendChild(card);
+      });
+    }
+
     const hint = document.createElement('div');
     hint.className = 'party-hint';
-    hint.textContent = reorderMode ? 'Select two Kindred to swap their order.' : 'Select a Kindred to view details.';
+    hint.textContent = reorderMode
+      ? 'Select two party Kindred to swap their order.'
+      : 'Select a Kindred to view details. Haven Kindred can be swapped into the party.';
     root.appendChild(hint);
+
+    requestAnimationFrame(() => {
+      const cs = getComputedStyle(grid).gridTemplateColumns.split(' ').filter(Boolean);
+      cols = Math.max(1, cs.length);
+      root.querySelector('.party-card.focused')?.scrollIntoView({ block: 'nearest' });
+      if (focusIdx === -1 && active) reorderBtn.scrollIntoView({ block: 'nearest' });
+    });
+  }
+
+  // ------------------------------------------------------- Haven swap flow
+  function openReservePicker(rIdx) {
+    const reserve = G.reserve || [];
+    const mon = reserve[rIdx];
+    if (!mon) return;
+    const monName = mon.nickname || SPECIES[mon.speciesId]?.name || mon.speciesId;
+    const items = [];
+    if ((G.party?.length ?? 0) < 5) {
+      items.push({
+        label: 'Add to party', sub: 'party has room',
+        onPick: () => {
+          G.reserve.splice(rIdx, 1);
+          G.party.push(mon);
+          focusIdx = G.party.length - 1;
+          sfx('ui_confirm');
+          bus.emit('party:changed');
+          drawGrid();
+        },
+      });
+    }
+    (G.party || []).forEach((pm, i) => {
+      const pmName = pm.nickname || SPECIES[pm.speciesId]?.name || pm.speciesId;
+      items.push({
+        label: `Swap with ${pmName}`, sub: `Lv ${pm.level ?? 1}`,
+        onPick: () => {
+          G.reserve[rIdx] = pm;
+          G.party[i] = mon;
+          sfx('ui_confirm');
+          bus.emit('party:changed');
+          drawGrid();
+        },
+      });
+    });
+    makeListPicker({ host: root, title: `${monName} — bring out of the Haven?`, items });
   }
 
   function onConfirmCard() {
-    const mon = G.party[focusIdx];
+    const party = G.party || [];
+    if (focusIdx === -1) { // toolbar: toggle reorder
+      reorderMode = !reorderMode;
+      reorderSel = -1;
+      sfx('ui_move');
+      drawGrid();
+      return;
+    }
+    if (focusIdx >= party.length) { // Haven card
+      if (reorderMode) { sfx('ui_cancel'); return; }
+      openReservePicker(focusIdx - party.length);
+      return;
+    }
+    const mon = party[focusIdx];
     if (!mon) return;
     if (reorderMode) {
       if (reorderSel < 0) { reorderSel = focusIdx; sfx('ui_move'); drawGrid(); return; }
@@ -190,6 +280,7 @@ export function renderParty(container, opts = {}) {
   }
 
   function openDetails(mon) {
+    root.querySelector('.party-details')?.remove(); // never stack two detail sheets
     detailMon = mon;
     const sp = SPECIES[mon.speciesId];
     const wrap = document.createElement('div');
@@ -264,6 +355,32 @@ export function renderParty(container, opts = {}) {
     renderAwakenAction(awakenWrap, mon);
 
     wrap.querySelector('.pd-close').addEventListener('click', closeDetails);
+
+    // Keyboard focus ring inside the details sheet: move slots, talisman, Awaken.
+    refreshDetailItems(wrap);
+    // At short viewports the sheet renders below the grid — bring it into view.
+    requestAnimationFrame(() => wrap.scrollIntoView({ block: 'nearest', behavior: 'smooth' }));
+  }
+
+  function refreshDetailItems(wrap = root.querySelector('.party-details')) {
+    if (!wrap) { detailItems = []; return; }
+    detailItems = [
+      ...wrap.querySelectorAll('.move-slot'),
+      ...wrap.querySelectorAll('.talisman-slot'),
+      ...wrap.querySelectorAll('.pd-awaken-wrap button'),
+    ];
+    detailFocus = Math.min(detailFocus, Math.max(0, detailItems.length - 1));
+    paintDetailFocus();
+  }
+  function paintDetailFocus() {
+    detailItems.forEach((el, i) => el.classList.toggle('focused', active && i === detailFocus));
+  }
+  function moveDetailFocus(d) {
+    if (!detailItems.length) return;
+    detailFocus = (detailFocus + d + detailItems.length) % detailItems.length;
+    sfx('ui_move');
+    paintDetailFocus();
+    detailItems[detailFocus]?.scrollIntoView({ block: 'nearest' });
   }
 
   function renderTalismanSlot(el, mon) {
@@ -287,66 +404,43 @@ export function renderParty(container, opts = {}) {
     const sp = SPECIES[mon.speciesId];
     const known = (sp?.learnset ?? []).filter(([lv]) => lv <= (mon.level ?? 1)).map(([, id]) => id);
     const uniqueKnown = [...new Set(known)];
-    const overlay = document.createElement('div');
-    overlay.className = 'picker-overlay';
-    overlay.innerHTML = `<div class="picker-panel panel"><div class="picker-title">Choose a move</div><div class="picker-list"></div><button class="btn-ghost" style="margin-top:8px;">Cancel</button></div>`;
-    root.appendChild(overlay);
-    const list = overlay.querySelector('.picker-list');
-    uniqueKnown.forEach((id) => {
-      const ab = ABILITIES[id];
-      const equipped = mon.moves.includes(id);
-      const item = document.createElement('div');
-      item.className = 'picker-item' + (equipped ? ' disabled' : '');
-      item.innerHTML = `<span></span><span class="picker-item-sub"></span>`;
-      item.firstElementChild.textContent = ab?.name ?? id;
-      item.lastElementChild.textContent = equipped ? 'equipped' : (ab?.power ? `PWR ${ab.power}` : ab?.kind ?? '');
-      item.addEventListener('click', () => {
-        if (equipped) return;
-        sfx('ui_confirm');
-        mon.moves[slotIdx] = id;
-        bus.emit('party:changed');
-        overlay.remove();
-        openDetails(mon);
-      });
-      list.appendChild(item);
+    makeListPicker({
+      host: root,
+      title: 'Choose a move',
+      items: uniqueKnown.map((id) => {
+        const ab = ABILITIES[id];
+        const equipped = mon.moves.includes(id);
+        return {
+          label: ab?.name ?? id,
+          sub: equipped ? 'equipped' : (ab?.power ? `PWR ${ab.power}` : ab?.kind ?? ''),
+          disabled: equipped,
+          onPick: () => {
+            mon.moves[slotIdx] = id;
+            bus.emit('party:changed');
+            openDetails(mon);
+          },
+        };
+      }),
     });
-    overlay.querySelector('button').addEventListener('click', () => { sfx('ui_cancel'); overlay.remove(); });
-    sfx('ui_open');
   }
 
   function openTalismanPicker(mon, anchorEl) {
     const bagTalismans = Object.keys(G.bag || {}).filter((id) => (ITEMS[id]?.kind === 'talisman') && G.bag[id] > 0);
-    const overlay = document.createElement('div');
-    overlay.className = 'picker-overlay';
-    overlay.innerHTML = `<div class="picker-panel panel"><div class="picker-title">Equip a talisman</div><div class="picker-list"></div><button class="btn-ghost" style="margin-top:8px;">Cancel</button></div>`;
-    root.appendChild(overlay);
-    const list = overlay.querySelector('.picker-list');
+    const items = [];
     if (mon.talisman) {
-      const unequip = document.createElement('div');
-      unequip.className = 'picker-item';
-      unequip.innerHTML = `<span>Unequip</span>`;
-      unequip.addEventListener('click', () => { sfx('ui_confirm'); mon.talisman = null; bus.emit('party:changed'); overlay.remove(); renderTalismanSlot(anchorEl, mon); });
-      list.appendChild(unequip);
+      items.push({
+        label: 'Unequip', sub: '',
+        onPick: () => { mon.talisman = null; bus.emit('party:changed'); renderTalismanSlot(anchorEl, mon); refreshDetailItems(); },
+      });
     }
-    if (!bagTalismans.length) list.insertAdjacentHTML('beforeend', `<div class="picker-item-sub" style="padding:8px;">No talismans in your bag.</div>`);
     bagTalismans.forEach((id) => {
       const it = ITEMS[id];
-      const item = document.createElement('div');
-      item.className = 'picker-item';
-      item.innerHTML = `<span></span><span class="picker-item-sub"></span>`;
-      item.firstElementChild.textContent = it?.name ?? id;
-      item.lastElementChild.textContent = `x${G.bag[id]}`;
-      item.addEventListener('click', () => {
-        sfx('ui_confirm');
-        mon.talisman = id;
-        bus.emit('party:changed');
-        overlay.remove();
-        renderTalismanSlot(anchorEl, mon);
+      items.push({
+        label: it?.name ?? id, sub: `x${G.bag[id]}`,
+        onPick: () => { mon.talisman = id; bus.emit('party:changed'); renderTalismanSlot(anchorEl, mon); refreshDetailItems(); },
       });
-      list.appendChild(item);
     });
-    overlay.querySelector('button').addEventListener('click', () => { sfx('ui_cancel'); overlay.remove(); });
-    sfx('ui_open');
+    makeListPicker({ host: root, title: 'Equip a talisman', items, emptyText: 'No talismans in your bag.' });
   }
 
   function renderAwakenAction(el, mon) {
@@ -377,31 +471,52 @@ export function renderParty(container, opts = {}) {
 
   function closeDetails() {
     detailMon = null;
+    detailItems = [];
+    detailFocus = 0;
     const el = root.querySelector('.party-details');
     el?.remove();
   }
 
   // -------------------------------------------------------------- Input
-  function moveFocus(dir) {
-    if (!active || detailMon) return;
+  const pickerOpen = () => !!root.querySelector('.picker-overlay');
+
+  // True 2D grid nav (finding 14): left/right steps one card, up/down steps one
+  // row (measured cols), toolbar (Reorder) reachable above the first row.
+  function moveFocus(dx, dy) {
+    if (!active || pickerOpen()) return;
+    if (detailMon) { moveDetailFocus(dx + dy); return; }
+    const len = (G.party || []).length + (G.reserve || []).length;
+    if (!len) return;
     sfx('ui_move');
-    const len = Math.max(1, (G.party || []).length);
-    focusIdx = (focusIdx + dir + len) % len;
+    if (focusIdx === -1) { // toolbar row
+      if (dy > 0) focusIdx = 0;
+      drawGrid();
+      return;
+    }
+    if (dy < 0 && focusIdx < cols) { focusIdx = -1; drawGrid(); return; }
+    const i = focusIdx + dx + dy * cols;
+    focusIdx = ((i % len) + len) % len;
     drawGrid();
   }
   function onCancel() {
     if (!active) return;
+    if (pickerOpen()) return; // the picker's own cancel handler closes it (one layer)
     if (detailMon) { sfx('ui_cancel'); closeDetails(); return; }
     if (reorderMode) { reorderMode = false; reorderSel = -1; sfx('ui_cancel'); drawGrid(); return; }
     opts.onBack?.();
   }
+  function onConfirm() {
+    if (!active || pickerOpen()) return;
+    if (detailMon) { detailItems[detailFocus]?.click(); return; }
+    onConfirmCard();
+  }
 
-  unsubs.push(input.onAction('left', () => moveFocus(-1)));
-  unsubs.push(input.onAction('right', () => moveFocus(1)));
-  unsubs.push(input.onAction('up', () => moveFocus(-1)));
-  unsubs.push(input.onAction('down', () => moveFocus(1)));
-  unsubs.push(input.onAction('confirm', () => { if (!detailMon && active) onConfirmCard(); }));
-  unsubs.push(input.onAction('interact', () => { if (!detailMon && active) onConfirmCard(); }));
+  unsubs.push(input.onAction('left', () => moveFocus(-1, 0)));
+  unsubs.push(input.onAction('right', () => moveFocus(1, 0)));
+  unsubs.push(input.onAction('up', () => moveFocus(0, -1)));
+  unsubs.push(input.onAction('down', () => moveFocus(0, 1)));
+  unsubs.push(input.onAction('confirm', onConfirm));
+  unsubs.push(input.onAction('interact', onConfirm));
   unsubs.push(input.onAction('cancel', onCancel));
 
   const offPartyChanged = bus.on('party:changed', () => { if (!detailMon) drawGrid(); });

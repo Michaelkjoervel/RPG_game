@@ -61,15 +61,23 @@ export function updateQuests(G_ignored) {
 }
 
 export function getTrackedStep() {
-  const entries = Object.entries(G.quests);
-  for (let i = entries.length - 1; i >= 0; i--) {
-    const [id, state] = entries[i];
+  // Tracking preference: the EARLIEST still-active main quest wins; otherwise
+  // the newest active side quest (so side chatter never hijacks the main line).
+  let main = null, side = null;
+  for (const [id, state] of Object.entries(G.quests)) {
     if (state.done) continue;
     const q = QUESTS[id];
     if (!q) continue;
-    return { questId: id, name: q.name, stepText: q.steps[Math.min(state.step, q.steps.length - 1)]?.text ?? '' };
+    if (q.main) { if (!main) main = [id, state, q]; }
+    else side = [id, state, q];
   }
-  return null;
+  const picked = main ?? side;
+  if (!picked) return null;
+  const [id, state, q] = picked;
+  return {
+    questId: id, name: q.name, main: !!q.main,
+    stepText: q.steps[Math.min(state.step, q.steps.length - 1)]?.text ?? '',
+  };
 }
 
 // Reactive re-evaluation: story.js flags, codex updates, battle outcomes and zone changes are

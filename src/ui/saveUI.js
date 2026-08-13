@@ -6,6 +6,8 @@ import { input } from '../core/input.js';
 import { listSaves, saveGame, deleteSave } from '../core/save.js';
 import { TAU } from '../core/math.js';
 import { ASPECTS } from '../data/aspects.js';
+import { pushLayer } from './uiStack.js';
+import { makeConfirmNav } from './widgets.js';
 
 const sfx = (name) => bus.emit('ui:sfx', { name });
 const cssHex = (n) => (typeof n === 'number' ? `#${n.toString(16).padStart(6, '0')}` : (n || '#c8c2b8'));
@@ -64,10 +66,29 @@ function confirmModal(root, title, body, { okLabel = 'Confirm', danger = false }
     scrim.querySelector('[data-a="yes"]').textContent = okLabel;
     root.appendChild(scrim);
     sfx('ui_open');
-    const close = (v) => { scrim.classList.add('out'); setTimeout(() => scrim.remove(), 200); resolve(v); };
-    scrim.querySelector('[data-a="no"]').addEventListener('click', () => { sfx('ui_cancel'); close(false); });
-    scrim.querySelector('[data-a="yes"]').addEventListener('click', () => { sfx('ui_confirm'); close(true); });
+    let done = false;
+    const close = (v) => {
+      if (done) return;
+      done = true;
+      nav.destroy();
+      scrim.classList.add('out');
+      setTimeout(() => scrim.remove(), 200);
+      resolve(v);
+    };
+    const noBtn = scrim.querySelector('[data-a="no"]');
+    const yesBtn = scrim.querySelector('[data-a="yes"]');
+    noBtn.addEventListener('click', () => { sfx('ui_cancel'); close(false); });
+    yesBtn.addEventListener('click', () => { sfx('ui_confirm'); close(true); });
     scrim.addEventListener('pointerdown', (e) => { if (e.target === scrim) close(false); });
+    // Arrow+confirm+cancel navigable; the layer it pushes also swallows repeat
+    // Enter (the save grid underneath gates itself on the open modal) so a
+    // second confirm can never stack a second modal. Dangerous actions start
+    // focused on Cancel.
+    const nav = makeConfirmNav({
+      buttons: [noBtn, yesBtn],
+      initial: danger ? 0 : 1,
+      onCancel: () => { sfx('ui_cancel'); close(false); },
+    });
   });
 }
 
@@ -87,7 +108,9 @@ function openSaveUI(mode) {
     document.getElementById('ui-root').appendChild(root);
     root.querySelector('.save-shell-title').textContent = mode === 'load' ? 'Continue Your Journey' : 'Save Your Journey';
     const gridEl = root.querySelector('.save-grid');
-    let focusIdx = 0;
+    // Saving lands on Slot 1 (slot 0 is the read-only Autosave); loading starts
+    // at the top so the newest Autosave is one press away.
+    let focusIdx = mode === 'save' ? 1 : 0;
 
     function draw() {
       gridEl.innerHTML = '';
@@ -102,7 +125,7 @@ function openSaveUI(mode) {
           card.textContent = slot === 0 ? 'Autosave — empty' : `Slot ${slot} — empty`;
           if (mode === 'save' && slot !== 0) {
             card.classList.remove('empty');
-            card.innerHTML = `<div class="save-card-body"><div class="save-card-name">Empty Slot ${slot}</div><div class="save-card-meta">Click to save here</div></div>`;
+            card.innerHTML = `<div class="save-card-body"><div class="save-card-name">Empty Slot ${slot}</div><div class="save-card-meta">Save here</div></div>`;
             card.addEventListener('click', () => doSave(slot));
           }
           gridEl.appendChild(card);
@@ -168,14 +191,23 @@ function openSaveUI(mode) {
       }
     }
 
+    let closed = false;
     function close(result) {
+      if (closed) return;
+      closed = true;
       unsubs.forEach((f) => f());
+      popLayer();
       root.classList.add('out');
       sfx('ui_close');
       setTimeout(() => { root.remove(); resolve(result); }, 220);
     }
 
+    // While a confirm modal is up, the grid underneath goes deaf — the modal
+    // owns every keypress (prevents modal stacking on repeat Enter).
+    const modalUp = () => !!root.querySelector('.modal-scrim');
+
     function moveFocus(dir) {
+      if (modalUp()) return;
       focusIdx = (focusIdx + dir + 4) % 4;
       sfx('ui_move');
       draw();
@@ -184,10 +216,11 @@ function openSaveUI(mode) {
     const unsubs = [
       input.onAction('up', () => moveFocus(-1)),
       input.onAction('down', () => moveFocus(1)),
-      input.onAction('confirm', onConfirmCard),
-      input.onAction('interact', onConfirmCard),
-      input.onAction('cancel', () => close(undefined)),
+      input.onAction('confirm', () => { if (!modalUp()) onConfirmCard(); }),
+      input.onAction('interact', () => { if (!modalUp()) onConfirmCard(); }),
+      input.onAction('cancel', () => { if (!modalUp()) close(undefined); }),
     ];
+    const popLayer = pushLayer('save', () => { if (!modalUp()) close(undefined); });
     root.querySelector('.save-shell-close button').addEventListener('click', () => close(undefined));
     root.querySelector('.menu-hub-backdrop').addEventListener('pointerdown', () => close(undefined));
 

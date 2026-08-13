@@ -115,6 +115,17 @@
 .bui-catch-pips span { width: 13px; height: 13px; border-radius: 50%; background: rgba(255,255,255,.14); border: 1px solid var(--slate-line); transition: background 200ms ease, box-shadow 200ms ease, transform 200ms ease; }
 .bui-catch-pips span.lit { background: var(--gold); box-shadow: 0 0 12px var(--gold); transform: scale(1.15); }
 
+/* One-shot tutorial hint pill — sits above the action dock, lives ~7s */
+.bui-hint {
+  position: fixed; left: 50%; bottom: 184px; transform: translate(-50%, 10px); z-index: 27;
+  display: flex; align-items: center; gap: 8px; padding: 8px 18px 8px 12px; border-radius: 999px;
+  background: var(--slate); border: 1px solid rgba(255, 233, 176, .4); box-shadow: var(--shadow);
+  font-size: 12.5px; color: var(--ink); pointer-events: none; opacity: 0;
+  transition: opacity 300ms ease, transform 300ms cubic-bezier(.2,.8,.3,1);
+}
+.bui-hint.show { opacity: 1; transform: translate(-50%, 0); }
+.bui-hint .bui-hint-icon { color: var(--gold); font-size: 12px; }
+
 .bui-burstflash {
   position: fixed; inset: 0; z-index: 28; pointer-events: none; opacity: 0;
   background: radial-gradient(circle at 50% 55%, rgba(255,233,176,.85), rgba(20,10,30,.5) 55%, transparent 85%);

@@ -614,7 +614,17 @@ export class BattleEngine {
     await this._emit({ type: 'catchAttempt', shakes, success });
     if (success) {
       markCodex(target.mon.speciesId, 'caught');
-      if (G.party.length < 5) G.party.push(target.mon); else G.reserve.push(target.mon);
+      if (G.party.length < 5) {
+        G.party.push(target.mon);
+      } else {
+        G.reserve.push(target.mon);
+        // Long duration so the toast survives the battle outro (HUD toasts are
+        // hidden until the battle screen releases).
+        bus.emit('notify', {
+          text: `${species?.name ?? target.mon.speciesId} was sent to the Haven — your party is full.`,
+          icon: '✦', duration: 8000,
+        });
+      }
       bus.emit('party:changed');
       this._caught = target.mon;
       this._finish('caught');

@@ -292,21 +292,35 @@ export function initHud() {
   // ---- Quest tracker ----------------------------------------------------
   let trackedId = null;
 
+  // Tracking preference (finding 4): the EARLIEST still-active MAIN quest wins;
+  // otherwise the newest active side quest. Side chatter never hijacks the
+  // main-line tracker any more.
   function pickTracked() {
-    const entries = Object.entries(G.quests || {});
-    if (trackedId && G.quests?.[trackedId] && !G.quests[trackedId].done) return trackedId;
-    for (let i = entries.length - 1; i >= 0; i--)
-      if (!entries[i][1]?.done) return entries[i][0];
-    return null;
+    let firstMain = null, lastSide = null;
+    for (const [id, st] of Object.entries(G.quests || {})) {
+      if (!st || st.done || !QUESTS[id]) continue;
+      if (QUESTS[id].main) { if (!firstMain) firstMain = id; }
+      else lastSide = id;
+    }
+    return firstMain ?? lastSide;
+  }
+
+  function setTag(text, isMain) {
+    el.hqTag.innerHTML = '';
+    const chip = document.createElement('span');
+    chip.className = 'hq-chip' + (isMain ? '' : ' side');
+    chip.textContent = text;
+    el.hqTag.appendChild(chip);
   }
 
   function renderQuest(bump = false) {
     trackedId = pickTracked();
     const q = trackedId ? QUESTS[trackedId] : null;
     el.quest.classList.toggle('hidden', !q);
+    positionToasts();
     if (!q) return;
     const step = G.quests[trackedId]?.step ?? 0;
-    el.hqTag.textContent = 'Quest';
+    setTag(q.main ? 'MAIN' : 'SIDE', !!q.main);
     el.hqName.textContent = q.name || trackedId;
     el.hqStep.textContent = q.steps?.[Math.min(step, (q.steps?.length ?? 1) - 1)]?.text ?? '';
     el.quest.classList.remove('done');
@@ -315,10 +329,11 @@ export function initHud() {
       void el.quest.offsetWidth;
       el.quest.classList.add('bump');
     }
+    positionToasts();
   }
 
-  bus.on('quest:started', ({ id } = {}) => { trackedId = id ?? trackedId; renderQuest(true); });
-  bus.on('quest:updated', ({ id } = {}) => { if (id) trackedId = id; renderQuest(true); });
+  bus.on('quest:started', () => renderQuest(true));
+  bus.on('quest:updated', () => renderQuest(true));
   bus.on('quest:completed', ({ id } = {}) => {
     const q = id ? QUESTS[id] : null;
     if (q) {
@@ -327,6 +342,7 @@ export function initHud() {
       el.hqTag.textContent = 'Complete';
       el.hqName.textContent = q.name || id;
       el.hqStep.textContent = 'The thread is woven.';
+      positionToasts();
       setTimeout(() => renderQuest(true), 2400);
     } else renderQuest(true);
   });
@@ -349,9 +365,18 @@ export function initHud() {
   });
 
   // ---- Toasts -----------------------------------------------------------
-  bus.on('notify', ({ text, icon } = {}) => {
+  // Toasts stack BELOW the quest tracker: recompute the container's top offset
+  // from the tracker's live height whenever either changes (finding 17).
+  function positionToasts() {
+    const trackerVisible = !el.quest.classList.contains('hidden');
+    const r = trackerVisible ? el.quest.getBoundingClientRect() : null;
+    el.toasts.style.top = `${r && r.height ? Math.round(r.bottom + 10) : 18}px`;
+  }
+
+  bus.on('notify', ({ text, icon, duration } = {}) => {
     if (!text) return;
     while (el.toasts.childElementCount >= 4) el.toasts.firstElementChild.remove();
+    positionToasts();
     const t = document.createElement('div');
     t.className = 'toast';
     t.innerHTML = `<span class="toast-icon"></span><span class="toast-text"></span>`;
@@ -361,7 +386,7 @@ export function initHud() {
     setTimeout(() => {
       t.classList.add('out');
       setTimeout(() => t.remove(), 350);
-    }, 3000);
+    }, Math.max(1500, duration ?? 3000));
   });
 
   // ---- Interact prompt --------------------------------------------------

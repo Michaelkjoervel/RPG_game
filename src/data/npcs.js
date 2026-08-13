@@ -117,7 +117,7 @@ export const NPCS = {
     postLossDialogue: (G) => { const i = asheStageIndex(G); return `dlg_ashe_loss_${i === -1 ? 5 : i + 1}`; },
   },
   merchant_pip: {
-    id: 'merchant_pip', name: 'Pip', kind: 'merchant',
+    id: 'merchant_pip', name: 'Pip', kind: 'merchant', shopId: 'shop_brighthollow',
     appearance: { palette: [0xd88a3c, 0xf2e6c8], hat: 'straw', accessory: 'apron' },
     wanderRadius: 1,
     dialogue: ambientVillager('dlg_pip'),
@@ -261,7 +261,7 @@ export const NPCS = {
     },
   },
   merchant_wren: {
-    id: 'merchant_wren', name: 'Wren', kind: 'merchant', questId: 'sq_gleam',
+    id: 'merchant_wren', name: 'Wren', kind: 'merchant', questId: 'sq_gleam', shopId: 'shop_driftmoor',
     appearance: { palette: [0x3c7a8a, 0xf2e6c8], hat: 'straw', accessory: 'apron' },
     wanderRadius: 1,
     dialogue: (G) => {

@@ -12,6 +12,7 @@ import { renderCodex } from './codexUI.js';
 import { renderBag } from './bagUI.js';
 import { showSettings } from './settingsUI.js';
 import { showSaveMenu } from './saveUI.js';
+import { anyLayerOpen, cancelTopLayer } from './uiStack.js';
 
 const sfx = (name) => bus.emit('ui:sfx', { name });
 
@@ -45,30 +46,35 @@ function mountQuests(container, opts = {}) {
     try { QUESTS = (await import('../data/quests.js')).QUESTS ?? {}; }
     catch (e) { QUESTS = {}; }
     const entries = Object.entries(G.quests || {});
-    const active_ = [], done_ = [];
+    const mains_ = [], sides_ = [], done_ = [];
     for (const [id, prog] of entries) {
       const def = QUESTS[id];
-      (prog?.done ? done_ : active_).push({ id, def, prog });
+      if (prog?.done) done_.push({ id, def, prog });
+      else (def?.main ? mains_ : sides_).push({ id, def, prog });
     }
     wrap.innerHTML = '';
     if (!entries.length) {
       wrap.innerHTML = `<div class="quest-empty">No quests yet — the road will provide.</div>`;
       return;
     }
-    const activeLabel = document.createElement('div');
-    activeLabel.className = 'quest-section-label';
-    activeLabel.textContent = 'Active';
-    wrap.appendChild(activeLabel);
-    if (!active_.length) wrap.insertAdjacentHTML('beforeend', `<div class="quest-empty">Nothing active.</div>`);
-    for (const { id, def, prog } of active_) {
-      const step = def?.steps?.[Math.min(prog?.step ?? 0, (def?.steps?.length ?? 1) - 1)];
-      const d = document.createElement('div');
-      d.className = 'quest-entry tracked';
-      d.innerHTML = `<div class="quest-entry-name"></div><div class="quest-entry-step"></div>`;
-      d.querySelector('.quest-entry-name').textContent = def?.name ?? id;
-      d.querySelector('.quest-entry-step').textContent = step?.text ?? '';
-      wrap.appendChild(d);
-    }
+    const addSection = (label, list, tracked) => {
+      const sec = document.createElement('div');
+      sec.className = 'quest-section-label';
+      sec.textContent = label;
+      wrap.appendChild(sec);
+      if (!list.length) { wrap.insertAdjacentHTML('beforeend', `<div class="quest-empty">Nothing active.</div>`); return; }
+      for (const { id, def, prog } of list) {
+        const step = def?.steps?.[Math.min(prog?.step ?? 0, (def?.steps?.length ?? 1) - 1)];
+        const d = document.createElement('div');
+        d.className = 'quest-entry' + (tracked ? ' tracked' : '');
+        d.innerHTML = `<div class="quest-entry-name"></div><div class="quest-entry-step"></div>`;
+        d.querySelector('.quest-entry-name').textContent = def?.name ?? id;
+        d.querySelector('.quest-entry-step').textContent = step?.text ?? '';
+        wrap.appendChild(d);
+      }
+    };
+    addSection('Main Quest', mains_, true);
+    addSection('Side Quests', sides_, false);
     if (done_.length) {
       const doneLabel = document.createElement('div');
       doneLabel.className = 'quest-section-label';
@@ -119,6 +125,7 @@ function ensureDom() {
         <div class="menu-rail-footer">
           <div class="mf-time"></div>
           <div class="mf-glim"></div>
+          <div class="mf-keys">[Enter] Select &middot; [Q/Esc] Back</div>
         </div>
       </div>
       <div class="menu-content"><div class="menu-content-inner"></div></div>
@@ -209,8 +216,12 @@ async function selectRail() {
   sfx('ui_confirm');
   unbindRailInput();
   layer = 'content';
-  currentHandle.setActive?.(true);
   refreshRailVisual();
+  // Activate the pane one tick later: its input handlers were registered when
+  // the tab mounted (on rail focus), so activating synchronously would let the
+  // very confirm keypress that drilled in also fire inside the pane and
+  // activate its first item.
+  setTimeout(() => { if (open_ && layer === 'content') currentHandle?.setActive?.(true); }, 0);
 }
 
 function backToRail() {
@@ -253,7 +264,21 @@ bus.on('dialogue:end', () => { dialogueLock = false; });
 bus.on('letterbox', ({ on } = {}) => { letterboxLock = !!on; });
 bus.on('glim:changed', () => { if (open_) refreshFooter(); });
 
+// Esc routing (finding 6): while ANY overlay layer is open (shop, save,
+// settings modal, dialogue, pickers, confirm modals) Esc cancels exactly one
+// layer via the ui stack. Inside the hub it acts like Q (back one layer of the
+// active pane); the hub only closes fully from the rail.
 input.onAction('menu', () => {
-  if (open_) close();
-  else openMenu();
+  if (anyLayerOpen()) { cancelTopLayer(); return; }
+  if (open_) {
+    if (layer === 'rail') close();
+    else input._fire('cancel'); // Esc == Q inside a pane: back exactly one layer
+  } else openMenu();
+});
+
+// KeyC — jump straight to the Codex from the overworld (no layer open).
+input.onAction('codex', () => {
+  if (open_ || anyLayerOpen() || locked()) return;
+  if (game.mode !== 'overworld') return;
+  openMenu('codex');
 });

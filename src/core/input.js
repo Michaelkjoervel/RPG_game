@@ -67,7 +67,12 @@ class Input {
     if (gp) {
       gx = Math.abs(gp.axes[0]) > 0.15 ? gp.axes[0] : 0;
       gy = Math.abs(gp.axes[1]) > 0.15 ? gp.axes[1] : 0;
-      const map = { 0: 'confirm', 1: 'cancel', 2: 'interact', 9: 'menu' };
+      // D-pad (12-15) rides the same edge-trigger path as the face buttons so
+      // menus receive up/down/left/right action events from a pad.
+      const map = {
+        0: 'confirm', 1: 'cancel', 2: 'interact', 9: 'menu',
+        12: 'up', 13: 'down', 14: 'left', 15: 'right',
+      };
       for (const [btn, action] of Object.entries(map)) {
         const pressed = gp.buttons[btn]?.pressed;
         const was = this[`_gpb${btn}`];
@@ -77,6 +82,10 @@ class Input {
       }
       if (gp.buttons[10]?.pressed || gp.buttons[5]?.pressed) this.actions.add('run');
       else if (this.lastDevice === 'gp') this.actions.delete('run');
+      // Left-stick pulse-to-nav: menu navigation from the stick without
+      // flooding — see _stickPulse for the fire/re-arm/repeat rules.
+      this._stickPulse('x', gx, 'left', 'right');
+      this._stickPulse('y', gy, 'up', 'down');
     }
     // Movement axes (keyboard priority, else stick)
     const kx = (this.actions.has('right') ? 1 : 0) - (this.actions.has('left') ? 1 : 0);
@@ -85,6 +94,25 @@ class Input {
     this.axes.y = ky !== 0 ? ky : gy;
     if (gx || gy) this.lastDevice = 'gp';
   }
+  // Stick-to-menu-nav pulses: crossing |axis| > 0.6 emits the direction action
+  // once; it re-arms when the axis falls back under 0.3; while held hard it
+  // repeats every ~220ms. Movement itself still reads the analog axes directly.
+  _stickPulse(axis, v, negAction, posAction) {
+    const st = ((this._pulses ??= {})[axis] ??= { dir: 0, next: 0 });
+    if (Math.abs(v) < 0.3) { st.dir = 0; return; } // re-arm
+    if (Math.abs(v) <= 0.6) return;                // hysteresis band: hold state
+    const dir = v > 0 ? 1 : -1;
+    const now = performance.now();
+    if (dir !== st.dir || now >= st.next) {
+      st.dir = dir;
+      st.next = now + 220;
+      const action = dir > 0 ? posAction : negAction;
+      this._justPressed.add(action);
+      this.lastDevice = 'gp';
+      this._fire(action);
+    }
+  }
+
   endFrame() { this._justPressed.clear(); }
 }
 

@@ -8,6 +8,7 @@ import { G, spendItem } from '../core/state.js';
 import { input } from '../core/input.js';
 import { TAU } from '../core/math.js';
 import { ASPECTS } from '../data/aspects.js';
+import { makeListPicker } from './widgets.js';
 
 const sfx = (name) => bus.emit('ui:sfx', { name });
 const cssHex = (n) => (typeof n === 'number' ? `#${n.toString(16).padStart(6, '0')}` : (n || '#c8c2b8'));
@@ -105,7 +106,8 @@ function applyRestorative(itemId, item, mon) {
 export function renderBag(container, opts = {}) {
   let active = false;
   let tab = 'restorative';
-  let focusIdx = 0;
+  let focusIdx = 0;   // -1 = tabs row; else index into the current tab's item grid
+  let cols = 1;       // measured from the rendered grid (2D nav)
   let ITEMS = {}, creaturesApi = {}, SPECIES = {};
 
   const root = document.createElement('div');
@@ -130,8 +132,9 @@ export function renderBag(container, opts = {}) {
       .sort();
   }
 
-  function setTab(id) {
-    tab = id; focusIdx = 0;
+  function setTab(id, { stayOnTabs = false } = {}) {
+    tab = id;
+    focusIdx = stayOnTabs || !itemsInTab().length ? -1 : 0;
     tabsEl.querySelectorAll('.bag-tab').forEach((b) => b.classList.toggle('active', b.dataset.id === id));
     drawList();
   }
@@ -139,6 +142,8 @@ export function renderBag(container, opts = {}) {
   function drawList() {
     listEl.innerHTML = '';
     const ids = itemsInTab();
+    tabsEl.querySelectorAll('.bag-tab').forEach((b) =>
+      b.classList.toggle('focused', active && focusIdx === -1 && b.dataset.id === tab));
     if (!ids.length) { listEl.innerHTML = `<div class="bag-empty">Nothing here yet.</div>`; return; }
     ids.forEach((id, i) => {
       const item = ITEMS[id];
@@ -153,20 +158,14 @@ export function renderBag(container, opts = {}) {
       card.addEventListener('click', () => { focusIdx = i; useItem(id, item); });
       listEl.appendChild(card);
     });
+    requestAnimationFrame(() => {
+      const cs = getComputedStyle(listEl).gridTemplateColumns.split(' ').filter(Boolean);
+      cols = Math.max(1, cs.length);
+      listEl.querySelector('.bag-item.focused')?.scrollIntoView({ block: 'nearest' });
+    });
   }
 
-  // -------------------------------------------------------------- Pickers
-  function pickerOverlay(title) {
-    const overlay = document.createElement('div');
-    overlay.className = 'picker-overlay';
-    overlay.innerHTML = `<div class="picker-panel panel"><div class="picker-title"></div><div class="picker-list"></div><button class="btn-ghost" style="margin-top:8px;">Cancel</button></div>`;
-    overlay.querySelector('.picker-title').textContent = title;
-    root.appendChild(overlay);
-    overlay.querySelector('button').addEventListener('click', () => { sfx('ui_cancel'); overlay.remove(); });
-    sfx('ui_open');
-    return { overlay, list: overlay.querySelector('.picker-list') };
-  }
-
+  // -------------------------------------------------------------- Pickers (shared widget)
   function useItem(id, item) {
     const kind = item?.kind ?? 'key';
     if (kind === 'restorative') return useRestorative(id, item);
@@ -175,112 +174,126 @@ export function renderBag(container, opts = {}) {
     bus.emit('notify', { text: item?.desc ?? 'A curious item.', icon: '✦' });
   }
 
+  const monName = (mon) => mon.nickname || SPECIES[mon.speciesId]?.name || mon.speciesId;
+
   function useRestorative(id, item) {
     const party = G.party || [];
     if (!party.length) return;
-    const { overlay, list } = pickerOverlay(`Use ${item?.name ?? id} on...`);
-    party.forEach((mon) => {
-      const sp = SPECIES[mon.speciesId];
-      const row = document.createElement('div');
-      row.className = 'picker-item';
-      row.innerHTML = `<span></span><span class="picker-item-sub"></span>`;
-      row.firstElementChild.textContent = mon.nickname || sp?.name || mon.speciesId;
-      row.lastElementChild.textContent = `${mon.hp ?? 0}/${mon.maxHp ?? 0} HP`;
-      row.addEventListener('click', () => {
-        const res = applyRestorative(id, item, mon);
-        if (!res.ok) { bus.emit('notify', { text: `No effect (${res.reason}).` }); sfx('ui_cancel'); return; }
-        spendItem(id, 1);
-        bus.emit('ui:sfx', { name: 'heal' });
-        bus.emit('notify', { text: `${mon.nickname || sp?.name || mon.speciesId} recovered ${Math.max(0, res.healed)} HP.`, icon: '✦' });
-        bus.emit('party:changed');
-        overlay.remove();
-        drawList();
-      });
-      list.appendChild(row);
+    makeListPicker({
+      host: root,
+      title: `Use ${item?.name ?? id} on...`,
+      items: party.map((mon) => ({
+        label: monName(mon),
+        sub: `${mon.hp ?? 0}/${mon.maxHp ?? 0} HP`,
+        onPick: () => {
+          const res = applyRestorative(id, item, mon);
+          if (!res.ok) { bus.emit('notify', { text: `No effect (${res.reason}).` }); sfx('ui_cancel'); return; }
+          spendItem(id, 1);
+          bus.emit('ui:sfx', { name: 'heal' });
+          bus.emit('notify', { text: `${monName(mon)} recovered ${Math.max(0, res.healed)} HP.`, icon: '✦' });
+          bus.emit('party:changed');
+          drawList();
+        },
+      })),
     });
   }
 
   async function useStone(id, item) {
     await Promise.all([loadCreaturesApi().then((m) => (creaturesApi = m)), loadSpecies().then((m) => (SPECIES = m))]);
     const party = G.party || [];
-    const { overlay, list } = pickerOverlay(`Use ${item?.name ?? id} on...`);
-    let any = false;
-    party.forEach((mon) => {
-      const sp = SPECIES[mon.speciesId];
-      let ready = false;
-      try { ready = !!creaturesApi.checkAwakening?.(mon, { type: 'stone', itemId: id }); } catch (e) { ready = false; }
-      const row = document.createElement('div');
-      row.className = 'picker-item' + (ready ? '' : ' disabled');
-      row.innerHTML = `<span></span><span class="picker-item-sub"></span>`;
-      row.firstElementChild.textContent = mon.nickname || sp?.name || mon.speciesId;
-      row.lastElementChild.textContent = ready ? 'ready to awaken' : 'not ready';
-      if (ready) {
-        any = true;
-        row.addEventListener('click', async () => {
-          overlay.remove();
-          const targetId = creaturesApi.checkAwakening?.(mon, { type: 'stone', itemId: id });
-          const fromId = mon.speciesId;
-          spendItem(id, 1);
-          try {
-            const { showAwakening } = await import('./awakeningUI.js');
-            creaturesApi.applyAwakening?.(mon);
-            await showAwakening({ mon, fromId, toId: targetId });
-          } catch (e) {
-            creaturesApi.applyAwakening?.(mon);
-          }
-          bus.emit('party:changed');
-          drawList();
-        });
-      }
-      list.appendChild(row);
+    const readyOf = (mon) => {
+      try { return creaturesApi.checkAwakening?.(mon, { type: 'stone', itemId: id }) || null; } catch (e) { return null; }
+    };
+    const anyReady = party.some((mon) => readyOf(mon));
+    makeListPicker({
+      host: root,
+      title: `Use ${item?.name ?? id} on...`,
+      items: party.map((mon) => {
+        const ready = !!readyOf(mon);
+        return {
+          label: monName(mon),
+          sub: ready ? 'ready to awaken' : 'not ready',
+          disabled: !ready,
+          onPick: async () => {
+            const targetId = readyOf(mon);
+            const fromId = mon.speciesId;
+            spendItem(id, 1);
+            try {
+              const { showAwakening } = await import('./awakeningUI.js');
+              creaturesApi.applyAwakening?.(mon);
+              await showAwakening({ mon, fromId, toId: targetId });
+            } catch (e) {
+              creaturesApi.applyAwakening?.(mon);
+            }
+            bus.emit('party:changed');
+            drawList();
+          },
+        };
+      }),
+      emptyText: anyReady ? null : 'No Kindred are ready for this stone.',
     });
-    if (!any) list.insertAdjacentHTML('beforeend', `<div class="picker-item-sub" style="padding:8px;">No Kindred are ready for this stone.</div>`);
   }
 
   async function useTalisman(id, item) {
     await loadSpecies().then((m) => (SPECIES = m));
     const party = G.party || [];
-    const { overlay, list } = pickerOverlay(`Equip ${item?.name ?? id} to...`);
-    party.forEach((mon) => {
-      const sp = SPECIES[mon.speciesId];
-      const row = document.createElement('div');
-      row.className = 'picker-item';
-      row.innerHTML = `<span></span><span class="picker-item-sub"></span>`;
-      row.firstElementChild.textContent = mon.nickname || sp?.name || mon.speciesId;
-      row.lastElementChild.textContent = mon.talisman ? `has ${mon.talisman}` : 'unequipped';
-      row.addEventListener('click', () => {
-        mon.talisman = id;
-        sfx('ui_confirm');
-        bus.emit('notify', { text: `${item?.name ?? id} equipped to ${mon.nickname || sp?.name || mon.speciesId}.`, icon: '✦' });
-        bus.emit('party:changed');
-        overlay.remove();
-      });
-      list.appendChild(row);
+    makeListPicker({
+      host: root,
+      title: `Equip ${item?.name ?? id} to...`,
+      items: party.map((mon) => ({
+        label: monName(mon),
+        sub: mon.talisman ? `has ${mon.talisman}` : 'unequipped',
+        onPick: () => {
+          mon.talisman = id;
+          bus.emit('notify', { text: `${item?.name ?? id} equipped to ${monName(mon)}.`, icon: '✦' });
+          bus.emit('party:changed');
+          drawList();
+        },
+      })),
     });
   }
 
   // -------------------------------------------------------------- Input
-  function moveFocus(dir) {
+  const pickerOpen = () => !!root.querySelector('.picker-overlay');
+
+  // 2D grid nav (finding 14, codex-style) with the tab strip as a row above the
+  // grid: up from the top row focuses the tabs, left/right there switches tab.
+  function moveFocus(dx, dy) {
+    if (!active || pickerOpen()) return;
     const len = itemsInTab().length;
-    if (!len) return;
-    focusIdx = (focusIdx + dir + len) % len;
+    if (focusIdx === -1) {
+      if (dx) { moveTab(dx, { stayOnTabs: true }); return; }
+      if (dy > 0 && len) { focusIdx = 0; sfx('ui_move'); drawList(); }
+      return;
+    }
+    if (dy < 0 && focusIdx < cols) { focusIdx = -1; sfx('ui_move'); drawList(); return; }
+    if (!len) { focusIdx = -1; drawList(); return; }
+    const i = focusIdx + dx + dy * cols;
+    focusIdx = ((i % len) + len) % len;
     sfx('ui_move');
     drawList();
   }
-  function moveTab(dir) {
+  function moveTab(dir, o = {}) {
     const i = TABS.findIndex((t) => t.id === tab);
-    setTab(TABS[(i + dir + TABS.length) % TABS.length].id);
+    setTab(TABS[(i + dir + TABS.length) % TABS.length].id, o);
     sfx('ui_move');
+  }
+  function onConfirm() {
+    if (!active || pickerOpen()) return;
+    const ids = itemsInTab();
+    if (focusIdx === -1) { if (ids.length) { focusIdx = 0; drawList(); } return; }
+    const id = ids[focusIdx];
+    if (id) useItem(id, ITEMS[id]);
   }
 
   const unsubs = [
-    input.onAction('up', () => { if (active) moveFocus(-1); }),
-    input.onAction('down', () => { if (active) moveFocus(1); }),
-    input.onAction('left', () => { if (active) moveTab(-1); }),
-    input.onAction('right', () => { if (active) moveTab(1); }),
-    input.onAction('confirm', () => { if (active) { const ids = itemsInTab(); const id = ids[focusIdx]; if (id) useItem(id, ITEMS[id]); } }),
-    input.onAction('interact', () => { if (active) { const ids = itemsInTab(); const id = ids[focusIdx]; if (id) useItem(id, ITEMS[id]); } }),
-    input.onAction('cancel', () => { if (active && !root.querySelector('.picker-overlay')) opts.onBack?.(); }),
+    input.onAction('up', () => moveFocus(0, -1)),
+    input.onAction('down', () => moveFocus(0, 1)),
+    input.onAction('left', () => moveFocus(-1, 0)),
+    input.onAction('right', () => moveFocus(1, 0)),
+    input.onAction('confirm', onConfirm),
+    input.onAction('interact', onConfirm),
+    input.onAction('cancel', () => { if (active && !pickerOpen()) opts.onBack?.(); }),
   ];
   const offItemGained = bus.on('item:gained', () => drawList());
 

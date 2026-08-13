@@ -19,13 +19,13 @@ const notify = (text, icon) => bus.emit('notify', { text, icon });
 export const QUESTS = {
   // ============================================================================= Main chain
   q_main_1: {
-    id: 'q_main_1', name: "The Warden's Oath",
+    id: 'q_main_1', main: true, name: "The Warden's Oath",
     steps: [{ text: 'Find Keeper Bramwell in Dawnmeadow and earn the first Sigil.', isDone: (G) => !!G.sigils[0] }],
     rewards: { glim: 100 },
     onComplete: (G) => { gainGlim(100); notify('The Warden\'s Oath complete.', '✦'); },
   },
   q_main_2: {
-    id: 'q_main_2', name: 'The Quiet Rot',
+    id: 'q_main_2', main: true, name: 'The Quiet Rot',
     steps: [
       { text: 'Journey north into Whisperwood.', isDone: (G) => G.pos.zone === 'whisperwood' || !!G.flags.ww_hollowed_seen },
       { text: 'Earn the second Sigil from Keeper Liora.', isDone: (G) => !!G.sigils[1] && !!G.flags.ww_hollowed_seen },
@@ -34,31 +34,31 @@ export const QUESTS = {
     onComplete: (G) => { gainGlim(140); notify('The Quiet Rot complete.', '✦'); },
   },
   q_main_3: {
-    id: 'q_main_3', name: 'What the Order Took',
+    id: 'q_main_3', main: true, name: 'What the Order Took',
     steps: [{ text: 'Follow the trail into Gloamcavern and recover the shrine-shard.', isDone: (G) => !!G.flags.gloam_ambush_done }],
     rewards: { glim: 160, items: [{ id: 'remedy', qty: 2 }] },
     onComplete: (G) => { gainGlim(160); gainItem('remedy', 2); notify('What the Order Took complete.', '✦'); },
   },
   q_main_4: {
-    id: 'q_main_4', name: 'Currents of Sigil',
+    id: 'q_main_4', main: true, name: 'Currents of Sigil',
     steps: [{ text: 'Earn the third Sigil from Keeper Maro at Mirrorlake.', isDone: (G) => !!G.sigils[2] }],
     rewards: { glim: 200 },
     onComplete: (G) => { gainGlim(200); notify('Currents of Sigil complete.', '✦'); },
   },
   q_main_5: {
-    id: 'q_main_5', name: 'Into the Storm',
+    id: 'q_main_5', main: true, name: 'Into the Storm',
     steps: [{ text: 'Earn the fourth Sigil from Keeper Sera atop Skyreach.', isDone: (G) => !!G.sigils[3] && !!G.flags.storm_calmed }],
     rewards: { glim: 260 },
     onComplete: (G) => { gainGlim(260); notify('Into the Storm complete.', '✦'); },
   },
   q_main_6: {
-    id: 'q_main_6', name: 'What the Ruins Remember',
+    id: 'q_main_6', main: true, name: 'What the Ruins Remember',
     steps: [{ text: "Face Sancturne's trial in the Sunken Ruins and earn the fifth Sigil.", isDone: (G) => !!G.sigils[4] && !!G.flags.ruins_cleared }],
     rewards: { glim: 320, items: [{ id: 'grand_tonic', qty: 2 }] },
     onComplete: (G) => { gainGlim(320); gainItem('grand_tonic', 2); notify('What the Ruins Remember complete.', '✦'); },
   },
   q_main_7: {
-    id: 'q_main_7', name: 'The Hollow Spire',
+    id: 'q_main_7', main: true, name: 'The Hollow Spire',
     steps: [
       { text: 'Defeat Lieutenant Vess.', isDone: (G) => !!G.flags.vess_beat },
       { text: 'Defeat Lieutenant Dorn.', isDone: (G) => !!G.flags.dorn_beat },
@@ -67,7 +67,7 @@ export const QUESTS = {
     onComplete: (G) => { gainGlim(400); notify('The Hollow Spire complete.', '✦'); },
   },
   q_main_final: {
-    id: 'q_main_final', name: 'Where Shardlight Pools',
+    id: 'q_main_final', main: true, name: 'Where Shardlight Pools',
     steps: [{ text: 'Confront Archon Sol and liberate Thalassyr.', isDone: (G) => !!G.flags.postgame }],
     rewards: { glim: 1000, items: [{ id: 'starwoven_charm', qty: 2 }] },
     onComplete: (G) => { gainGlim(1000); gainItem('starwoven_charm', 2); notify('The Duskmere Reach breathes easier.', '✦'); },

@@ -14,6 +14,7 @@ import { input } from '../core/input.js';
 import { settings } from '../core/settings.js';
 import { hashStr } from '../core/rng.js';
 import { TAU } from '../core/math.js';
+import { pushLayer } from './uiStack.js';
 
 const sfx = (name) => bus.emit('ui:sfx', { name });
 const CPS = { slow: 22, normal: 46, fast: 96, instant: Infinity };
@@ -211,7 +212,7 @@ async function resolveSpeaker(line) {
 // Input plumbing — module-level handlers, gated by state.
 // ---------------------------------------------------------------------------
 let openState = false, typing = false, fullText = '', shownChars = 0, typeRes = null;
-let advanceRes = null, choiceState = null, gpTimer = 0, raf = 0;
+let advanceRes = null, choiceState = null, raf = 0;
 
 function onConfirm() {
   if (!openState) return;
@@ -329,20 +330,10 @@ function presentChoices(choices) {
   });
   nodes[0]?.classList.add('focused');
   return new Promise((resolve) => {
+    // Stick navigation now arrives as pulsed 'up'/'down' actions straight from
+    // core/input.js — no per-widget axis polling needed here.
     choiceState = { els: nodes, idx: 0, resolve };
-    // Gamepad stick navigation while choices are up.
-    let lastMove = 0;
-    gpTimer = setInterval(() => {
-      if (!choiceState) return clearInterval(gpTimer);
-      const y = input.axes?.y ?? 0;
-      const now = performance.now();
-      if (Math.abs(y) > 0.55 && now - lastMove > 220) {
-        lastMove = now;
-        moveChoice(y > 0 ? 1 : -1);
-      }
-    }, 60);
   }).finally(() => {
-    clearInterval(gpTimer);
     els.choices.classList.add('hidden');
     els.choices.innerHTML = '';
   });
@@ -388,6 +379,9 @@ export function showDialogue(dlg) {
     if (!dlg?.lines?.length) return;
     ensureDom();
     openState = true;
+    // Register as a ui layer so Esc routes here (finishes the typewriter)
+    // instead of toggling the pause hub underneath the conversation.
+    const popLayer = pushLayer('dialogue', () => { if (typing) onConfirm(); });
     bus.emit('dialogue:start', { _fromUI: true, lines: dlg.lines });
     sfx('ui_open');
     root.classList.add('open');
@@ -399,6 +393,7 @@ export function showDialogue(dlg) {
       advanceRes = null;
       typing = false;
       cancelAnimationFrame(raf);
+      popLayer();
       root.classList.remove('open');
       sfx('ui_close');
       bus.emit('dialogue:end');

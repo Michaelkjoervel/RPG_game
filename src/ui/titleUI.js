@@ -10,6 +10,7 @@ import { input } from '../core/input.js';
 import { hasAnySave } from '../core/save.js';
 import { TAU } from '../core/math.js';
 import { hashStr, seededRandom } from '../core/rng.js';
+import { pushLayer } from './uiStack.js';
 // Side-effect import: registers the pause-hub's global 'menu' input listener. titleUI is
 // the one ui-menus module guaranteed to load at boot (main.js awaits showTitle immediately),
 // so this is where the hub's Esc/Tab handler gets wired up without touching main.js.
@@ -336,7 +337,7 @@ export function showTitle(game) {
           <div class="name-modal panel">
             <div class="name-modal-title gold-title">Who walks the Reach?</div>
             <input class="name-input" maxlength="12" spellcheck="false" autocomplete="off" />
-            <div class="name-hint">Your Warden name &mdash; up to 12 characters</div>
+            <div class="name-hint">Your Warden name &mdash; up to 12 characters &middot; gamepad: [A] Accept</div>
             <div class="modal-actions">
               <button class="btn-ghost" data-act="cancel">Back</button>
               <button class="btn-gold" data-act="confirm">Begin</button>
@@ -347,24 +348,36 @@ export function showTitle(game) {
         const inputEl = scrim.querySelector('.name-input');
         inputEl.value = G.playerName || 'Rowan';
         requestAnimationFrame(() => { inputEl.focus(); inputEl.select(); });
+        let closed = false;
         const close = (name) => {
+          if (closed) return;
+          closed = true;
+          offPad.forEach((f) => f());
+          popLayer();
           modalOpen = false;
           scrim.classList.add('out');
           sfx('ui_close');
           setTimeout(() => scrim.remove(), 220);
           res(name);
         };
+        const accept = () => { sfx('ui_confirm'); close(inputEl.value.trim() || 'Rowan'); };
         scrim.querySelector('[data-act="cancel"]').addEventListener('click', () => close(null));
-        scrim.querySelector('[data-act="confirm"]').addEventListener('click', () => {
-          sfx('ui_confirm');
-          close(inputEl.value.trim() || 'Rowan');
-        });
+        scrim.querySelector('[data-act="confirm"]').addEventListener('click', accept);
         inputEl.addEventListener('keydown', (e) => {
           e.stopPropagation();
-          if (e.key === 'Enter') { sfx('ui_confirm'); close(inputEl.value.trim() || 'Rowan'); }
+          if (e.key === 'Enter') accept();
           if (e.key === 'Escape') close(null);
         });
         scrim.addEventListener('pointerdown', (e) => { if (e.target === scrim) close(null); });
+        // Gamepad path — the text input never blocks a pad. Typing swallows its
+        // own keys (stopPropagation above), so these only see pad buttons (or
+        // Enter while the field is unfocused): [A]/confirm accepts the current
+        // (default) name, [B]/cancel backs out.
+        const offPad = [
+          input.onAction('confirm', accept),
+          input.onAction('cancel', () => close(null)),
+        ];
+        const popLayer = pushLayer('name-entry', () => close(null));
       });
     }
 

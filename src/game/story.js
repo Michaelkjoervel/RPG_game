@@ -26,7 +26,7 @@ async function sayLines(lines) {
   const { showDialogue } = await dlgUI();
   return showDialogue({ lines });
 }
-const notify = (text, icon) => bus.emit('notify', { text, icon });
+const notify = (text, icon, duration) => bus.emit('notify', { text, icon, duration });
 
 const ARENA_BY_BIOME = {
   meadow: 'meadow', forest: 'forest', cave: 'cave', lake: 'lake', mountain: 'mountain',
@@ -186,6 +186,13 @@ export async function runNpcInteraction(npcData, world) {
     const dlgId = typeof npcData.dialogue === 'function' ? npcData.dialogue(G) : npcData.dialogue;
     if (dlgId) await say(dlgId);
     await resolveSide(npcData);
+
+    // Merchants: greeting first, then straight into their shop.
+    if (npcData.shopId) {
+      try { await (await import('../ui/shopUI.js')).showShop(npcData.shopId); }
+      catch (e) { console.error('[story] shop failed to open', e); }
+      return;
+    }
 
     if (npcData.id === 'archon_sol') { await runSolFinale(world); return; }
 
@@ -466,11 +473,16 @@ export async function startNewGame(gameRef) {
   await say('dlg_intro_3');
   bus.emit('letterbox', { on: false });
 
-  notify('Move with WASD, or the left stick.', '✦');
-  notify('Hold Shift, or the run button, to sprint.', '✦');
-  notify('Press E near people or things of interest to interact.', '✦');
-  notify('Press Esc or Tab any time to open your menu.', '✦');
-
   g.autosave();
   await g.enterOverworld('brighthollow');
+
+  // Control hints: queued sequentially AFTER zone entry (the zone-title card and
+  // load hitch would otherwise eat them), each lingering long enough to read.
+  const hints = [
+    'Move with WASD, or the left stick.',
+    'Hold Shift, or the run button, to sprint.',
+    'Press E near people or things of interest to interact.',
+    'Press Esc or Tab any time to open your menu.',
+  ];
+  hints.forEach((text, i) => setTimeout(() => notify(text, '✦', 6500), 900 + i * 6800));
 }

@@ -6,6 +6,7 @@ import { input } from '../core/input.js';
 import { tween } from '../core/tween.js';
 import { pick } from '../core/rng.js';
 import { iconCanvas } from './bagUI.js';
+import { pushLayer } from './uiStack.js';
 
 const sfx = (name) => bus.emit('ui:sfx', { name });
 
@@ -30,7 +31,7 @@ export function showShop(shopId) {
   return new Promise((resolve) => {
     let mode = 'buy';
     let qty = {};
-    let focusIdx = 0;
+    let focusIdx = 0; // -1 = Buy/Sell tab row; else index into the list
     let ITEMS = {}, SHOPS = {};
     const unsubs = [];
 
@@ -88,8 +89,9 @@ export function showShop(shopId) {
     function drawList() {
       el.list.innerHTML = '';
       const list = ids();
+      root.querySelectorAll('.shop-tab').forEach((b) => b.classList.toggle('focused', focusIdx === -1 && b.dataset.m === mode));
       if (!list.length) { el.list.innerHTML = `<div class="shop-empty">${mode === 'buy' ? 'Nothing in stock right now.' : 'Nothing to sell.'}</div>`; return; }
-      focusIdx = Math.min(focusIdx, list.length - 1);
+      if (focusIdx >= list.length) focusIdx = list.length - 1;
       list.forEach((id, i) => {
         const item = ITEMS[id];
         qty[id] = Math.max(1, Math.min(qty[id] ?? 1, Math.max(1, maxQty(id))));
@@ -126,6 +128,7 @@ export function showShop(shopId) {
         buyBtn.addEventListener('click', () => transact(id));
         el.list.appendChild(row);
       });
+      el.list.querySelector('.shop-item.focused')?.scrollIntoView({ block: 'nearest' });
     }
 
     function updatePrice(row, id) {
@@ -153,35 +156,69 @@ export function showShop(shopId) {
       drawList();
     }
 
-    function setMode(m) {
-      mode = m; focusIdx = 0;
+    function setMode(m, { stayOnTabs = false } = {}) {
+      mode = m; focusIdx = stayOnTabs ? -1 : 0;
       root.querySelectorAll('.shop-tab').forEach((b) => b.classList.toggle('active', b.dataset.m === m));
       drawList();
     }
     root.querySelectorAll('.shop-tab').forEach((b) => b.addEventListener('click', () => { sfx('ui_move'); setMode(b.dataset.m); }));
 
+    let closed = false;
     function close() {
+      if (closed) return;
+      closed = true;
       unsubs.forEach((f) => f());
+      popLayer();
       root.classList.add('out');
       sfx('ui_close');
       setTimeout(() => { root.remove(); resolve(); }, 220);
     }
     root.querySelector('.shop-close').addEventListener('click', close);
     root.querySelector('.menu-hub-backdrop').addEventListener('pointerdown', close);
+    const popLayer = pushLayer('shop', close);
 
+    // Keyboard/gamepad model: up/down walks tabs-row -> items; on the tab row
+    // left/right flips Buy/Sell; on an item left/right steps the qty stepper
+    // and confirm buys/sells the focused row.
     function moveFocus(dir) {
       const len = ids().length;
+      if (focusIdx === -1) {
+        if (dir > 0 && len) { focusIdx = 0; sfx('ui_move'); drawList(); }
+        return;
+      }
+      if (dir < 0 && focusIdx === 0) { focusIdx = -1; sfx('ui_move'); drawList(); return; }
       if (!len) return;
-      focusIdx = (focusIdx + dir + len) % len;
+      focusIdx = Math.min(len - 1, Math.max(0, focusIdx + dir));
+      sfx('ui_move');
+      drawList();
+    }
+
+    function stepQty(dir) {
+      if (focusIdx === -1) { sfx('ui_move'); setMode(mode === 'buy' ? 'sell' : 'buy', { stayOnTabs: true }); return; }
+      const id = ids()[focusIdx];
+      if (!id) return;
+      const cap = Math.max(1, maxQty(id));
+      const next = Math.min(cap, Math.max(1, (qty[id] ?? 1) + dir));
+      if (next === qty[id]) return;
+      qty[id] = next;
       sfx('ui_move');
       drawList();
     }
 
     unsubs.push(input.onAction('up', () => moveFocus(-1)));
     unsubs.push(input.onAction('down', () => moveFocus(1)));
-    unsubs.push(input.onAction('left', () => setMode(mode === 'buy' ? 'sell' : 'buy')));
-    unsubs.push(input.onAction('right', () => setMode(mode === 'buy' ? 'sell' : 'buy')));
-    unsubs.push(input.onAction('confirm', () => { const id = ids()[focusIdx]; if (id) transact(id); }));
+    unsubs.push(input.onAction('left', () => stepQty(-1)));
+    unsubs.push(input.onAction('right', () => stepQty(1)));
+    unsubs.push(input.onAction('confirm', () => {
+      if (focusIdx === -1) { if (ids().length) { focusIdx = 0; drawList(); } return; }
+      const id = ids()[focusIdx];
+      if (id) transact(id);
+    }));
+    unsubs.push(input.onAction('interact', () => {
+      if (focusIdx === -1) return;
+      const id = ids()[focusIdx];
+      if (id) transact(id);
+    }));
     unsubs.push(input.onAction('cancel', close));
 
     (async () => {

@@ -32,7 +32,7 @@
 // is battle/presentation.js's job, driven by each ability's fx.sfx hint —
 // battleUI never plays those, to avoid double-triggering at integration.
 import { bus } from '../core/events.js';
-import { G } from '../core/state.js';
+import { G, setFlag } from '../core/state.js';
 import { input } from '../core/input.js';
 import { settings } from '../core/settings.js';
 import { tween, delay } from '../core/tween.js';
@@ -182,7 +182,6 @@ export function createBattleUI(ctx = {}) {
   let logItems = [];
   let unsub = [];
   let nav = null;            // { items, idx, orientation:'h'|'v'|'grid', cols, onSelect, onCancel }
-  let navGpTimer = null, navGpLast = 0;
   let panelMode = null;      // 'ring'|'moves'|'switch'|'bag'|'target'|null
   let currentView = null;
   let pendingResolve = null;
@@ -215,18 +214,8 @@ export function createBattleUI(ctx = {}) {
   }
 
   // ---- navigation (keyboard / gamepad / pointer, one active menu at a time)
-  function stopNavGamepadPoll() { if (navGpTimer) { clearInterval(navGpTimer); navGpTimer = null; } }
-  function startNavGamepadPoll() {
-    stopNavGamepadPoll();
-    navGpTimer = setInterval(() => {
-      if (!nav) return stopNavGamepadPoll();
-      const { x = 0, y = 0 } = input.axes || {};
-      const now = performance.now();
-      if (now - navGpLast < 180) return;
-      if (Math.abs(x) > 0.55) { navGpLast = now; moveNav(x > 0 ? 1 : -1, 0); }
-      else if (Math.abs(y) > 0.55) { navGpLast = now; moveNav(0, y > 0 ? 1 : -1); }
-    }, 55);
-  }
+  // Stick navigation arrives as pulsed 'up/down/left/right' actions straight
+  // from core/input.js (edge-fire + ~220ms repeat) — no local axis polling.
   function refreshNavFocus() { nav?.items.forEach((el, i) => el.classList.toggle('focused', i === nav.idx)); }
   function setNav(items, { orientation = 'h', cols = 1, onSelect, onCancel, startIdx = 0 } = {}) {
     nav = { items, idx: Math.min(startIdx, Math.max(0, items.length - 1)), orientation, cols, onSelect, onCancel };
@@ -235,7 +224,6 @@ export function createBattleUI(ctx = {}) {
       el.onpointerenter = () => { if (nav) { nav.idx = i; refreshNavFocus(); } };
       el.onclick = (ev) => { ev.stopPropagation(); if (!nav) return; nav.idx = i; confirmNav(); };
     });
-    startNavGamepadPoll();
   }
   function moveNav(dx, dy) {
     if (!nav || !nav.items.length) return;
@@ -625,6 +613,22 @@ export function createBattleUI(ctx = {}) {
   }
   function resetLog() { logItems.forEach((l) => l.remove()); logItems = []; els.log.innerHTML = ''; }
 
+  // One-shot tutorial hints (finding 7): a longer-lived pill above the dock —
+  // the 1.7s log lines evaporate too fast to teach anything.
+  function showHint(text) {
+    if (!root) return;
+    const el = document.createElement('div');
+    el.className = 'bui-hint';
+    el.innerHTML = `<span class="bui-hint-icon">✦</span><span></span>`;
+    el.lastElementChild.textContent = text;
+    root.appendChild(el);
+    requestAnimationFrame(() => el.classList.add('show'));
+    setTimeout(() => {
+      el.classList.remove('show');
+      setTimeout(() => el.remove(), 400);
+    }, 7500);
+  }
+
   // ---- damage numbers -------------------------------------------------------
   function showDamage(xPct, yPct, text, kind = 'normal') {
     if (!els?.dmgLayer) return;
@@ -703,6 +707,11 @@ export function createBattleUI(ctx = {}) {
       case 'intro': {
         resetLog();
         await doVsCard();
+        // First catchable wild encounter: teach the Attune loop once.
+        if ((cfg.kind ?? 'wild') === 'wild' && cfg.canCatch && !G.flags?.hint_attune) {
+          setFlag('hint_attune');
+          showHint('Attune: weaken the Kindred, then throw a Charm.');
+        }
         break;
       }
       case 'send': {
@@ -752,7 +761,15 @@ export function createBattleUI(ctx = {}) {
       case 'auraEnd': hideAura(); break;
       case 'burstReady': {
         const p = plates[ev.side];
-        if (ev.side === 'p') { updateBurst(p, 100); sfx('burst_ready'); }
+        if (ev.side === 'p') {
+          updateBurst(p, 100);
+          sfx('burst_ready');
+          // First time the player's own burst charges: point at where it lives.
+          if (!G.flags?.hint_burst) {
+            setFlag('hint_burst');
+            showHint('Resonant Burst ready — unleash it from the Fight panel.');
+          }
+        }
         log(`${p.name}'s resonance surges — ready to burst!`);
         break;
       }
@@ -921,7 +938,6 @@ export function createBattleUI(ctx = {}) {
     mounted = false;
     unsub.forEach((fn) => fn());
     unsub = [];
-    stopNavGamepadPoll();
     nav = null;
     pendingResolve = null;
     xpLog.clear();

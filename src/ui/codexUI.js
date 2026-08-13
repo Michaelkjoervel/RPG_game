@@ -6,11 +6,10 @@ import { bus } from '../core/events.js';
 import { G } from '../core/state.js';
 import { input } from '../core/input.js';
 import { TAU, clamp01 } from '../core/math.js';
-import { hashStr, seededRandom } from '../core/rng.js';
 import { ASPECTS } from '../data/aspects.js';
+import { creaturePortraitCanvas } from './hud.js';
 
 const sfx = (name) => bus.emit('ui:sfx', { name });
-const cssHex = (n) => (typeof n === 'number' ? `#${n.toString(16).padStart(6, '0')}` : (n || '#c8c2b8'));
 
 // One small preview renderer, created lazily and REUSED for every detail-pane
 // open — a fresh WebGLRenderer per open risks browser context eviction. It
@@ -52,50 +51,8 @@ function buildChainLookup(SPECIES) {
   };
 }
 
-function silhouetteCanvas(speciesId, aspects, size = 72) {
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  const cv = document.createElement('canvas');
-  cv.width = cv.height = Math.round(size * dpr);
-  cv.style.width = cv.style.height = `${size}px`;
-  const x = cv.getContext('2d');
-  x.scale(dpr, dpr);
-  const s = size, c1 = cssHex(ASPECTS[aspects?.[0]]?.color ?? ASPECTS.neutral.color);
-  const g = x.createRadialGradient(s * 0.5, s * 0.5, s * 0.05, s * 0.5, s * 0.5, s * 0.5);
-  g.addColorStop(0, c1); g.addColorStop(1, 'rgba(0,0,0,0)');
-  x.globalAlpha = 0.4; x.fillStyle = g; x.fillRect(0, 0, s, s); x.globalAlpha = 1;
-  const rng = seededRandom(hashStr(String(speciesId)));
-  x.fillStyle = 'rgba(4,4,8,0.92)';
-  x.beginPath(); x.ellipse(s * 0.5, s * 0.62, s * 0.24, s * 0.17, 0, 0, TAU); x.fill();
-  x.beginPath(); x.arc(s * 0.5, s * 0.37, s * 0.14, 0, TAU); x.fill();
-  return cv;
-}
-
-function coloredCanvas(speciesId, sp, size = 72) {
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  const cv = document.createElement('canvas');
-  cv.width = cv.height = Math.round(size * dpr);
-  cv.style.width = cv.style.height = `${size}px`;
-  const x = cv.getContext('2d');
-  x.scale(dpr, dpr);
-  const s = size, aspects = sp?.aspects?.length ? sp.aspects : ['neutral'];
-  const c1 = cssHex(ASPECTS[aspects[0]]?.color), c2 = cssHex(ASPECTS[aspects[1] ?? aspects[0]]?.color);
-  x.save(); x.beginPath(); x.arc(s / 2, s / 2, s * 0.47, 0, TAU); x.clip();
-  x.fillStyle = '#161826'; x.fillRect(0, 0, s, s);
-  let g = x.createRadialGradient(s * 0.5, s * 0.2, s * 0.04, s * 0.5, s * 0.3, s * 0.85);
-  g.addColorStop(0, c1); g.addColorStop(1, 'rgba(0,0,0,0)');
-  x.globalAlpha = 0.6; x.fillStyle = g; x.fillRect(0, 0, s, s);
-  g = x.createRadialGradient(s * 0.2, s * 0.85, s * 0.05, s * 0.3, s * 0.85, s * 0.85);
-  g.addColorStop(0, c2); g.addColorStop(1, 'rgba(0,0,0,0)');
-  x.globalAlpha = 0.35; x.fillStyle = g; x.fillRect(0, 0, s, s); x.globalAlpha = 1;
-  const rng = seededRandom(hashStr(String(speciesId)));
-  x.fillStyle = 'rgba(10,12,20,0.85)';
-  x.beginPath(); x.ellipse(s * 0.5, s * 0.62, s * 0.24, s * 0.17, 0, 0, TAU); x.fill();
-  x.beginPath(); x.arc(s * 0.5, s * 0.37, s * 0.14, 0, TAU); x.fill();
-  x.restore();
-  x.lineWidth = Math.max(1.5, s * 0.045); x.strokeStyle = c1;
-  x.beginPath(); x.arc(s / 2, s / 2, s * 0.47 - x.lineWidth / 2, 0, TAU); x.stroke();
-  return cv;
-}
+// (Grid slots now use hud.js's creaturePortraitCanvas medallions — the old
+//  bespoke silhouette/colored canvases were retired with review finding 11.)
 
 function ringMeter(pct, size = 46) {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -158,10 +115,13 @@ export function renderCodex(container, opts = {}) {
       num.textContent = `#${i + 1}`;
       slot.appendChild(num);
       if (status === 'caught') {
-        slot.appendChild(coloredCanvas(id, sp, 54));
+        slot.appendChild(creaturePortraitCanvas(id, 54));
         const nm = document.createElement('div'); nm.className = 'cs-name'; nm.textContent = sp?.name ?? id; slot.appendChild(nm);
       } else if (status === 'seen') {
-        slot.appendChild(silhouetteCanvas(id, sp?.aspects, 54));
+        // Same medallion, dimmed/desaturated by .seen-glyph — reads as "sighted,
+        // not yet attuned" while matching the party/HUD portrait language.
+        slot.classList.add('seen-glyph');
+        slot.appendChild(creaturePortraitCanvas(id, 54));
         const nm = document.createElement('div'); nm.className = 'cs-name'; nm.textContent = sp?.name ?? id; slot.appendChild(nm);
       } else {
         const mark = document.createElement('div'); mark.className = 'cs-mark'; mark.textContent = '?'; slot.appendChild(mark);
@@ -172,6 +132,7 @@ export function renderCodex(container, opts = {}) {
     requestAnimationFrame(() => {
       const cs = getComputedStyle(gridEl).gridTemplateColumns.split(' ').filter(Boolean);
       cols = Math.max(1, cs.length);
+      gridEl.querySelector('.codex-slot.focused')?.scrollIntoView({ block: 'nearest' });
     });
   }
 
@@ -260,10 +221,12 @@ export function renderCodex(container, opts = {}) {
       canvasWrap.appendChild(renderer.domElement);
       const scene = new THREE.Scene();
       const camera = new THREE.PerspectiveCamera(34, 1, 0.05, 40);
-      const hemi = new THREE.HemisphereLight(0x8890c8, 0x141018, 0.7);
-      const key = new THREE.DirectionalLight(0xffe9b0, status === 'caught' ? 1.15 : 0.5);
+      // Museum-plinth lighting: bright enough to read silhouettes and materials
+      // against the solid detail panel (review finding 24).
+      const hemi = new THREE.HemisphereLight(0x9aa2d8, 0x2a2436, 1.1);
+      const key = new THREE.DirectionalLight(0xffe9b0, status === 'caught' ? 1.7 : 0.6);
       key.position.set(2, 3, 2.4);
-      const rim = new THREE.DirectionalLight(0x9ad1ff, 0.4);
+      const rim = new THREE.DirectionalLight(0x9ad1ff, 0.65);
       rim.position.set(-2, 1.4, -2);
       scene.add(hemi, key, rim);
       const { group, animator } = buildCreature(id);
