@@ -275,7 +275,10 @@ export function renderParty(container, opts = {}) {
     row.querySelector('.stat-bar-val').textContent = val;
     const f = row.querySelector('.stat-bar-fill');
     f.style.background = color;
-    requestAnimationFrame(() => { f.style.transform = `scaleX(${Math.min(1, val / max)})`; });
+    // Set synchronously (before the row is attached) so the bar renders at its
+    // real length on the very first frame — a deferred rAF + transition can
+    // leave bars at scaleX(1)/empty on slow frames.
+    f.style.transform = `scaleX(${Math.min(1, val / max)})`;
     return row;
   }
 
