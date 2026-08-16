@@ -35,7 +35,7 @@ export function build_maelfin(kit = kitDefault) {
   const bellyPatch = kit.capsule(0.075, 0.24, bellyMat, { capSeg: 4, radSeg: 7 });
   bellyPatch.geometry.rotateX(Math.PI / 2);
   bellyPatch.scale.set(0.62, 0.62, 1);
-  kit.at(body, bellyPatch, 0, -0.07, 0.02);
+  kit.at(body, bellyPatch, 0, -0.062, 0.02);
 
   // Head carried a little above the shoulder line so the otter reads as head +
   // body rather than one continuous sausage.
@@ -62,9 +62,10 @@ export function build_maelfin(kit = kitDefault) {
 
   // Flippers — short, wide "legs" standing in for otter-mer limbs. Local Y is
   // measured from the torso centre, so the hips belong just under the belly
-  // (-0.093 = drop of kit.leg(0.16) minus the torso height) — that is what
-  // plants the flippers on y=0 instead of leaving them dangling inside the body.
-  const legDefs = [[0.09, -0.093, 0.12], [-0.09, -0.093, 0.12]];
+  // (kit.leg(0.16) drops 0.187 from the hip, and the torso rides at 0.28) —
+  // that is what plants the flippers on y=0 instead of leaving them dangling
+  // inside the body.
+  const legDefs = [[0.085, -0.081, 0.1], [-0.085, -0.081, 0.1]];
   const legs = legDefs.map(([x, y, z]) => kit.at(body, kit.leg(0.16, skin, { thighR: 0.04, shinR: 0.032, footLen: 0.09 }), x, y, z));
 
   // A pair of small flourish fins near the hips, echoing the sail shape at
@@ -81,7 +82,7 @@ export function build_maelfin(kit = kitDefault) {
   kit.at(tail.pivots[tail.pivots.length - 1], swirl, 0, 0, -0.08);
 
   const spark = kit.heartspark(0.032, pal.eye, { seed: 18 });
-  kit.at(body, spark, 0, -0.03, 0.26);
+  kit.at(body, spark, 0, -0.02, 0.25);
 
   return {
     group: kit.groundPlant(root),
