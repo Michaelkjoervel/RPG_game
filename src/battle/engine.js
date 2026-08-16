@@ -20,6 +20,9 @@
 //   - 'recall' {side}: carries an extra `mon` for convenience.
 //   - 'moveUsed'/'burstUsed': `move`/`burst` is the FULL resolved ability or
 //     burst definition (id + all data fields), not just the id.
+//   - 'moveUsed' additionally carries `isBurst:true` when the action is a
+//     Resonant Burst (a 'burstUsed' event follows) — presentation uses this
+//     to skip the generic anim beat so the burst sequence owns the whole shot.
 //
 // ---------------------------------------------------------------------------
 // TRAIT HOOK VOCABULARY. abilities.js's TRAITS entries are pure DATA:
@@ -703,13 +706,13 @@ export class BattleEngine {
     if (!defender || defender.fainted) return;
 
     if (attacker.mon.status === 'shock' && this.rng() < 0.25) {
-      await this._emit({ type: 'moveUsed', side, mon: attacker.mon, move: moveDef });
+      await this._emit({ type: 'moveUsed', side, mon: attacker.mon, move: moveDef, isBurst: !!isBurst });
       await this._emit({ type: 'miss', side, mon: attacker.mon, reason: 'shock' });
       return;
     }
 
     this._trackAspect(side, moveDef.aspect);
-    await this._emit({ type: 'moveUsed', side, mon: attacker.mon, move: moveDef });
+    await this._emit({ type: 'moveUsed', side, mon: attacker.mon, move: moveDef, isBurst: !!isBurst });
     if (isBurst) {
       attacker.mon.burstCharge = 0;
       await this._emit({ type: 'burstUsed', side, mon: attacker.mon, burst: moveDef });

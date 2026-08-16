@@ -8,6 +8,7 @@
 // It is handed to createBattleUI(ctx) verbatim too — battleUI.js reads
 // `ctx.config ?? ctx`, so passing the raw config satisfies that contract.
 import { bus } from '../core/events.js';
+import { setTimeScale } from '../core/tween.js';
 import { createPresentation } from './presentation.js';
 
 export async function runBattle(game, config = {}) {
@@ -27,8 +28,13 @@ export async function runBattle(game, config = {}) {
     const engine = new BattleEngine(config);
     engine.onEvent = async (ev) => {
       bus.emit('battle:event', ev); // canonical bus mirror (ARCHITECTURE.md) — audio.js listens
-      try { await presentation.handle(ev); } catch (e) { console.error('[battleFlow] presentation handler threw', e); }
-      try { await ui.handleEvent(ev); } catch (e) { console.error('[battleFlow] battleUI handler threw', e); }
+      // 3D choreography and DOM feedback run in PARALLEL so plates/log/pips
+      // land in sync with the action instead of after it. Each leg carries its
+      // own catch — one layer failing must never stall or skip the other.
+      await Promise.all([
+        presentation.handle(ev).catch((e) => console.error('[battleFlow] presentation handler threw', e)),
+        ui.handleEvent(ev).catch((e) => console.error('[battleFlow] battleUI handler threw', e)),
+      ]);
     };
 
     ui.mount();
@@ -47,6 +53,7 @@ export async function runBattle(game, config = {}) {
     bus.emit('transition:clear');
     return { outcome: 'flee', xp: 0, glim: 0 };
   } finally {
+    setTimeScale(1); // hitstop must never leak out of a battle, however it ended
     ui?.unmount();
     presentation?.dispose();
   }

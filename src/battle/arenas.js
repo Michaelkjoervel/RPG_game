@@ -279,7 +279,7 @@ function buildCave(P) {
   group.add(ringInstances(bag, stalGeo, stalMat, 11, (i, n) => { const b = ringPlacer(9, 16, 0.6, [0.6, 1.5])(i, n); return { ...b, y: 0.8 * b.scale }; }));
   group.add(dome(bag, 0x120f1c, 0x0a0812, { horizon: 0.15 }));
 
-  const lights = makeLights(bag, { keyColor: 0x8fb0ff, keyIntensity: 0.9, fillColor: 0x2a2438, fillIntensity: 0.4, rimColor: 0x6fd8e8, rimIntensity: 1.6, keyPos: [2, 8, -4] });
+  const lights = makeLights(bag, { keyColor: 0x8fb0ff, keyIntensity: 1.4, fillColor: 0x2a2438, fillIntensity: 0.4, rimColor: 0x6fd8e8, rimIntensity: 1.6, keyPos: [2, 8, -4] });
   const p2 = bag.light(new THREE.PointLight(0xb06fd8, 1.1, 20, 2)); p2.position.set(6, 2.4, 5);
   group.add(lights.key, lights.key.target, lights.fill, lights.rim, p2);
 

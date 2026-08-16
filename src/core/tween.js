@@ -5,6 +5,15 @@ import { settings } from './settings.js';
 
 const active = new Set();
 
+// Global time scale for the tween/timer clock — drives real hitstop: battle
+// presentation dips this toward ~0.05 on impact frames so every tween/delay
+// (choreography, UI bars, knockback) freezes together, then ramps back to 1.
+// The game loop keeps passing REAL dt into tick(); scaling happens inside.
+// battle/battleFlow.js guarantees restoration to 1 when a battle ends.
+let timeScale = 1;
+export function setTimeScale(s) { timeScale = Number.isFinite(s) ? Math.max(0, s) : 1; }
+export function getTimeScale() { return timeScale; }
+
 export function tween({ from = 0, to = 1, dur = 0.3, ease = easeOutCubic, onUpdate, onDone, delay = 0 }) {
   return new Promise((resolve) => {
     const tw = { t: -delay, dur, from, to, ease, onUpdate, onDone, resolve, cancelled: false };
@@ -19,8 +28,9 @@ export function delay(sec) {
 export function cancelAllTweens() { active.clear(); }
 
 export function tick(dt) {
+  const sdt = dt * timeScale;
   for (const tw of [...active]) {
-    tw.t += dt;
+    tw.t += sdt;
     if (tw.t < 0) continue;
     const p = clamp01(tw.dur <= 0 ? 1 : tw.t / tw.dur);
     const v = lerp(tw.from, tw.to, tw.ease(p));

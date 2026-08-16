@@ -4,7 +4,6 @@ export async function run(page, h) {
   await h.sleep(4000);
   await page.evaluate(() => {
     document.querySelector('.title-root')?.remove();
-    window.stopNavGamepadPoll = () => {};
   });
   await page.evaluate(async () => { await window.LF.game.enterOverworld('mirrorlake'); });
   await h.sleep(1500);

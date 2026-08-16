@@ -59,7 +59,7 @@ export function linger(P, { at, aspect = 'neutral', color, scale = 1 }) {
       P.emitBurst({ at, count: 6, color: c, size: 0.16 * scale, speed: 1.2, life: 0.6, gravity: 0.5, drag: 2, additive: true });
       break;
     case 'arcs':
-      P.emitBurst({ at, count: n + 6, color: c, color2: f.c2, size: 0.07 * scale, speed: 6 * scale, life: 0.3, gravity: 0, drag: 4, flicker: true });
+      P.emitSparks({ at, count: n + 4, color: c, color2: f.c2, size: 0.08 * scale, speed: 6 * scale, life: 0.3, gravity: 0, drag: 4 });
       break;
     case 'glints':
       P.emitBurst({ at, count: n, color: c, color2: f.c2, size: 0.09 * scale, speed: 1.6 * scale, life: 0.85, gravity: f.grav, drag: 1.4, flicker: true });
@@ -103,7 +103,7 @@ export function impact(P, { at, aspect = 'neutral', color, eff = 'normal', crit 
 
 /** Conjure glow: motes converge inward toward a charge point. */
 export function conjure(P, { at, color = 0xffe9b0, dur = 0.25 }) {
-  // converge = spawn on a shell with inward velocity (negative burst)
+  // converge = spawn on a shell, gravity pulls each mote back to the center
   for (let i = 0; i < 16; i++) {
     const th = Math.random() * Math.PI * 2;
     const ph = (Math.random() - 0.5) * Math.PI;
@@ -111,9 +111,6 @@ export function conjure(P, { at, color = 0xffe9b0, dur = 0.25 }) {
     const sx = at.x + Math.cos(th) * Math.cos(ph) * r;
     const sy = at.y + Math.sin(ph) * r;
     const sz = at.z + Math.sin(th) * Math.cos(ph) * r;
-    P.emitTrail({ x: sx, y: sy, z: sz }, {
-      rate: 0, dur: 0.01, // dummy — see below
-    }).stop();
     P.emitBurst({ at: { x: sx, y: sy, z: sz }, count: 1, color, size: 0.11, speed: 0.01, life: dur + 0.1, gravity: -((sy - at.y) / (dur + 0.1)), drag: 0, up: 0 });
   }
   // simpler readable core: swelling glow at the point
@@ -277,18 +274,73 @@ export function breakOut(P, { at, color = 0xffffff }) {
 
 // -------------------------------------------------------------------- bursts
 
+// Which of the 5 signature burst compositions each of the 10 aspects uses —
+// mapped to the nearest family identity.
+const BURST_FAMILY = {
+  ember: 'ember', terra: 'ember',
+  tide: 'tide', frost: 'tide',
+  volt: 'volt', gale: 'volt',
+  lumen: 'lumen', bloom: 'lumen', neutral: 'lumen',
+  umbra: 'umbra', venom: 'umbra',
+};
+
 /**
- * Resonant Burst signature: multi-stage oversized sequence.
- * Stage timings are the caller's await budget: total ≈ 1.3s of emission.
+ * Resonant Burst signature: multi-stage oversized sequence with a DISTINCT
+ * composition per aspect family (ember pillar, tide rings, volt strike,
+ * lumen rays, umbra implosion). Stage timings are the caller's await budget:
+ * total ≈ 1.3s of emission.
  */
 export function burstSignature(P, { at, target, aspect = 'neutral', color }) {
   const c = color ?? aspectColor(aspect);
-  // 1) gathering vortex around the user
+  const fam = BURST_FAMILY[aspect] ?? 'lumen';
+  // shared charge-up: gathering vortex around the user
   auraSpiral(P, { at, color: c, up: true, height: 1.6, dur: 0.6 });
   P.emitFountain({ at, count: 22, color: c, color2: 0xffffff, size: 0.15, life: 0.6, speed: 1.2, spread: 0.9, gravity: -1.5, flicker: true });
-  // 2) detonation ring
-  P.emitRing({ at: { x: at.x, y: 0.08, z: at.z }, radius: 0.4, count: 56, color: c, color2: 0xffffff, size: 0.16, speed: 10, life: 0.6 });
-  // 3) lance of motes toward the target
+
+  switch (fam) {
+    case 'ember': { // roaring pillar + drifting embers + scorch ring
+      P.emitFountain({ at: { x: at.x, y: 0.05, z: at.z }, count: 44, color: 0xffffff, color2: c, size: 0.22, life: 0.9, speed: 8.5, spread: 0.35, gravity: 2.2, flicker: true });
+      P.emitFountain({ at, count: 26, color: c, color2: 0xffd27a, size: 0.11, life: 1.3, speed: 2.4, spread: 0.9, gravity: -0.8, sway: 1.1, flicker: true });
+      P.emitRing({ at: { x: at.x, y: 0.08, z: at.z }, radius: 0.4, count: 50, color: c, color2: 0xffffff, size: 0.15, speed: 8, life: 0.6 });
+      break;
+    }
+    case 'tide': { // stacked rising rings + crown spray
+      for (let k = 0; k < 3; k++) {
+        P.emitRing({ at: { x: at.x, y: 0.08 + k * 0.55, z: at.z }, radius: 0.35 + k * 0.2, count: 40 - k * 8, color: c, color2: 0xbfe8ff, size: 0.14, speed: 4.5 - k, life: 0.55 + k * 0.18, rise: 1.6 });
+      }
+      P.emitBurst({ at: { x: at.x, y: at.y + 1.4, z: at.z }, count: 30, color: 0xffffff, color2: c, size: 0.1, speed: 3.2, life: 0.8, gravity: 6, drag: 0.4, up: 1.6 });
+      break;
+    }
+    case 'volt': { // sky-strike column + crackling stretched arcs
+      for (let i = 0; i < 12; i++) {
+        const t = i / 11;
+        P.emitBurst({ at: { x: at.x + (Math.random() - 0.5) * 0.22, y: 3.8 - t * 3.6, z: at.z + (Math.random() - 0.5) * 0.22 }, count: 3, color: 0xffffff, color2: c, size: 0.16, speed: 0.4, life: 0.28 + t * 0.12, gravity: 0, drag: 2, flicker: true });
+      }
+      P.emitSparks({ at: { x: at.x, y: at.y + 0.4, z: at.z }, count: 22, color: c, color2: 0xfff6b0, size: 0.1, speed: 8, life: 0.35, drag: 2.5 });
+      P.emitRing({ at: { x: at.x, y: 0.08, z: at.z }, radius: 0.3, count: 44, color: c, color2: 0xffffff, size: 0.13, speed: 9, life: 0.5 });
+      break;
+    }
+    case 'umbra': { // implosion (inward-collapsing ring) + expanding void ring
+      P.emitRing({ at: { x: at.x, y: at.y + 0.6, z: at.z }, radius: 2.1, count: 52, color: c, color2: 0x2c2440, size: 0.15, speed: -4.2, life: 0.5, rise: 0.1 });
+      P.emitRing({ at: { x: at.x, y: 0.08, z: at.z }, radius: 0.4, count: 48, color: 0x2c2440, color2: c, size: 0.2, speed: 7, life: 0.65, additive: false });
+      P.emitFountain({ at, count: 18, color: 0x2c2440, color2: c, size: 0.17, life: 1.0, speed: 1.4, spread: 0.7, gravity: -1.2, sway: 1.4, additive: false });
+      break;
+    }
+    default: { // lumen: radiant rays fanning out at chest height + glitter
+      const rays = 9;
+      for (let r = 0; r < rays; r++) {
+        const th = (r / rays) * Math.PI * 2;
+        for (let j = 1; j <= 4; j++) {
+          P.emitBurst({ at: { x: at.x + Math.cos(th) * j * 0.4, y: at.y + 0.5 + j * 0.08, z: at.z + Math.sin(th) * j * 0.4 }, count: 1, color: 0xffffff, color2: c, size: 0.15 - j * 0.015, speed: 0.1, life: 0.4 + j * 0.1, gravity: -0.2, drag: 1, flicker: true });
+        }
+      }
+      P.emitFountain({ at, count: 26, color: c, color2: 0xfff8dc, size: 0.09, life: 1.2, speed: 1.1, spread: 1.1, gravity: -0.4, sway: 0.6, flicker: true });
+      P.emitRing({ at: { x: at.x, y: 0.08, z: at.z }, radius: 0.4, count: 48, color: c, color2: 0xffffff, size: 0.14, speed: 8.5, life: 0.6 });
+      break;
+    }
+  }
+
+  // lance of motes toward the target
   if (target) {
     const steps = 18;
     for (let i = 0; i < steps; i++) {

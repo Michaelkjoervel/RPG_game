@@ -25,6 +25,15 @@
 // it directly with more specific data for tighter sync, and any of the shapes
 // above will render correctly.
 //
+// Internal presentation->UI events (NOT part of the engine vocabulary):
+//   { type:'catchShake', i }                     — light catch pip #i; sent by
+//     battle/presentation.js in lockstep with each 3D charm shake so the HUD
+//     pips can never drift from the animation.
+//   { type:'catchShake', phase:'result', success } — the verdict beat: hides
+//     the pips and logs the seal/break line.
+// The engine's own 'catchAttempt' event only ARMS the pips here; presentation
+// owns the timeline and drives every beat through these events.
+//
 // Sound ownership: battleUI only ever emits the generic UI chrome cues
 // (ui_move/ui_confirm/ui_cancel/ui_open/ui_close) plus 'burst_ready' (a
 // meter-state cue that is ours per the design brief). Per-ability/per-hit
@@ -493,10 +502,15 @@ export function createBattleUI(ctx = {}) {
   }
 
   async function syncPlateFromView(sideKey, monView) {
+    // Engine views are SUMMARIES ({mon, hp, maxHp, ...}) — the creature
+    // instance lives under .mon. Reading fields off the summary itself is what
+    // wiped plates to "??? Lv 1" after the first getAction.
+    const m = monView?.mon ?? monView;
+    if (!m) return;
     const p = plates[sideKey];
-    if (p.mon && p.mon.uid === monView.uid) return; // already tracked via 'send'/hit events
+    if (p.mon && p.mon.uid === m.uid) return; // already tracked via 'send'/hit events
     const SPECIES = await getSpecies();
-    ensurePlateMon(sideKey, monView, SPECIES);
+    ensurePlateMon(sideKey, m, SPECIES);
   }
 
   // ---- plate rendering --------------------------------------------------
@@ -630,17 +644,27 @@ export function createBattleUI(ctx = {}) {
   }
 
   // ---- damage numbers -------------------------------------------------------
+  // Vertical clamp keeps numbers out of the plates (top) and the dock (bottom)
+  // even when a close-up camera projects the anchor off-frame. Returns a
+  // handle { setPos } so presentation can re-project the 3D anchor for ~200ms
+  // while the camera settles (contract-additive; safe to ignore).
   function showDamage(xPct, yPct, text, kind = 'normal') {
-    if (!els?.dmgLayer) return;
-    if (!settings.showDamageNumbers) return;
+    if (!els?.dmgLayer) return null;
+    if (!settings.showDamageNumbers) return null;
     const el = document.createElement('div');
     el.className = `bui-dmg bui-dmg-${kind}`;
-    el.style.left = `${xPct}%`;
-    el.style.top = `${yPct}%`;
+    el.style.left = `${clamp(xPct, 2, 98)}%`;
+    el.style.top = `${clamp(yPct, 12, 70)}%`;
     el.textContent = text;
     els.dmgLayer.appendChild(el);
     requestAnimationFrame(() => el.classList.add('go'));
     setTimeout(() => el.remove(), 1000);
+    return {
+      setPos(x, y) {
+        el.style.left = `${clamp(x, 2, 98)}%`;
+        el.style.top = `${clamp(y, 12, 70)}%`;
+      },
+    };
   }
 
   // ---- aura banner ------------------------------------------------------
@@ -666,18 +690,21 @@ export function createBattleUI(ctx = {}) {
     setTimeout(() => { els.burstFlash.classList.remove('go'); els.burstFlash.classList.add('hidden'); }, 700);
   }
 
+  // 'catchAttempt' only ARMS the pips; presentation drives each beat through
+  // internal 'catchShake' events (see file header) so pips light exactly when
+  // the 3D charm rocks — no parallel timers to drift apart.
   async function onCatchAttempt(ev) {
-    const total = Math.max(0, Math.min(3, ev.shakes ?? 0));
     els.catchPips?.classList.remove('hidden');
     [...(els.catchPips?.children || [])].forEach((c) => c.classList.remove('lit'));
     log('The Charm draws still...');
-    for (let i = 0; i < total; i++) {
-      await delay(0.48);
-      els.catchPips?.children[i]?.classList.add('lit');
+  }
+  function onCatchShake(ev) {
+    if (ev.phase === 'result') {
+      els.catchPips?.classList.add('hidden');
+      log(ev.success ? 'Attunement complete — a bond is formed!' : 'The Charm springs open — it broke free!');
+      return;
     }
-    await delay(0.4);
-    els.catchPips?.classList.add('hidden');
-    log(ev.success ? 'Attunement complete — a bond is formed!' : 'The Charm springs open — it broke free!');
+    els.catchPips?.children[ev.i]?.classList.add('lit');
   }
 
   async function onXp(ev) {
@@ -723,8 +750,11 @@ export function createBattleUI(ctx = {}) {
       case 'recall': log(`${plates[ev.side].name} is called back.`); break;
       case 'turnStart': break; // presentation paces the beat; nothing to render
       case 'moveUsed': {
+        // ev.move is the FULL resolved def (engine contract); tolerate a bare
+        // id string too — never let "[object Object]" reach the log.
         const ABILITIES = await loadAbilities();
-        log(`${plates[ev.side].name} used ${ABILITIES[ev.move]?.name ?? ev.move}!`);
+        const moveName = ev.move?.name ?? ABILITIES[ev.move]?.name ?? '???';
+        log(`${plates[ev.side].name} used ${moveName}!`);
         break;
       }
       case 'hit': {
@@ -774,15 +804,18 @@ export function createBattleUI(ctx = {}) {
         break;
       }
       case 'burstUsed': {
+        // ev.burst is the FULL resolved burst def — same guard as moveUsed.
         const ABILITIES = await loadAbilities();
         const p = plates[ev.side];
         if (ev.side === 'p') updateBurst(p, 0);
         flashBurst();
-        log(`${p.name} unleashes ${ABILITIES[ev.burst]?.name ?? ev.burst}!!`);
+        const burstName = ev.burst?.name ?? ABILITIES[ev.burst]?.name ?? 'a Resonant Burst';
+        log(`${p.name} unleashes ${burstName}!!`);
         break;
       }
       case 'faint': onFaint(ev.side); break;
       case 'catchAttempt': await onCatchAttempt(ev); break;
+      case 'catchShake': onCatchShake(ev); break; // internal, from presentation (see header)
       case 'xp': await onXp(ev); break;
       case 'end': break; // battleFlow.js drives showVictory/showDefeat explicitly
       default: break;
@@ -838,15 +871,33 @@ export function createBattleUI(ctx = {}) {
 
   async function showVictory(result = {}) {
     hideDock();
-    const SPECIES = await getSpecies();
+    const [SPECIES, XP_CURVES] = await Promise.all([getSpecies(), getXpCurves()]);
+    // Real XP fractions from the accumulated 'xp' events: ev.mon carries the
+    // FINAL xp/level, so bars land exactly where the in-battle sliver did.
+    const xpFracOf = (mon, xpOverride = null) => {
+      const curve = XP_CURVES?.[SPECIES[mon?.speciesId]?.growth ?? 'medium'];
+      if (!mon || !Array.isArray(curve) || !curve.length) return null;
+      const lvl = clamp(mon.level ?? 1, 1, curve.length - 1);
+      const cur = curve[lvl] ?? 0, next = curve[lvl + 1] ?? cur + 100;
+      return clamp01(((xpOverride ?? mon.xp ?? cur) - cur) / Math.max(1, next - cur));
+    };
     const rows = [];
     if (xpLog.size) {
       for (const data of xpLog.values()) {
         const mon = data.mon;
-        rows.push({ name: mon?.nickname || SPECIES[mon?.speciesId]?.name || mon?.speciesId || 'Kindred', amount: data.amount, levelups: data.levelups });
+        const frac = xpFracOf(mon);
+        // start-of-fill: rewind the gained amount unless a level-up crossed a boundary
+        const startFrac = data.levelups.length ? 0 : xpFracOf(mon, (mon?.xp ?? 0) - data.amount);
+        rows.push({
+          name: mon?.nickname || SPECIES[mon?.speciesId]?.name || mon?.speciesId || 'Kindred',
+          amount: data.amount, levelups: data.levelups,
+          frac: frac ?? (data.levelups.length ? 0.85 : 0.4),
+          startFrac: Math.max(0, Math.min(startFrac ?? 0, frac ?? 1)),
+        });
       }
     } else if (result.xp) {
-      rows.push({ name: plates.p.name || 'Your Kindred', amount: result.xp, levelups: [] });
+      const mon = plates.p.mon;
+      rows.push({ name: plates.p.name || 'Your Kindred', amount: result.xp, levelups: [], frac: xpFracOf(mon) ?? 0.4, startFrac: 0 });
     }
     const caught = result.caught;
     els.victory.innerHTML = `
@@ -856,7 +907,7 @@ export function createBattleUI(ctx = {}) {
         <div class="bui-end-xplist">${rows.map((r) => `
           <div class="bui-end-xprow">
             <span class="bui-end-xpname">${r.name}</span>
-            <span class="bui-end-xpbar"><span style="width:0%"></span></span>
+            <span class="bui-end-xpbar"><span style="width:${(r.startFrac ?? 0) * 100}%"></span></span>
             <span class="bui-end-xpamt">+${r.amount} XP</span>
             ${r.levelups.length ? '<span class="bui-end-lvup">LEVEL UP!</span>' : ''}
           </div>`).join('')}</div>
@@ -872,7 +923,7 @@ export function createBattleUI(ctx = {}) {
     tween({ from: 0, to: result.glim ?? 0, dur: 0.9, ease: easeOutCubic, onUpdate: (v) => { if (glimEl) glimEl.textContent = String(Math.round(v)); } });
     els.victory.querySelectorAll('.bui-end-xprow').forEach((row, i) => {
       const bar = row.querySelector('.bui-end-xpbar > span');
-      const frac = rows[i]?.levelups?.length ? 0.85 : 0.4;
+      const frac = rows[i]?.frac ?? 0.4;
       setTimeout(() => { if (bar) bar.style.width = `${frac * 100}%`; }, 150 + i * 130);
     });
     await delay(0.6);

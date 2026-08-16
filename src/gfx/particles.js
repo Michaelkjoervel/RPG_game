@@ -12,6 +12,7 @@
 //                 gravity, drag, up, additive, flicker, sway })
 //   P.emitRing({ at, radius, count, color, size, life, speed, additive })  // expanding XZ ring
 //   P.emitFountain({ at, count, color, size, life, speed, spread, gravity, additive })
+//   P.emitSparks({ at, count, color, speed, life, ... })  // stretched streaks (volt arcs)
 //   P.emitTrail(source, opts) -> handle { stop() }    // source: fn()->pos | Object3D | Vector3
 //   P.ambient(opts) -> handle { stop() }              // continuous field emitter
 //   P.update(dt); P.activeCount(); P.dispose()
@@ -270,6 +271,36 @@ export class Particles {
         Math.cos(th) * r * 0.8, speed * (0.6 + Math.random() * 0.7), Math.sin(th) * r * 0.8,
         life * (0.6 + Math.random() * 0.8), size * (0.7 + Math.random() * 0.6), size * 0.3,
         c.r, c.g, c.b, gravity, 1.2, sway, 2.6, flicker ? 2 : 1);
+    }
+  }
+
+  /**
+   * Stretched sparks: each spark is a 3-particle streak laid back along its
+   * velocity, so it reads as an elongated dash instead of a round dot.
+   * Point sprites can't stretch, so this fakes anisotropy with a micro-trail.
+   * Used for volt arcs / electric identity.
+   */
+  emitSparks(opts = {}) {
+    const { at, count = 12, color = 0xffd94f, color2 = 0xffffff, size = 0.09,
+      speed = 6, spread = 1, life = 0.3, gravity = 0, drag = 2.5, additive = true } = opts;
+    const L = this._layer(additive);
+    readPos(at, _v);
+    const x = _v.x, y = _v.y, z = _v.z;
+    for (let i = 0; i < count; i++) {
+      const th = Math.random() * Math.PI * 2;
+      const ph = (Math.random() - 0.5) * Math.PI * spread;
+      const sp = speed * (0.5 + Math.random() * 0.6);
+      const vx = Math.cos(th) * Math.cos(ph) * sp;
+      const vy = Math.sin(ph) * sp;
+      const vz = Math.sin(th) * Math.cos(ph) * sp;
+      const c = this._mixColor(color, color2);
+      const lf = life * (0.6 + Math.random() * 0.6);
+      for (let k = 0; k < 3; k++) {
+        const back = k * 0.035; // seconds of velocity the segment lags behind the head
+        L.spawn(x - vx * back, y - vy * back, z - vz * back, vx, vy, vz,
+          Math.max(0.05, lf * (1 - k * 0.22)), size * (1 - k * 0.28), size * 0.15,
+          c.r, c.g, c.b, gravity, drag, 0, 0, k === 0 ? 2 : 0);
+      }
     }
   }
 
