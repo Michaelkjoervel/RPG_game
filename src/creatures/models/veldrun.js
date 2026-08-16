@@ -22,15 +22,17 @@ export function build_veldrun(kit = kitDefault) {
 
   const root = new THREE.Group();
 
-  // Long lean torso — a stretched capsule reads faster than a blob.
+  // Long lean torso — a stretched capsule reads faster than a blob. It runs
+  // nose-to-tail along Z, so the capsule's axis swing is baked about X; about Z
+  // would put the long axis on X and lay the racer sideways across the view.
   const body = kit.capsule(0.115, 0.34, skin, { capSeg: 4, radSeg: 9 });
-  body.geometry.rotateZ(Math.PI / 2);
+  body.geometry.rotateX(Math.PI / 2);
   root.add(body);
   body.position.y = 0.5;
 
-  // Pale cream underbelly stripe.
+  // Pale cream underbelly stripe — same nose-to-tail axis as the torso.
   const bellyStripe = kit.capsule(0.075, 0.24, cream, { capSeg: 3, radSeg: 7 });
-  bellyStripe.geometry.rotateZ(Math.PI / 2);
+  bellyStripe.geometry.rotateX(Math.PI / 2);
   bellyStripe.scale.set(0.6, 0.55, 1);
   kit.at(body, bellyStripe, 0, -0.08, 0.02);
 
@@ -49,9 +51,12 @@ export function build_veldrun(kit = kitDefault) {
   const earR = kit.at(head, kit.ear(0.1, skin), -0.05, 0.06, -0.03, { rz: -0.3, rx: -0.5 });
 
   // --- Legs: four long, slender legs built for a full sprint. ---
+  // Hip Y is local to the torso — just under the belly line, from where
+  // kit.leg(0.38) drops 0.393 and the hooves land on y=0. Fore/hind pairs sit
+  // under the shoulders and haunches of the 0.285 torso half-length.
   const legDefs = [
-    [0.09, 0.34, 0.14], [-0.09, 0.34, 0.14],
-    [0.09, 0.34, -0.13], [-0.09, 0.34, -0.13],
+    [0.09, -0.107, 0.2], [-0.09, -0.107, 0.2],
+    [0.09, -0.107, -0.2], [-0.09, -0.107, -0.2],
   ];
   const legs = legDefs.map(([x, y, z]) => kit.at(body, kit.leg(0.38, skin, { thighR: 0.05, shinR: 0.033, footLen: 0.08 }), x, y, z));
 
@@ -59,7 +64,7 @@ export function build_veldrun(kit = kitDefault) {
   // rather than a membrane, angled back and drooping like a banner caught
   // in the creature's own slipstream.
   const ribbon = kit.wing(0.42, ribbonMat, { style: 'energy', bones: 4, width: 0.1, droop: 0.5 });
-  kit.at(body, ribbon, 0, 0.06, -0.19, { rx: 0.25, ry: Math.PI / 2 });
+  kit.at(body, ribbon, 0, 0.07, -0.27, { rx: 0.25, ry: Math.PI / 2 });
 
   const spark = kit.heartspark(0.035, pal.eye, { seed: 63 });
   kit.at(body, spark, 0, 0.03, 0.14);

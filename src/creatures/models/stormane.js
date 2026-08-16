@@ -34,14 +34,20 @@ function boltBlade(height, m, opts = {}) {
 
 export function build_stormane(kit = kitDefault) {
   const pal = kit.palette(['volt']);
-  const skin = kit.mat(0x3a3f4a, { rough: 0.55 });      // storm-cloud grey-blue fur
+  // Storm-cloud grey-blue fur, lifted off near-black (~12% relative luminance)
+  // so the wolf reads as a shape in daylight and the thunder mane has something
+  // to contrast against — Design Bible §8, same treatment as the umbra set.
+  const skinHex = 0x5a6272;
+  const skin = kit.mat(skinHex, { rough: 0.55 });
   const boltMat = kit.mat(0xffe97a, { unlit: true, transparent: true, opacity: 0.85, side: THREE.DoubleSide });
 
   const root = new THREE.Group();
 
-  // Lean torso, straighter/prouder than Fulmin's coiled crouch.
+  // Lean torso, straighter/prouder than Fulmin's coiled crouch, running
+  // nose-to-tail along Z — the capsule's axis swing is baked about X. (About Z
+  // would swing the long axis onto X and lay the wolf sideways across the view.)
   const body = kit.capsule(0.14, 0.36, skin, { capSeg: 4, radSeg: 9 });
-  body.geometry.rotateZ(Math.PI / 2);
+  body.geometry.rotateX(Math.PI / 2);
   root.add(body);
   body.position.y = 0.48;
 
@@ -49,17 +55,17 @@ export function build_stormane(kit = kitDefault) {
 
   const head = kit.at(body, kit.orb(0.12, skin, { sz: 1.15, sy: 0.9 }), 0, 0.1, 0.3);
   const snout = kit.at(head, kit.capsule(0.048, 0.08, skin), 0, -0.03, 0.09, { rx: Math.PI / 2 });
-  const eyeL = kit.at(head, kit.eye(0.04, { irisColor: 0xffe97a, scleraColor: 0x18181c, skinColor: 0x3a3f4a, glintSize: 0.015 }), 0.065, 0.02, 0.085, { ry: 0.3 });
-  const eyeR = kit.at(head, kit.eye(0.04, { irisColor: 0xffe97a, scleraColor: 0x18181c, skinColor: 0x3a3f4a, glintSize: 0.015 }), -0.065, 0.02, 0.085, { ry: -0.3 });
+  const eyeL = kit.at(head, kit.eye(0.04, { irisColor: 0xffe97a, scleraColor: 0x18181c, skinColor: skinHex, glintSize: 0.015 }), 0.065, 0.02, 0.085, { ry: 0.3 });
+  const eyeR = kit.at(head, kit.eye(0.04, { irisColor: 0xffe97a, scleraColor: 0x18181c, skinColor: skinHex, glintSize: 0.015 }), -0.065, 0.02, 0.085, { ry: -0.3 });
   const earL = kit.at(head, kit.ear(0.08, skin), 0.07, 0.09, -0.01, { rz: 0.18, ry: -0.1 });
   const earR = kit.at(head, kit.ear(0.08, skin), -0.07, 0.09, -0.01, { rz: -0.18, ry: 0.1 });
 
   // The thunder mane: jagged lightning-bolt blades standing along the neck
   // and shoulders, each independently flickering.
   const manePositions = [
-    [0, 0.13, 0.18, 0.06], [0.055, 0.12, 0.11, 0.055], [-0.055, 0.12, 0.11, 0.055],
-    [0, 0.14, 0.02, 0.07], [0.06, 0.12, -0.06, 0.05], [-0.06, 0.12, -0.06, 0.05],
-    [0, 0.13, -0.15, 0.055],
+    [0, 0.135, 0.2, 0.13], [0.055, 0.118, 0.13, 0.115], [-0.055, 0.118, 0.13, 0.115],
+    [0, 0.14, 0.04, 0.15], [0.06, 0.115, -0.04, 0.11], [-0.06, 0.115, -0.04, 0.11],
+    [0, 0.135, -0.13, 0.12], [0.045, 0.122, -0.2, 0.09], [-0.045, 0.122, -0.2, 0.09],
   ];
   const boltMeshes = manePositions.map(([x, y, z, h], i) => {
     const b = boltBlade(h, boltMat.clone(), { seed: i + 1 });
@@ -79,18 +85,23 @@ export function build_stormane(kit = kitDefault) {
   };
 
   // --- Legs: four long, powerful legs — a proud storm-herald's stride. ---
+  // Hip Y is local to the torso: just under the belly line, from where
+  // kit.leg(0.3) drops 0.327 and the paws land on y=0. Fore/hind pairs stand
+  // under shoulders and haunches of the 0.32 torso half-length.
   const legDefs = [
-    [0.1, 0.24, 0.16], [-0.1, 0.24, 0.16],
-    [0.1, 0.24, -0.15], [-0.1, 0.24, -0.15],
+    [0.1, -0.153, 0.21], [-0.1, -0.153, 0.21],
+    [0.1, -0.153, -0.21], [-0.1, -0.153, -0.21],
   ];
   const legs = legDefs.map(([x, y, z]) => kit.at(body, kit.leg(0.3, skin, { thighR: 0.055, shinR: 0.04, footLen: 0.1 }), x, y, z));
 
   // Tail held aloft, ending in a small static-charged tuft.
-  const tail = kit.at(body, kit.tailChain(4, skin, { segLen: 0.1, startR: 0.045, endR: 0.018 }), 0, 0.04, -0.19, { rx: 0.5 });
+  const tail = kit.at(body, kit.tailChain(4, skin, { segLen: 0.1, startR: 0.045, endR: 0.018 }), 0, 0.06, -0.28, { rx: 0.5 });
   kit.at(tail.pivots[tail.pivots.length - 1], kit.fluffTuft(0.045, boltMat.clone(), { count: 4, seed: 8 }), 0, 0, -0.04);
 
+  // On the chest surface (the chest orb reaches z=0.32) — sunk any deeper and
+  // the unlit core is simply occluded by the fur in front of it.
   const spark = kit.heartspark(0.04, pal.eye, { seed: 112 });
-  kit.at(body, spark, 0, 0, 0.18);
+  kit.at(body, spark, 0, -0.03, 0.31);
 
   return {
     group: kit.groundPlant(root),

@@ -43,20 +43,27 @@ function echoRings(kit, wingBone, count, seed) {
 
 export function build_reverbane(kit = kitDefault) {
   const pal = kit.palette(['gale', 'umbra']);
-  const fur = kit.mat(0x2e2a3e, { rough: 0.4, metal: 0.08 });
-  const membrane = kit.mat(0x5c5480, { rough: 0.22, transparent: true, opacity: 0.68, side: THREE.DoubleSide });
+  // Umbra-family fur, lifted out of near-black to the same readable dark
+  // violet-slate the rest of the shadow set uses (kit.palette's umbra note,
+  // Design Bible §8): ~10% relative luminance plus a faint self-glow, so the
+  // wraith still reads as a shape in daylight instead of a hole in the frame.
+  const furHex = 0x5a5278;
+  const fur = kit.mat(furHex, { rough: 0.4, metal: 0.08, emissive: 0x282242, emissiveIntensity: 0.45 });
+  const membrane = kit.mat(0x7a6fa8, { rough: 0.22, transparent: true, opacity: 0.72, side: THREE.DoubleSide });
   const earInner = kit.mat(0x9a8fc4, { rough: 0.35, transparent: true, opacity: 0.85 });
 
   const root = new THREE.Group();
 
+  // Sleek torso lying nose-to-tail along Z: bake the capsule's axis swing about
+  // X (about Z would put the long axis on X — broadside to the view).
   const body = kit.capsule(0.075, 0.16, fur, { capSeg: 4, radSeg: 8 });
-  body.geometry.rotateZ(Math.PI / 2);
+  body.geometry.rotateX(Math.PI / 2);
   root.add(body);
   body.position.y = 0.16;
 
-  const head = kit.at(body, kit.blob(0.062, fur, { seed: 53, squash: { x: 0.95, y: 0.9, z: 1.15 } }), 0, 0.05, 0.13);
-  const eyeL = kit.at(head, kit.eye(0.02, { irisColor: 0xd8cfff, scleraColor: 0x18121e, skinColor: 0x2e2a3e, glintSize: 0.009 }), 0.038, 0.005, 0.05, { ry: 0.35 });
-  const eyeR = kit.at(head, kit.eye(0.02, { irisColor: 0xd8cfff, scleraColor: 0x18121e, skinColor: 0x2e2a3e, glintSize: 0.009 }), -0.038, 0.005, 0.05, { ry: -0.35 });
+  const head = kit.at(body, kit.blob(0.062, fur, { seed: 53, squash: { x: 0.95, y: 0.9, z: 1.15 } }), 0, 0.05, 0.16);
+  const eyeL = kit.at(head, kit.eye(0.02, { irisColor: 0xd8cfff, scleraColor: 0x18121e, skinColor: furHex, glintSize: 0.009 }), 0.038, 0.005, 0.05, { ry: 0.35 });
+  const eyeR = kit.at(head, kit.eye(0.02, { irisColor: 0xd8cfff, scleraColor: 0x18121e, skinColor: furHex, glintSize: 0.009 }), -0.038, 0.005, 0.05, { ry: -0.35 });
 
   const earL = kit.at(head, kit.petal(0.1, fur, { width: 0.06 }), 0.04, 0.06, -0.02, { rx: -0.25, ry: -0.3, rz: 0.4 });
   kit.at(earL, kit.petal(0.07, earInner, { width: 0.042 }), 0, 0.008, 0.01);
@@ -72,7 +79,7 @@ export function build_reverbane(kit = kitDefault) {
   const ringsR = echoRings(kit, wingR.bones[1], 3, 1);
   const ringsL = echoRings(kit, wingL.bones[1], 3, 2);
 
-  const tail = kit.at(body, kit.tailChain(3, fur, { segLen: 0.045, startR: 0.026, endR: 0.01 }), 0, 0, -0.08);
+  const tail = kit.at(body, kit.tailChain(3, fur, { segLen: 0.045, startR: 0.026, endR: 0.01 }), 0, 0, -0.14);
 
   const spark = kit.heartspark(0.028, pal.eye, { seed: 54 });
   kit.at(body, spark, 0, -0.01, 0.04);

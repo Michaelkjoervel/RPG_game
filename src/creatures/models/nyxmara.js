@@ -56,14 +56,19 @@ export function build_nyxmara(kit = kitDefault) {
 
   const root = new THREE.Group();
 
+  // Panther barrel running nose-to-tail along Z — the capsule's axis swing is
+  // baked about X (about Z would put it on the X axis, sideways to the view).
+  // Torso height comes from the leg length below so the paws reach the ground.
   const body = kit.capsule(0.24, 0.62, fur, { capSeg: 5, radSeg: 10 });
-  body.geometry.rotateZ(Math.PI / 2);
+  body.geometry.rotateX(Math.PI / 2);
   root.add(body);
-  body.position.y = 0.62;
+  body.position.y = 0.72;
 
+  // Spine glow: same nose-to-tail axis as the body, and it has to break the
+  // torso's surface (radius 0.24) or it just glows away invisibly inside.
   const spineGlow = kit.capsule(0.03, 0.56, glowMat, { capSeg: 3, radSeg: 6 });
-  spineGlow.geometry.rotateZ(Math.PI / 2);
-  kit.at(body, spineGlow, 0, 0.2, 0);
+  spineGlow.geometry.rotateX(Math.PI / 2);
+  kit.at(body, spineGlow, 0, 0.235, 0);
 
   const head = kit.at(body, kit.blob(0.2, fur, { seed: 180, squash: { x: 0.9, y: 0.85, z: 1.15 } }), 0, 0.1, 0.46);
   const eyeL = kit.at(head, kit.eye(0.055, { irisColor: 0xd8c8ff, scleraColor: 0x0c0a14, pupil: true, skinColor: 0x4e4472, glintSize: 0.02 }), 0.11, 0.02, 0.15, { ry: 0.35 });
@@ -84,13 +89,16 @@ export function build_nyxmara(kit = kitDefault) {
   const eyeSpotL = kit.at(wingR.bones[0], kit.crystal(0.05, glowMat, { coreColor: 0xffffff, detail: 0 }), 0.15, 0.02, 0);
   const eyeSpotR = kit.at(wingL.bones[0], kit.crystal(0.05, glowMat, { coreColor: 0xffffff, detail: 0 }), -0.15, 0.02, 0);
 
+  // Hips ride just inside the belly (local Y is measured from the barrel's
+  // centre); kit.leg(0.5) drops 0.537 from there, planting the paws on y=0.
+  // Fore/hind pairs sit under shoulders and haunches of the 0.55 half-length.
   const legDefs = [
-    [0.16, 0.5, 0.26], [-0.16, 0.5, 0.26],
-    [0.16, 0.5, -0.24], [-0.16, 0.5, -0.24],
+    [0.16, -0.183, 0.38], [-0.16, -0.183, 0.38],
+    [0.16, -0.183, -0.36], [-0.16, -0.183, -0.36],
   ];
   const legs = legDefs.map(([x, y, z]) => kit.at(body, kit.leg(0.5, fur, { thighR: 0.085, shinR: 0.06, footLen: 0.13 }), x, y, z));
 
-  const tail = kit.at(body, kit.tailChain(7, fur, { segLen: 0.1, startR: 0.05, endR: 0.014 }), 0, 0.08, -0.32);
+  const tail = kit.at(body, kit.tailChain(7, fur, { segLen: 0.1, startR: 0.05, endR: 0.014 }), 0, 0.1, -0.5);
   const tailStar = kit.at(tail.pivots[tail.pivots.length - 1], kit.crystal(0.025, glowMat, { coreColor: 0xffffff, detail: 0 }), 0, 0, -0.05);
 
   // Fear-drinking wisps drawn faintly toward the mouth, calm dark motes

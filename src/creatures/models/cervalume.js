@@ -23,10 +23,13 @@ export function build_cervalume(kit = kitDefault) {
 
   const root = new THREE.Group();
 
+  // Deer torso lying nose-to-tail along Z — the capsule's axis swing is baked
+  // about X (about Z would lay the doe sideways across the view). Torso height
+  // is tied to the leg length below so the hooves reach the ground.
   const body = kit.capsule(0.17, 0.4, skin, { capSeg: 5, radSeg: 9 });
-  body.geometry.rotateZ(Math.PI / 2);
+  body.geometry.rotateX(Math.PI / 2);
   root.add(body);
-  body.position.y = 0.78;
+  body.position.y = 0.66;
 
   const head = kit.at(body, kit.blob(0.13, skin, { seed: 150, squash: { x: 0.85, y: 0.9, z: 1.3 } }), 0, 0.2, 0.3);
   const eyeL = kit.at(head, kit.eye(0.042, { irisColor: 0x3a2c14, skinColor: 0xe8dcc0, glintSize: 0.016 }), 0.078, 0.01, 0.1, { ry: 0.3 });
@@ -49,9 +52,12 @@ export function build_cervalume(kit = kitDefault) {
   }
 
   // --- Legs: four long, elegant legs — grown from Dapplyn's fawn stance. ---
+  // Hip Y is local to the torso: just under the belly (-0.151 ≈ -radius), from
+  // where kit.leg(0.5) drops 0.509 to the hoof — hooves land on y=0. Fore and
+  // hind pairs sit under the shoulders/haunches of the 0.37 torso half-length.
   const legDefs = [
-    [0.13, 0.5, 0.15], [-0.13, 0.5, 0.15],
-    [0.13, 0.5, -0.14], [-0.13, 0.5, -0.14],
+    [0.13, -0.151, 0.25], [-0.13, -0.151, 0.25],
+    [0.13, -0.151, -0.24], [-0.13, -0.151, -0.24],
   ];
   const legs = legDefs.map(([x, y, z]) => kit.at(body, kit.leg(0.5, skin, { thighR: 0.055, shinR: 0.038, footLen: 0.09, footMat: hoofMat }), x, y, z));
 
@@ -62,7 +68,7 @@ export function build_cervalume(kit = kitDefault) {
     return p;
   });
 
-  const tail = kit.at(body, kit.tailChain(2, skin, { segLen: 0.05, startR: 0.03, endR: 0.014 }), 0, 0.12, -0.2);
+  const tail = kit.at(body, kit.tailChain(2, skin, { segLen: 0.05, startR: 0.03, endR: 0.014 }), 0, 0.12, -0.34);
 
   // A slow, calm drift of gold-green light motes about the shoulders.
   const glow = kit.mote(10, { color: 0xfff2c8, size: 0.02, radius: 0.3, height: 0.3, speed: 0.3, seed: 151 });

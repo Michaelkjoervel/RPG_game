@@ -24,11 +24,14 @@ export function build_sylvathorn(kit = kitDefault) {
 
   const root = new THREE.Group();
 
-  // Tall, elegant torso.
+  // Tall, elegant torso, lying nose-to-tail along Z: bake the capsule's axis
+  // swing about X (about Z would drop it onto the X axis, i.e. sideways).
+  // Torso height is set by the leg length below — the belly has to sit within
+  // reach of the hooves or the guardian ends up kneeling on its own barrel.
   const body = kit.capsule(0.16, 0.42, skin, { capSeg: 5, radSeg: 9 });
-  body.geometry.rotateZ(Math.PI / 2);
+  body.geometry.rotateX(Math.PI / 2);
   root.add(body);
-  body.position.y = 0.92;
+  body.position.y = 0.74;
 
   // Bark plates down the back and shoulders.
   const plateSpots = [[0, 0.13, 0.15, 0.18], [0, 0.15, -0.05, 0.2], [0.13, 0.1, 0.15, 0.12], [-0.13, 0.1, 0.15, 0.12]];
@@ -60,13 +63,17 @@ export function build_sylvathorn(kit = kitDefault) {
   }
 
   // --- Legs: four long, elegant legs (much longer than any other starter). ---
+  // Hip Y is local to the TORSO, so it belongs just under the belly line
+  // (-0.154 ≈ -body radius); kit.leg(0.58) then drops 0.586 to the hoof,
+  // landing exactly on y=0. Front/rear pairs stand under the shoulders and
+  // haunches (~2/3 of the 0.37 torso half-length) for a real stag stance.
   const legDefs = [
-    [0.13, 0.62, 0.16], [-0.13, 0.62, 0.16],
-    [0.13, 0.62, -0.15], [-0.13, 0.62, -0.15],
+    [0.13, -0.154, 0.24], [-0.13, -0.154, 0.24],
+    [0.13, -0.154, -0.24], [-0.13, -0.154, -0.24],
   ];
   const legs = legDefs.map(([x, y, z]) => kit.at(body, kit.leg(0.58, skin, { thighR: 0.06, shinR: 0.04, footLen: 0.1 }), x, y, z));
 
-  const tail = kit.at(body, kit.tailChain(3, skin, { segLen: 0.06, startR: 0.035, endR: 0.015 }), 0, 0.1, -0.22);
+  const tail = kit.at(body, kit.tailChain(3, skin, { segLen: 0.06, startR: 0.035, endR: 0.015 }), 0, 0.11, -0.34);
 
   // Hanging moss cloak: many drooping petal/leafBlade strands from the
   // shoulders and neck, each an independent accent for a gentle,

@@ -70,9 +70,12 @@ export function createCameraDirector({ getFocus } = {}) {
     const dir = dirBetween(f, o);
     const side = sideAxis(dir);
     const sgn = self === 'p' ? 1 : -1;
-    const pos = f.clone().addScaledVector(dir, -3.1).addScaledVector(side, 1.7 * sgn).add(new THREE.Vector3(0, 2.05, 0));
+    // radius-aware pull-back: a big foreground Kindred must stay INSIDE frame
+    // instead of being cropped by the screen edge / its own HUD plate.
+    const back = Math.max(3.1, focusRadius(self) * 3.8);
+    const pos = f.clone().addScaledVector(dir, -back).addScaledVector(side, 1.55 * sgn).add(new THREE.Vector3(0, 1.9 + focusRadius(self) * 0.35, 0));
     const look = o.clone().add(new THREE.Vector3(0, 0.25, 0));
-    setDesired(pos, look, 32, { lambdaPos: 4.2, lambdaLook: 5 });
+    setDesired(pos, look, 34, { lambdaPos: 4.2, lambdaLook: 5 });
   }
 
   const SHOTS = {
@@ -84,25 +87,27 @@ export function createCameraDirector({ getFocus } = {}) {
     overShoulderP() { shoulder('p', 'e'); },
     overShoulderE() { shoulder('e', 'p'); },
     // Idle/rest framing alternates 3 variants by turn index (opts.variant, or
-    // an internal counter) so long battles don't sit on one static shot.
+    // an internal counter) so long battles never sit on one static shot. All
+    // three keep BOTH creatures clear of the HUD plates (foe plate top-left,
+    // player plate mid-right) by aiming above the midpoint, which drops the
+    // pair into the open lower-middle band of frame.
     rest(opts = {}) {
       const variant = Math.abs((opts.variant ?? restCounter++) | 0) % 3;
-      if (variant === 0) { shoulder('p', 'e'); return; }
       const p = focus('p'), e = focus('e');
-      if (variant === 1) {
-        // low lateral profile — both silhouettes fully in frame, camera-side
-        const m = midpoint(p, e);
-        const dir = dirBetween(p, e);
-        const side = sideAxis(dir);
-        const pos = m.clone().addScaledVector(side, -10.4).add(new THREE.Vector3(0, 1.6, 0));
-        setDesired(pos, m.clone().add(new THREE.Vector3(0, 0.55, 0)), 34, { lambdaPos: 3, lambdaLook: 3.4 });
-      } else {
-        // elevated 3/4 from the player's corner, looking across at the foe
-        const dir = dirBetween(p, e);
-        const side = sideAxis(dir);
-        const pos = p.clone().addScaledVector(dir, -2.6).addScaledVector(side, -3.4).add(new THREE.Vector3(0, 3.1, 0));
-        setDesired(pos, midpoint(p, e, 0.6).add(new THREE.Vector3(0, 0.25, 0)), 33, { lambdaPos: 3.2, lambdaLook: 3.6 });
-      }
+      const m = midpoint(p, e);
+      const rMax = Math.max(focusRadius('p'), focusRadius('e'));
+      // Three two-shots (neutral / low-lateral / high) — always BOTH Kindred in
+      // frame. Distance is set so the ~9u gap between marks spans about half
+      // the width, which also keeps them clear of the HUD plates. An over-the-
+      // shoulder rest was tried and dropped: with a long quadruped in the
+      // foreground the near creature falls out of frame entirely.
+      const back = 13.5 + rMax * 2.2;
+      const cfg = [
+        { x: m.x * 0.2, y: 4.8, z: -back, up: 0.9, fov: 35 },
+        { x: m.x * 0.2 + 1.9, y: 4.1, z: -back + 0.6, up: 0.75, fov: 34 },
+        { x: m.x * 0.2 - 1.4, y: 6.4, z: -back - 1.0, up: 1.1, fov: 36 },
+      ][variant];
+      setDesired(new THREE.Vector3(cfg.x, cfg.y, cfg.z), m.clone().add(new THREE.Vector3(0, cfg.up, 0)), cfg.fov, { lambdaPos: 3.3, lambdaLook: 3.5 });
     },
     // Scale-aware close-up. Distance scales with the subject's chest height
     // AND its true bounding radius — quadrupeds are much longer than they are

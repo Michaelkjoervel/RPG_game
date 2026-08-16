@@ -24,21 +24,27 @@ export function build_vantash(kit = kitDefault) {
 
   const root = new THREE.Group();
 
+  // Lithe torso lying nose-to-tail along Z — the capsule's axis swing is baked
+  // about X. (About Z would put the long axis on X and lay the panther
+  // broadside to the view.) Torso height follows the leg length below so the
+  // paws reach the ground rather than dangling inside the barrel.
   const body = kit.capsule(0.13, 0.36, fur, { capSeg: 5, radSeg: 9 });
-  body.geometry.rotateZ(Math.PI / 2);
+  body.geometry.rotateX(Math.PI / 2);
   root.add(body);
-  body.position.y = 0.3;
+  body.position.y = 0.46;
 
   // Faint void-glow stripe down the spine, plus a subtle glow seam along
-  // each flank so the silhouette edge reads even in deep shadow.
+  // each flank so the silhouette edge reads even in deep shadow. All three run
+  // nose-to-tail with the body, and all three sit ON its surface (spine at
+  // y=+r; flank seams where the capsule is widest) or they never show at all.
   const spineGlow = kit.capsule(0.02, 0.32, glowMat, { capSeg: 3, radSeg: 6 });
-  spineGlow.geometry.rotateZ(Math.PI / 2);
-  kit.at(body, spineGlow, 0, 0.11, 0);
+  spineGlow.geometry.rotateX(Math.PI / 2);
+  kit.at(body, spineGlow, 0, 0.125, 0);
   const seamMat = kit.mat(0x9a7fd8, { unlit: true, transparent: true, opacity: 0.35 });
   for (const sx of [1, -1]) {
     const seam = kit.capsule(0.008, 0.26, seamMat, { capSeg: 3, radSeg: 5 });
-    seam.geometry.rotateZ(Math.PI / 2);
-    kit.at(body, seam, sx * 0.115, 0.045, 0);
+    seam.geometry.rotateX(Math.PI / 2);
+    kit.at(body, seam, sx * 0.122, 0.04, 0);
   }
 
   const head = kit.at(body, kit.blob(0.115, fur, { seed: 160, squash: { x: 0.9, y: 0.85, z: 1.15 } }), 0, 0.06, 0.28);
@@ -51,14 +57,17 @@ export function build_vantash(kit = kitDefault) {
   kit.at(muzzle, kit.fang(0.03, kit.mat(0xece6f0, { rough: 0.3 })), 0.02, -0.015, 0.02, { rz: 0.1 });
   kit.at(muzzle, kit.fang(0.03, kit.mat(0xece6f0, { rough: 0.3 })), -0.02, -0.015, 0.02, { rz: -0.1 });
 
+  // Hips sit just under the belly (local Y is measured from the torso centre);
+  // kit.leg(0.3) drops 0.327 from there, planting the paws on y=0. Fore/hind
+  // pairs stand under the shoulders and haunches of the 0.31 half-length.
   const legDefs = [
-    [0.11, 0.24, 0.18], [-0.11, 0.24, 0.18],
-    [0.11, 0.24, -0.16], [-0.11, 0.24, -0.16],
+    [0.11, -0.133, 0.22], [-0.11, -0.133, 0.22],
+    [0.11, -0.133, -0.22], [-0.11, -0.133, -0.22],
   ];
   const legs = legDefs.map(([x, y, z]) => kit.at(body, kit.leg(0.3, fur, { thighR: 0.055, shinR: 0.04, footLen: 0.09 }), x, y, z));
 
   // Long tail ending in a hooked, claw-like tip of solidified dark.
-  const tail = kit.at(body, kit.tailChain(6, fur, { segLen: 0.09, startR: 0.045, endR: 0.014 }), 0, 0.06, -0.19);
+  const tail = kit.at(body, kit.tailChain(6, fur, { segLen: 0.09, startR: 0.045, endR: 0.014 }), 0, 0.07, -0.28);
   const hookTip = tail.pivots[tail.pivots.length - 1];
   const hook = kit.at(hookTip, kit.horn(0.09, glowMat, { baseR: 0.018, tipR: 0.004, bend: 1.1 }), 0, 0, -0.09, { rx: -Math.PI / 2 });
 

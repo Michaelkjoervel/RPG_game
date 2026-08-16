@@ -31,19 +31,26 @@ export function build_tidelorn(kit = kitDefault) {
 
   const root = new THREE.Group();
 
-  // Core torso, just behind the head — the anchor for breathing/hit poses.
+  // Core torso, just behind the head — the anchor for breathing/hit poses. It
+  // lies nose-to-tail along Z, so the capsule's axis swing is baked about X;
+  // about Z would lay this serpent broadside, with head and tail sprouting
+  // from the middle of a barrel.
   const body = kit.capsule(0.16, 0.5, skin, { capSeg: 5, radSeg: 10 });
-  body.geometry.rotateZ(Math.PI / 2);
+  body.geometry.rotateX(Math.PI / 2);
   root.add(body);
   body.position.y = 0.42;
 
-  // Moon-pale underbelly stripe.
+  // Moon-pale underbelly stripe — same nose-to-tail axis as the torso.
   const bellyStripe = kit.capsule(0.09, 0.46, belly, { capSeg: 4, radSeg: 7 });
-  bellyStripe.geometry.rotateZ(Math.PI / 2);
+  bellyStripe.geometry.rotateX(Math.PI / 2);
   bellyStripe.scale.set(0.7, 0.55, 1);
   kit.at(body, bellyStripe, 0, -0.1, 0);
 
-  const head = kit.at(body, kit.blob(0.15, skin, { seed: 24, squash: { x: 0.85, y: 0.8, z: 1.3 } }), 0, 0.05, 0.32);
+  // The head rides slightly ABOVE the torso line — a serpent at rest still
+  // carries its head up, and it keeps this very long model's length:height
+  // ratio near the ~3:1 the header note asks for (registry.js rescales by
+  // HEIGHT, so a flat serpent balloons in length).
+  const head = kit.at(body, kit.blob(0.15, skin, { seed: 24, squash: { x: 0.85, y: 0.8, z: 1.3 } }), 0, 0.16, 0.45);
   const eyeL = kit.at(head, kit.eye(0.045, { irisColor: 0xe8f6ff, pupil: true, scleraColor: 0x0b2430, skinColor: 0x1c4258, glintSize: 0.017 }), 0.09, 0.02, 0.13, { ry: 0.35 });
   const eyeR = kit.at(head, kit.eye(0.045, { irisColor: 0xe8f6ff, pupil: true, scleraColor: 0x0b2430, skinColor: 0x1c4258, glintSize: 0.017 }), -0.09, 0.02, 0.13, { ry: -0.35 });
 
@@ -55,11 +62,11 @@ export function build_tidelorn(kit = kitDefault) {
   // neck, drooping down like flowing hair/kelp. Its bones give the animator
   // something to ripple even though it's not a wing at all.
   const mane = kit.wing(0.5, maneMat, { style: 'energy', bones: 4, width: 0.16, droop: 0.55 });
-  kit.at(body, mane, 0, 0.13, 0.28, { rx: -Math.PI / 2 + 0.35, ry: Math.PI / 2 });
+  kit.at(body, mane, 0, 0.22, 0.36, { rx: -Math.PI / 2 + 0.35, ry: Math.PI / 2 });
 
   // No legs — a vast serpent glides. The tail IS most of the visible body
   // length, tapering gently over many segments for a smooth undulation.
-  const tail = kit.at(body, kit.tailChain(9, skin, { segLen: 0.17, startR: 0.15, endR: 0.02, tipTuft: false }), 0, -0.01, -0.22);
+  const tail = kit.at(body, kit.tailChain(9, skin, { segLen: 0.15, startR: 0.15, endR: 0.02, tipTuft: false }), 0, -0.01, -0.36);
   // A thin fin fan at the very tip.
   const tailFin = kit.at(tail.pivots[tail.pivots.length - 1], kit.fin(0.16, maneMat), 0, 0, -0.05, { ry: Math.PI / 2 });
 

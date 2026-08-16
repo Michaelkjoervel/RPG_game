@@ -22,13 +22,15 @@ export function build_glowvern(kit = kitDefault) {
 
   const root = new THREE.Group();
 
+  // Wyvern torso running nose-to-tail along Z — bake the capsule's axis swing
+  // about X (about Z would put the long axis on X, i.e. broadside to the view).
   const body = kit.capsule(0.1, 0.22, skin, { capSeg: 4, radSeg: 9 });
-  body.geometry.rotateZ(Math.PI / 2);
+  body.geometry.rotateX(Math.PI / 2);
   root.add(body);
   body.position.y = 0.24;
 
   const bellyStripe = kit.capsule(0.06, 0.16, bellyMat, { capSeg: 3, radSeg: 7 });
-  bellyStripe.geometry.rotateZ(Math.PI / 2);
+  bellyStripe.geometry.rotateX(Math.PI / 2);
   bellyStripe.scale.set(0.65, 0.55, 1);
   kit.at(body, bellyStripe, 0, -0.06, 0);
 
@@ -49,15 +51,17 @@ export function build_glowvern(kit = kitDefault) {
   });
 
   // --- Legs: four small, agile, cat-sized legs. ---
+  // Hip Y is local to the torso — just under the belly, from where
+  // kit.leg(0.15) drops 0.169 and the paws land on y=0.
   const legDefs = [
-    [0.07, 0.12, 0.08], [-0.07, 0.12, 0.08],
-    [0.07, 0.12, -0.07], [-0.07, 0.12, -0.07],
+    [0.07, -0.071, 0.12], [-0.07, -0.071, 0.12],
+    [0.07, -0.071, -0.12], [-0.07, -0.071, -0.12],
   ];
   const legs = legDefs.map(([x, y, z]) => kit.at(body, kit.leg(0.15, skin, { thighR: 0.033, shinR: 0.025, footLen: 0.055 }), x, y, z));
 
   // The tail: a short chain leading to the signature glass-bell tip, glowing
   // with its own heartspark from the inside.
-  const tail = kit.at(body, kit.tailChain(3, skin, { segLen: 0.06, startR: 0.045, endR: 0.03 }), 0, 0.02, -0.13);
+  const tail = kit.at(body, kit.tailChain(3, skin, { segLen: 0.06, startR: 0.045, endR: 0.03 }), 0, 0.02, -0.19);
   const bell = kit.bulb(bellMat, { height: 0.11, width: 0.06, neck: 0.3 });
   bell.rotation.x = Math.PI; // narrow neck toward the tail, wide bell hanging past the tip
   kit.at(tail.pivots[tail.pivots.length - 1], bell, 0, 0.02, -0.1);

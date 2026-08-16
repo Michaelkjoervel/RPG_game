@@ -32,14 +32,19 @@ export function build_aurios(kit = kitDefault) {
 
   const root = new THREE.Group();
 
+  // Stag barrel running nose-to-tail along Z. The capsule's axis swing is
+  // baked about X — about Z would put the long axis on X and lay the Dawnhart
+  // sideways across the view. Torso height is set from the leg length below so
+  // the hooves (and their light discs) meet the ground.
   const body = kit.capsule(0.2, 0.58, coat, { capSeg: 5, radSeg: 10 });
-  body.geometry.rotateZ(Math.PI / 2);
+  body.geometry.rotateX(Math.PI / 2);
   root.add(body);
-  body.position.y = 1.16;
+  body.position.y = 0.88;
 
   // Radiant chest and belly wash — brighter underside, as if lit from within.
+  // Same nose-to-tail axis as its parent barrel, thinner in cross-section.
   const chestGlow = kit.capsule(0.12, 0.5, coatLight, { capSeg: 4, radSeg: 7 });
-  chestGlow.geometry.rotateZ(Math.PI / 2);
+  chestGlow.geometry.rotateX(Math.PI / 2);
   chestGlow.scale.set(0.7, 0.55, 1);
   kit.at(body, chestGlow, 0, -0.12, 0);
 
@@ -66,9 +71,12 @@ export function build_aurios(kit = kitDefault) {
   const muzzle = kit.at(head, kit.orb(0.06, coatLight, { sz: 1.15, sy: 0.65 }), 0, -0.06, 0.16);
 
   // --- Legs: long, elegant — a legendary's stride. ---
+  // Hip Y is local to the barrel, so it belongs just under the belly (-0.19 ≈
+  // -radius); kit.leg(0.68) drops 0.691 from there and the hooves land on y=0.
+  // Fore/hind pairs stand under shoulders and haunches of the 0.49 half-length.
   const legDefs = [
-    [0.16, 0.72, 0.2], [-0.16, 0.72, 0.2],
-    [0.16, 0.72, -0.18], [-0.16, 0.72, -0.18],
+    [0.16, -0.19, 0.32], [-0.16, -0.19, 0.32],
+    [0.16, -0.19, -0.3], [-0.16, -0.19, -0.3],
   ];
   const legs = legDefs.map(([x, y, z]) => kit.at(body, kit.leg(0.68, coat, { thighR: 0.075, shinR: 0.05, footLen: 0.12 }), x, y, z));
 
@@ -78,11 +86,13 @@ export function build_aurios(kit = kitDefault) {
     kit.at(l.foot, disc, 0, -0.02, 0.02);
     return disc;
   });
-  // A wider light-pool washing the ground beneath the whole body.
+  // A wider light-pool washing the ground beneath the whole body — it has to
+  // sit just above y=0 (i.e. a full leg-drop below the barrel) to read as a
+  // pool on the ground rather than a disc floating at knee height.
   const groundPool = kit.orb(0.4, lightPoolMat, { sx: 1, sy: 0.05, sz: 1.3 });
-  kit.at(body, groundPool, 0, -0.7, 0);
+  kit.at(body, groundPool, 0, -0.85, 0);
 
-  const tail = kit.at(body, kit.tailChain(3, coat, { segLen: 0.08, startR: 0.04, endR: 0.016 }), 0, 0.14, -0.3);
+  const tail = kit.at(body, kit.tailChain(3, coat, { segLen: 0.08, startR: 0.04, endR: 0.016 }), 0, 0.14, -0.44);
 
   // Dawn motes: two layered hues, gold and rose, for a real dawn-sky gradient.
   const dawnGold = kit.mote(12, { color: 0xffd98c, size: 0.026, radius: 0.55, height: 0.6, speed: 0.3, seed: 171 });

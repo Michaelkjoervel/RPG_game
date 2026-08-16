@@ -24,19 +24,21 @@ export function build_aurelark(kit = kitDefault) {
 
   const root = new THREE.Group();
 
-  // Streamlined torso — a stretched capsule, not a round blob.
+  // Streamlined torso — a stretched capsule, not a round blob. A bird's body
+  // runs beak-to-tail along Z, so the capsule's axis swing is baked about X;
+  // about Z would put the long axis on X, i.e. wingtip-to-wingtip.
   const body = kit.capsule(0.09, 0.2, dusk, { capSeg: 4, radSeg: 9 });
-  body.geometry.rotateZ(Math.PI / 2);
+  body.geometry.rotateX(Math.PI / 2);
   root.add(body);
   body.position.y = 0.28;
 
-  // Peach chest patch — the gradient's midtone.
+  // Peach chest patch — the gradient's midtone, along the same axis.
   const chest = kit.capsule(0.06, 0.14, peach, { capSeg: 3, radSeg: 7 });
-  chest.geometry.rotateZ(Math.PI / 2);
+  chest.geometry.rotateX(Math.PI / 2);
   chest.scale.set(0.7, 0.65, 1);
-  kit.at(body, chest, 0, -0.03, 0.06);
+  kit.at(body, chest, 0, -0.058, 0.06); // flush with the belly, not buried in it
 
-  const head = kit.at(body, kit.orb(0.065, gold, { sz: 1.1 }), 0, 0.05, 0.14);
+  const head = kit.at(body, kit.orb(0.065, gold, { sz: 1.1 }), 0, 0.06, 0.2);
   const eyeL = kit.at(head, kit.eye(0.026, { irisColor: 0x241810, skinColor: 0xffcf7a, glintSize: 0.01 }), 0.045, 0.008, 0.05, { ry: 0.4 });
   const eyeR = kit.at(head, kit.eye(0.026, { irisColor: 0x241810, skinColor: 0xffcf7a, glintSize: 0.01 }), -0.045, 0.008, 0.05, { ry: -0.4 });
   const beak = kit.at(head, kit.cone(0.018, 0.04, beakMat, { segments: 6 }), 0, -0.008, 0.065, { rx: Math.PI / 2 });
@@ -53,22 +55,23 @@ export function build_aurelark(kit = kitDefault) {
     return w;
   });
 
-  // Tiny elegant legs.
-  const legDefs = [[0.03, 0.02, 0.01], [-0.03, 0.02, 0.01]];
+  // Tiny elegant legs, hung just under the belly (local Y is measured from the
+  // torso's centre) so they show below the plumage instead of inside it.
+  const legDefs = [[0.03, -0.075, 0.02], [-0.03, -0.075, 0.02]];
   const legs = legDefs.map(([x, y, z]) => kit.at(body, kit.leg(0.06, beakMat, { thighR: 0.012, shinR: 0.009, footLen: 0.024 }), x, y, z));
 
   // Trailing pennant feathers — three long thin streamers off the tail,
   // each its own accent for independent ripple. The showpiece.
-  const pennantDefs = [[0, 0, -0.1, 0], [0.025, 0.01, -0.1, 0.18], [-0.025, 0.01, -0.1, -0.18]];
+  const pennantDefs = [[0, 0, -0.19, 0], [0.025, 0.01, -0.19, 0.18], [-0.025, 0.01, -0.19, -0.18]];
   const pennants = pennantDefs.map(([x, y, z, rz]) => kit.at(body, kit.leafBlade(0.24, pennantMat, { width: 0.012 }), x, y, z, { ry: Math.PI, rz }));
 
   // Comet-scatter of warm dawn motes trailing behind — a vain soloist
   // always seems lit from behind.
   const motes = kit.mote(6, { color: 0xffcf7a, size: 0.016, radius: 0.06, height: 0.05, speed: 0.5, seed: 72 });
-  kit.at(body, motes, 0, 0.02, -0.16);
+  kit.at(body, motes, 0, 0.02, -0.26);
 
   const spark = kit.heartspark(0.025, pal.eye, { seed: 73 });
-  kit.at(body, spark, 0, 0, 0.08);
+  kit.at(body, spark, 0, -0.03, 0.17);
 
   return {
     group: kit.groundPlant(root),

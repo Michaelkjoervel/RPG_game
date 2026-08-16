@@ -118,13 +118,18 @@
   100% { opacity: 0; transform: translate(-50%,-128%) scale(.96); }
 }
 
+/* Catch pips: one per Charm shake, lit in lockstep with the 3D shake. Carried
+   on their own dark pill so they stay legible over bright arenas. */
 .bui-catch-pips {
-  position: fixed; left: 50%; top: 40%; transform: translate(-50%, -50%); z-index: 26;
-  display: flex; gap: 10px; opacity: 1; transition: opacity 300ms ease;
+  position: fixed; left: 50%; top: 38%; transform: translate(-50%, -50%); z-index: 26;
+  display: flex; gap: 11px; opacity: 1; transition: opacity 300ms ease;
+  padding: 8px 13px; border-radius: 999px;
+  background: rgba(20, 22, 32, .55); border: 1px solid rgba(255, 233, 176, .22);
+  box-shadow: 0 4px 18px rgba(0,0,0,.4);
 }
 .bui-catch-pips.hidden { opacity: 0; pointer-events: none; }
-.bui-catch-pips span { width: 13px; height: 13px; border-radius: 50%; background: rgba(255,255,255,.14); border: 1px solid var(--slate-line); transition: background 200ms ease, box-shadow 200ms ease, transform 200ms ease; }
-.bui-catch-pips span.lit { background: var(--gold); box-shadow: 0 0 12px var(--gold); transform: scale(1.15); }
+.bui-catch-pips span { width: 14px; height: 14px; border-radius: 50%; background: rgba(255,255,255,.16); border: 1px solid var(--slate-line); transition: background 200ms ease, box-shadow 200ms ease, transform 200ms ease; }
+.bui-catch-pips span.lit { background: var(--gold); box-shadow: 0 0 14px var(--gold), 0 0 3px #fff inset; transform: scale(1.2); }
 
 /* One-shot tutorial hint pill — sits above the action dock, lives ~7s */
 .bui-hint {

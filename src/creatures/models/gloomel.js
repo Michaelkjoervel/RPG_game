@@ -25,13 +25,17 @@ export function build_gloomel(kit = kitDefault) {
 
   const root = new THREE.Group();
 
+  // Eel torso running nose-to-tail along Z — bake the capsule's axis swing
+  // about X. (About Z would swing it onto the X axis and lay the eel sideways
+  // across the view, with its tail sprouting from one flank.)
   const body = kit.capsule(0.075, 0.22, skin, { capSeg: 4, radSeg: 9 });
-  body.geometry.rotateZ(Math.PI / 2);
+  body.geometry.rotateX(Math.PI / 2);
   root.add(body);
   body.position.y = 0.14;
 
+  // Pale underbelly stripe — same axis as the torso it hugs.
   const bellyStripe = kit.capsule(0.045, 0.2, belly, { capSeg: 4, radSeg: 6 });
-  bellyStripe.geometry.rotateZ(Math.PI / 2);
+  bellyStripe.geometry.rotateX(Math.PI / 2);
   bellyStripe.scale.set(0.7, 0.5, 1);
   kit.at(body, bellyStripe, 0, -0.05, 0);
 

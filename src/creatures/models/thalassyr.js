@@ -62,17 +62,22 @@ export function build_thalassyr(kit = kitDefault) {
   const root = new THREE.Group();
 
   // Core torso, just behind the head — the anchor for breathing/hit poses.
-  const body = kit.capsule(0.34, 0.9, skin, { capSeg: 5, radSeg: 11 });
-  body.geometry.rotateZ(Math.PI / 2);
+  // It lies nose-to-tail along Z, so the capsule's axis swing is baked about X
+  // (about Z would put the long axis on X: a barrel lying across the view with
+  // the tail growing out of its flank). Length is deliberately modest — the
+  // TAIL carries this leviathan's length; an over-long torso just swallows the
+  // head and the first third of the tail.
+  const body = kit.capsule(0.34, 0.56, skin, { capSeg: 5, radSeg: 11 });
+  body.geometry.rotateX(Math.PI / 2);
   root.add(body);
   body.position.y = 0.62;
 
-  const bellyStripe = kit.capsule(0.18, 0.82, belly, { capSeg: 4, radSeg: 8 });
-  bellyStripe.geometry.rotateZ(Math.PI / 2);
+  const bellyStripe = kit.capsule(0.18, 0.5, belly, { capSeg: 4, radSeg: 8 });
+  bellyStripe.geometry.rotateX(Math.PI / 2);
   bellyStripe.scale.set(0.7, 0.5, 1);
   kit.at(body, bellyStripe, 0, -0.18, 0);
 
-  const head = kit.at(body, kit.blob(0.28, skin, { seed: 190, squash: { x: 0.85, y: 0.8, z: 1.3 } }), 0, 0.08, 0.55);
+  const head = kit.at(body, kit.blob(0.28, skin, { seed: 190, squash: { x: 0.85, y: 0.8, z: 1.3 } }), 0, 0.24, 0.6);
   const eyeL = kit.at(head, kit.eye(0.075, { irisColor: 0xcfeeff, pupil: true, scleraColor: 0x081018, skinColor: 0x3d5378, glintSize: 0.026 }), 0.16, 0.03, 0.22, { ry: 0.35 });
   const eyeR = kit.at(head, kit.eye(0.075, { irisColor: 0xcfeeff, pupil: true, scleraColor: 0x081018, skinColor: 0x3d5378, glintSize: 0.026 }), -0.16, 0.03, 0.22, { ry: -0.35 });
 
@@ -84,20 +89,23 @@ export function build_thalassyr(kit = kitDefault) {
   // main source of standing HEIGHT for this otherwise low, long serpent
   // (same technique tidelorn.js uses for its "mane of living water").
   const crest = kit.wing(0.85, finMat, { style: 'energy', bones: 5, width: 0.26, droop: 0.5 });
-  kit.at(body, crest, 0, 0.24, 0.46, { rx: -Math.PI / 2 + 0.3, ry: Math.PI / 2 });
+  kit.at(body, crest, 0, 0.34, 0.46, { rx: -Math.PI / 2 + 0.3, ry: Math.PI / 2 });
 
   // No legs — a vast serpent glides. The tail IS most of the visible body
   // length, tapering gently over many segments for a smooth undulation.
-  const tail = kit.at(body, kit.tailChain(10, skin, { segLen: 0.22, startR: 0.32, endR: 0.035, tipTuft: false }), 0, -0.02, -0.42);
+  const tail = kit.at(body, kit.tailChain(10, skin, { segLen: 0.2, startR: 0.32, endR: 0.035, tipTuft: false }), 0, -0.02, -0.5);
   const tailFin = kit.at(tail.pivots[tail.pivots.length - 1], kit.fin(0.34, finMat), 0, 0, -0.1, { ry: Math.PI / 2, s: 1.2 });
   const finLower = kit.at(tail.pivots[tail.pivots.length - 1], kit.fin(0.24, finMat), 0, 0, -0.1, { ry: Math.PI / 2, rx: Math.PI, s: 0.8 });
 
   // Bioluminescent spots strung along each flank and down the tail.
+  // They sit ON the flank (torso radius 0.34) and are strung along the torso's
+  // own Z length — a spot placed inside the capsule simply never shows.
   const flankSpots = [];
   for (let i = 0; i < 6; i++) {
     const t = i / 5;
-    flankSpots.push([0.3, 0.0, 0.3 - t * 0.9, 0.02 + (1 - t) * 0.01]);
-    flankSpots.push([-0.3, 0.0, 0.3 - t * 0.9, 0.02 + (1 - t) * 0.01]);
+    const z = 0.4 - t * 0.85;
+    flankSpots.push([0.34, 0.0, z, 0.02 + (1 - t) * 0.01]);
+    flankSpots.push([-0.34, 0.0, z, 0.02 + (1 - t) * 0.01]);
   }
   const spotsBody = bioluminescentSpots(kit, body, flankSpots, glowCyan, 400);
   const spotSets = tail.pivots.map((piv, i) => bioluminescentSpots(kit, piv, [[0, i < tail.pivots.length - 1 ? 0.14 : 0.08, 0, 0.016]], glowCyan, 401 + i));
