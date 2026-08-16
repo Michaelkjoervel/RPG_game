@@ -21,7 +21,7 @@ export function build_charvane(kit = kitDefault) {
   // luminance rather than the near-black it used to be, so the hound reads as
   // a dark warm shape lit by its own magma seams instead of a flat blot.
   const skinHex = 0x6f625c;
-  const skin = kit.mat(skinHex, { rough: 0.65 });
+  const skin = kit.mat(skinHex, { rough: 0.65, emissive: 0x2a1c14, emissiveIntensity: 0.4 });
   // Magma seams: unlit hot core plus a standard shell with a strong emissive
   // so the cracks stay bright under any lighting (the same "glow that survives
   // daylight" treatment the umbra species got in kit.palette).
