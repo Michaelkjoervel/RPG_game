@@ -191,12 +191,18 @@ export function orb(r, m, opts = {}) {
  *
  * GOTCHA when this mesh is ALSO an attachment anchor for other parts (e.g. a
  * capsule "torso" that a head/legs/tail get `at()`-ed onto): if you need it
- * lying along a different axis, rotate the GEOMETRY
- * (`mesh.geometry.rotateZ(Math.PI/2)`), not `mesh.rotation`. Rotating the
- * mesh's own transform also rotates the local coordinate frame every child
- * you attach to it is measured in, silently scrambling their x/y/z offsets.
- * Geometry rotation is baked into the vertices, leaving `mesh.rotation` at
- * identity so children behave exactly as authored. See charvane.js.
+ * lying along a different axis, rotate the GEOMETRY, not `mesh.rotation`.
+ * Rotating the mesh's own transform also rotates the local coordinate frame
+ * every child you attach to it is measured in, silently scrambling their
+ * x/y/z offsets. Geometry rotation is baked into the vertices, leaving
+ * `mesh.rotation` at identity so children behave exactly as authored.
+ *
+ * WHICH AXIS: a creature faces +Z, so a torso/belly/spine-seam that runs
+ * nose-to-tail wants `mesh.geometry.rotateX(Math.PI/2)` — rotating the
+ * Y-aligned capsule ABOUT X swings its long axis onto Z. `rotateZ(Math.PI/2)`
+ * swings it onto X instead (left-right), which is right for a genuine
+ * crossbar (a wing spar, a yoke) and wrong for every body: it lays the
+ * creature sideways across the view as a fat blob. See charvane.js.
  * @param {number} r
  * @param {number} len - length of the straight midsection (total length = len + 2r)
  * @param {THREE.Material} m

@@ -39,7 +39,7 @@ export function build_maelfin(kit = kitDefault) {
 
   // Head carried a little above the shoulder line so the otter reads as head +
   // body rather than one continuous sausage.
-  const head = kit.at(body, kit.orb(0.095, skin, { sz: 1.1, sy: 0.9 }), 0, 0.075, 0.27);
+  const head = kit.at(body, kit.orb(0.082, skin, { sz: 1.15, sy: 0.95 }), 0, 0.08, 0.3);
   const eyeL = kit.at(head, kit.eye(0.036, { irisColor: 0x123044, skinColor: 0x2f6a8a, glintSize: 0.014 }), 0.06, 0.015, 0.075, { ry: 0.35 });
   const eyeR = kit.at(head, kit.eye(0.036, { irisColor: 0x123044, skinColor: 0x2f6a8a, glintSize: 0.014 }), -0.06, 0.015, 0.075, { ry: -0.35 });
   const earL = kit.at(head, kit.ear(0.04, skin), 0.065, 0.06, 0, { rz: 0.3 });

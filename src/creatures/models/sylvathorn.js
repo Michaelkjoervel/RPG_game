@@ -17,8 +17,12 @@ import * as kitDefault from '../kit.js';
 
 export function build_sylvathorn(kit = kitDefault) {
   const pal = kit.palette(['bloom', 'terra']);
-  const skin = kit.mat(0x3a3226, { rough: 0.7 }); // dark bark-brown hide
-  const barkMat = kit.mat(0x2c2820, { rough: 0.8 });
+  // Bark-brown hide lifted off near-black (~11% relative luminance, Design
+  // Bible §8) so the guardian reads as a shape in daylight; the bark plates
+  // stay darker than the hide so the armour still reads against it.
+  const skinHex = 0x655a48;
+  const skin = kit.mat(skinHex, { rough: 0.7 }); // dark bark-brown hide
+  const barkMat = kit.mat(0x4a4335, { rough: 0.8 });
   const mossMat = kit.mat(0x4a7a3c, { rough: 0.6, transparent: true, opacity: 0.92, side: THREE.DoubleSide });
   const glowMat = kit.mat(0xbfe89a, { unlit: true, transparent: true, opacity: 0.85 });
 
@@ -41,8 +45,8 @@ export function build_sylvathorn(kit = kitDefault) {
 
   const head = kit.at(body, kit.blob(0.13, skin, { seed: 50, squash: { x: 0.85, y: 0.9, z: 1.3 } }), 0, 0.24, 0.32);
 
-  const eyeL = kit.at(head, kit.eye(0.04, { irisColor: 0x2a3a1c, skinColor: 0x3a3226, glintSize: 0.015 }), 0.08, 0.02, 0.11, { ry: 0.3 });
-  const eyeR = kit.at(head, kit.eye(0.04, { irisColor: 0x2a3a1c, skinColor: 0x3a3226, glintSize: 0.015 }), -0.08, 0.02, 0.11, { ry: -0.3 });
+  const eyeL = kit.at(head, kit.eye(0.04, { irisColor: 0x2a3a1c, skinColor: skinHex, glintSize: 0.015 }), 0.08, 0.02, 0.11, { ry: 0.3 });
+  const eyeR = kit.at(head, kit.eye(0.04, { irisColor: 0x2a3a1c, skinColor: skinHex, glintSize: 0.015 }), -0.08, 0.02, 0.11, { ry: -0.3 });
 
   const earL = kit.at(head, kit.ear(0.07, skin), 0.09, 0.1, -0.01, { rz: 0.35 });
   const earR = kit.at(head, kit.ear(0.07, skin), -0.09, 0.1, -0.01, { rz: -0.35 });

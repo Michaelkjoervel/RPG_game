@@ -34,7 +34,7 @@ export function build_glowvern(kit = kitDefault) {
   bellyStripe.scale.set(0.65, 0.55, 1);
   kit.at(body, bellyStripe, 0, -0.06, 0);
 
-  const head = kit.at(body, kit.blob(0.075, skin, { seed: 190, squash: { x: 0.85, y: 0.85, z: 1.3 } }), 0, 0.05, 0.17);
+  const head = kit.at(body, kit.blob(0.075, skin, { seed: 190, squash: { x: 0.85, y: 0.85, z: 1.3 } }), 0, 0.055, 0.22);
   const eyeL = kit.at(head, kit.eye(0.028, { irisColor: 0xfff2c8, scleraColor: 0x14201f, skinColor: 0x3a7a78, glintSize: 0.011 }), 0.052, 0.012, 0.06, { ry: 0.35 });
   const eyeR = kit.at(head, kit.eye(0.028, { irisColor: 0xfff2c8, scleraColor: 0x14201f, skinColor: 0x3a7a78, glintSize: 0.011 }), -0.052, 0.012, 0.06, { ry: -0.35 });
   const earL = kit.at(head, kit.ear(0.035, skin), 0.045, 0.045, -0.01, { rz: 0.3 });
@@ -42,10 +42,12 @@ export function build_glowvern(kit = kitDefault) {
 
   // Small membrane wings — enough for short guiding flights, not a full
   // wyvern wingspan.
-  const wingDefs = [[0.09, 0.02, -0.02, 1], [-0.09, 0.02, -0.02, -1]];
+  // They ride ON the back (above the spine at y=+radius), not on the flank —
+  // wings sunk into the barrel just read as flaps stuck to the ribs.
+  const wingDefs = [[0.07, 0.085, -0.02, 1], [-0.07, 0.085, -0.02, -1]];
   const wingParts = wingDefs.map(([x, y, z, side]) => {
-    const w = kit.wing(0.16, wingMat, { style: 'membrane', bones: 2, width: 0.13, droop: 0.1 });
-    kit.at(body, w, x, y, z, { ry: 0.15 });
+    const w = kit.wing(0.2, wingMat, { style: 'membrane', bones: 2, width: 0.16, droop: 0.1 });
+    kit.at(body, w, x, y, z, { ry: 0.15, rx: -0.25 });
     w.group.scale.x = side;
     return w;
   });
@@ -69,7 +71,7 @@ export function build_glowvern(kit = kitDefault) {
   kit.at(tail.pivots[tail.pivots.length - 1], bellGlow, 0, -0.01, -0.1);
 
   const spark = kit.heartspark(0.032, pal.eye, { seed: 192 });
-  kit.at(body, spark, 0, 0, 0.08);
+  kit.at(body, spark, 0, -0.035, 0.19);
 
   return {
     group: kit.groundPlant(root),

@@ -21,9 +21,26 @@ class Game {
 
   initRenderer() {
     const canvas = document.getElementById('game-canvas');
-    this.renderer = new THREE.WebGLRenderer({
-      canvas, antialias: true, powerPreference: 'high-performance',
-    });
+    // Context creation is the single most environment-dependent step in the
+    // whole game: embedded frames, machines without a discrete GPU and strict
+    // browsers all reject some option combinations that others accept. Walk
+    // from best to plainest rather than failing the boot on the first refusal.
+    const attempts = [
+      { antialias: true, powerPreference: 'high-performance' },
+      { antialias: true, powerPreference: 'default' },
+      { antialias: false, powerPreference: 'default' },
+      { antialias: false, failIfMajorPerformanceCaveat: false },
+    ];
+    let lastErr = null;
+    for (const opts of attempts) {
+      try {
+        this.renderer = new THREE.WebGLRenderer({ canvas, ...opts });
+        break;
+      } catch (e) { lastErr = e; this.renderer = null; }
+    }
+    if (!this.renderer) {
+      throw new Error(`could not open a WebGL context (${lastErr?.message ?? 'unknown reason'})`);
+    }
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.05;

@@ -15,14 +15,31 @@ async function boot() {
   await showTitle(game);
 }
 
-boot().catch((e) => {
+boot().catch(showBootFailure);
+
+// The console is often out of reach (embedded pages, other people's machines),
+// so failures have to explain themselves on the screen the player is looking at.
+function showBootFailure(e) {
   console.error('[boot] fatal', e);
   const el = document.getElementById('boot-screen');
-  if (el) {
-    el.classList.remove('hidden');
-    el.querySelector('.boot-sub').textContent = 'something went wrong while waking the world — see console';
-  }
-});
+  if (!el) return;
+  el.classList.remove('hidden');
+  const sub = el.querySelector('.boot-sub');
+  if (!sub) return;
+  const webglMissing = !(() => {
+    try {
+      const c = document.createElement('canvas');
+      return c.getContext('webgl2') || c.getContext('webgl');
+    } catch (err) { return null; }
+  })();
+  const detail = String(e?.message ?? e ?? 'unknown error');
+  sub.textContent = webglMissing
+    ? 'this browser can’t open a WebGL context — Lumenfall needs hardware 3D'
+    : `the world failed to wake: ${detail}`;
+  sub.style.maxWidth = '46ch';
+  sub.style.lineHeight = '1.5';
+  sub.style.textAlign = 'center';
+}
 
 // Surface unhandled errors during development.
 window.addEventListener('unhandledrejection', (e) => console.error('[unhandled]', e.reason));

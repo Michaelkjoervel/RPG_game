@@ -62,8 +62,10 @@ export function build_aurios(kit = kitDefault) {
   for (let i = 0; i < rayCount; i++) {
     const t = i / (rayCount - 1) - 0.5; // -0.5 .. 0.5
     const centerBoost = 1 - Math.abs(t) * 1.15; // tallest at center
-    const len = 0.16 + Math.max(0.15, centerBoost) * 0.28;
-    const ray = kit.cone(0.012 + Math.max(0, centerBoost) * 0.006, len, i % 2 === 0 ? rayMat : rayMatCore, { segments: 5 });
+    // Long enough to read as a RISING SUN behind the head from across a
+    // battlefield — at legendary scale a short fan just looks like a crest.
+    const len = 0.26 + Math.max(0.15, centerBoost) * 0.46;
+    const ray = kit.cone(0.016 + Math.max(0, centerBoost) * 0.008, len, i % 2 === 0 ? rayMat : rayMatCore, { segments: 5 });
     const fan = kit.at(crown, ray, Math.sin(t * 2.5) * 0.03, 0, 0, { rz: -t * 2.1, rx: -0.25 - Math.abs(t) * 0.3 });
     crownAccents.push(fan);
   }

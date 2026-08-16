@@ -7,7 +7,7 @@
 // "sleek void panther" body language; Nyxmara takes that same silhouette
 // language and scales it up into something vast and majestic by fusing it
 // with a moth's wings. The wings are the whole point: two huge
-// `kit.wing({style:'feathered'})` panels in deep umbra-violet, each
+// `kit.wing({style:'membrane'})` panels in deep umbra-violet, each
 // scattered with dozens of tiny emissive "star" points (small unlit
 // spheres, not a shader — but at this density it reads as a starfield
 // pattern woven into the wing membrane) plus a pair of pale moth-eye
@@ -77,13 +77,16 @@ export function build_nyxmara(kit = kitDefault) {
   const earR = kit.at(head, kit.ear(0.09, fur), -0.11, 0.13, -0.02, { rz: -0.2 });
   const muzzle = kit.at(head, kit.orb(0.08, furLight, { sz: 1.15, sy: 0.65 }), 0, -0.06, 0.17);
 
-  // --- Vast moth wings: feathered, deep night-sky, starfield-speckled. ---
-  const wingR = kit.wing(0.95, wingMat, { style: 'feathered', bones: 4, width: 0.6, droop: 0.08 });
-  kit.at(body, wingR, 0.16, 0.28, -0.1, { rx: -0.05, ry: -0.1 });
-  const wingL = kit.wing(0.95, wingMat, { style: 'feathered', bones: 4, width: 0.6, droop: 0.08 });
-  kit.at(body, wingL, -0.16, 0.28, -0.1, { rx: -0.05, ry: 0.1, sx: -1 });
-  const starsR = starfield(kit, wingR.bones[1], 26, 0.65, 0.5, 300);
-  const starsL = starfield(kit, wingL.bones[1], 26, 0.65, 0.5, 301);
+  // --- Vast moth wings: broad membrane panels, deep night-sky, starfield-
+  // speckled. Membrane (not feathered) is what makes them read as MOTH wings:
+  // one continuous panel per side carrying the starfield, rather than a chain
+  // of separate feather clusters that reads as leaves at silhouette size. ---
+  const wingR = kit.wing(1.0, wingMat, { style: 'membrane', bones: 3, width: 0.85, droop: 0.1 });
+  kit.at(body, wingR, 0.2, 0.24, -0.08, { rx: -0.05, ry: -0.1 });
+  const wingL = kit.wing(1.0, wingMat, { style: 'membrane', bones: 3, width: 0.85, droop: 0.1 });
+  kit.at(body, wingL, -0.2, 0.24, -0.08, { rx: -0.05, ry: 0.1, sx: -1 });
+  const starsR = starfield(kit, wingR.bones[1], 26, 0.62, 0.6, 300);
+  const starsL = starfield(kit, wingL.bones[1], 26, 0.62, 0.6, 301);
 
   // Pale moth-eye markings near the wing roots — a calm, watchful accent.
   const eyeSpotL = kit.at(wingR.bones[0], kit.crystal(0.05, glowMat, { coreColor: 0xffffff, detail: 0 }), 0.15, 0.02, 0);
