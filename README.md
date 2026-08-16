@@ -12,6 +12,10 @@ Brighthollow, setting out to bond with wild Kindred, earn the five Shrine Sigils
 No build step, no dependencies to install for playing — everything (world, creatures,
 animation, music, sound) is generated procedurally at runtime.
 
+> **Note on saves:** Lumenfall stores progress in `localStorage`. Served from a real
+> origin (the commands below) saving works normally; embedded in a sandboxed frame the
+> browser blocks storage, so the game still plays but progress won't persist.
+
 ```bash
 # from the repo root — any static file server works:
 python3 -m http.server 8080
@@ -56,9 +60,16 @@ A discrete GPU is not required, but hardware WebGL is strongly recommended.
 ```bash
 npm install          # dev tooling only (three is vendored for the browser)
 npm run serve        # local play
-node tools/shoot.mjs tools/drivers/fullloop.mjs   # headless smoke playthrough
-QA_BEAUTY=1 node tools/shoot.mjs tools/drivers/showcase.mjs  # creature gallery shots
+node tools/shoot.mjs tools/drivers/tour-c.mjs test-output/x   # headless battle playthrough
+QA_BEAUTY=1 node tools/shoot.mjs tools/drivers/showcase.mjs test-output/y  # creature gallery
+node tools/build-standalone.mjs dist/lumenfall.html           # one self-contained HTML file
 ```
+
+`tools/shoot.mjs` serves the repo, drives the game in headless Chromium and screenshots it;
+drivers under `tools/drivers/` script specific flows. Two things bite when writing one: the
+title screen swallows keypresses until you leave it (seed a save and use Continue instead —
+see `tour-c.mjs`), and `h.waitFor`'s expression must return a serializable value
+(`!!document.querySelector(…)`, never the element itself).
 
 - `docs/DESIGN_BIBLE.md` — the world, roster, story and art direction (single source of truth)
 - `docs/ARCHITECTURE.md` + `docs/CONTRACTS_ADDENDUM.md` — module contracts and data schemas
