@@ -50,6 +50,11 @@ export function createCameraDirector({ getFocus } = {}) {
     if (f) return new THREE.Vector3(f.x, f.y, f.z);
     return new THREE.Vector3(side === 'e' ? 4.5 : -4.5, 1.2, 0);
   }
+  /** Bounding radius of the creature on `side` (0.8 when unknown). */
+  function focusRadius(side) {
+    const r = getFocus?.(side)?.radius;
+    return Number.isFinite(r) && r > 0.1 ? r : 0.8;
+  }
   function dirBetween(from, to) { return to.clone().sub(from).setY(0).normalize(); }
   function sideAxis(dir) { return new THREE.Vector3(-dir.z, 0, dir.x); }
   function midpoint(a, b, t = 0.5) { return new THREE.Vector3().lerpVectors(a, b, t); }
@@ -99,9 +104,12 @@ export function createCameraDirector({ getFocus } = {}) {
         setDesired(pos, midpoint(p, e, 0.6).add(new THREE.Vector3(0, 0.25, 0)), 33, { lambdaPos: 3.2, lambdaLook: 3.6 });
       }
     },
-    // Scale-aware close-up: distance grows with the subject's chest height so
-    // tall Kindred aren't clipped and small ones still fill frame; the aim
-    // point sits above the chest so the subject reads in the lower third.
+    // Scale-aware close-up. Distance scales with the subject's chest height
+    // AND its true bounding radius — quadrupeds are much longer than they are
+    // tall, and a height-only distance parked the lens inside the ribcage.
+    // The offset vector is normalized, so `d` is the real eye-to-chest
+    // distance; the aim point sits above the chest so the subject reads in the
+    // lower third of frame with headroom above it.
     closeUp(opts = {}) {
       const side = opts.side ?? 'p';
       const other = side === 'p' ? 'e' : 'p';
@@ -109,9 +117,16 @@ export function createCameraDirector({ getFocus } = {}) {
       const dir = dirBetween(f, o);
       const side3 = sideAxis(dir);
       const sgn = side === 'p' ? 1 : -1;
-      const d = Math.max(2.2, f.y * 3.2);
-      const pos = f.clone().addScaledVector(dir, -d).addScaledVector(side3, 0.85 * sgn).add(new THREE.Vector3(0, 0.3 + d * 0.12, 0));
-      const look = f.clone().add(new THREE.Vector3(0, d * 0.14, 0));
+      const d = Math.max(2.2, f.y * 3.2, focusRadius(side) * 2.6);
+      // back-and-above 3/4 offset, unit length -> exact distance d
+      const off = dir.clone().multiplyScalar(-0.82)
+        .addScaledVector(side3, 0.42 * sgn)
+        .add(new THREE.Vector3(0, 0.38, 0))
+        .normalize().multiplyScalar(d);
+      const pos = f.clone().add(off);
+      // vertical FOV 28 => half-height at distance d is d*tan(14deg) ~= 0.25d;
+      // aiming a third of that above the chest drops the subject to the lower third.
+      const look = f.clone().add(new THREE.Vector3(0, d * 0.085, 0));
       setDesired(pos, look, 28, { lambdaPos: 9.5, lambdaLook: 9.5 });
     },
     lowBeam() {
@@ -132,13 +147,15 @@ export function createCameraDirector({ getFocus } = {}) {
       const other = side === 'p' ? 'e' : 'p';
       const f = focus(side), o = focus(other);
       const dir = dirBetween(f, o);
-      const pos = f.clone().addScaledVector(dir, -3.3).add(new THREE.Vector3(0, 1.55, 0));
+      const d = Math.max(3.3, focusRadius(side) * 3);
+      const pos = f.clone().addScaledVector(dir, -d).add(new THREE.Vector3(0, 1.55, 0));
       setDesired(pos, f.clone().add(new THREE.Vector3(0, 0.35, 0)), 29, { lambdaPos: 6.5, lambdaLook: 6.5 });
     },
     sendIn(opts = {}) {
       const side = opts.side ?? 'p';
       const f = focus(side);
-      const pos = f.clone().add(new THREE.Vector3(side === 'p' ? -2.7 : 2.7, 1.25, -3.5));
+      const d = Math.max(3.5, focusRadius(side) * 3.2);
+      const pos = f.clone().add(new THREE.Vector3(side === 'p' ? -2.7 : 2.7, 1.25, -d));
       setDesired(pos, f, 31, { lambdaPos: 5, lambdaLook: 5 });
     },
     catchFocus(opts = {}) {

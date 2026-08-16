@@ -195,6 +195,7 @@ export function createBattleUI(ctx = {}) {
   let currentView = null;
   let pendingResolve = null;
   let itemsCache = null;
+  let vsCardPromise = null;  // in-flight VS card (started on 'intro', never blocks it)
 
   // ---- small DOM/query helpers ------------------------------------------
   function queryEls() {
@@ -491,6 +492,7 @@ export function createBattleUI(ctx = {}) {
 
   async function getAction(view = {}) {
     currentView = view;
+    if (vsCardPromise) { await vsCardPromise; vsCardPromise = null; } // never raise the dock under the card
     if (view.self) await syncPlateFromView('p', view.self);
     if (view.foe) await syncPlateFromView('e', view.foe);
     return new Promise((resolve) => {
@@ -733,7 +735,12 @@ export function createBattleUI(ctx = {}) {
     switch (ev.type) {
       case 'intro': {
         resetLog();
-        await doVsCard();
+        // The card plays OVER the wide intro shot and the send-ins: we await
+        // only its entrance, then let it live out its dwell/exit while the
+        // engine moves on. Awaiting the whole card here is what left the arena
+        // empty behind it (both creatures arrived after it had gone).
+        vsCardPromise = doVsCard().catch(() => {});
+        await delay(0.35);
         // First catchable wild encounter: teach the Attune loop once.
         if ((cfg.kind ?? 'wild') === 'wild' && cfg.canCatch && !G.flags?.hint_attune) {
           setFlag('hint_attune');
@@ -831,6 +838,7 @@ export function createBattleUI(ctx = {}) {
   }
   async function showVsCard(names) {
     if (!els?.vs) return;
+    const alive = () => mounted && !!els?.vs; // the card outlives its await points now
     const n = typeof names === 'string' ? { title: names } : Array.isArray(names) ? { playerName: names[0], enemyName: names[1] } : (names || {});
     const kind = n.kind ?? cfg.kind ?? 'wild';
     const enemyName = n.enemyName ?? n.enemy ?? cfg.enemyName ?? 'a wild Kindred';
@@ -844,9 +852,11 @@ export function createBattleUI(ctx = {}) {
     els.vs.classList.add('show');
     sfx('ui_open');
     await delay(1.1);
+    if (!alive()) return;
     els.vs.classList.remove('show');
     els.vs.classList.add('hide');
     await delay(0.5);
+    if (!alive()) return;
     els.vs.classList.add('hidden');
     els.vs.classList.remove('hide');
   }
@@ -991,6 +1001,7 @@ export function createBattleUI(ctx = {}) {
     unsub = [];
     nav = null;
     pendingResolve = null;
+    vsCardPromise = null;
     xpLog.clear();
     logItems = [];
     root?.remove();

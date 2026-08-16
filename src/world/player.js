@@ -43,6 +43,12 @@ const IDLE_LOOK_MAX = 8.5;
 const SNOWLINE_Y = 12;         // mountain terrain above this = snow footsteps
 /* ----------------------------- follower tuning ----------------------------- */
 const FOLLOW_DIST = 2.2;       // trail distance behind the player — contract value
+// The camera sits directly behind the player, so a follower centred on the trail
+// fills the frame. Offset it to the player's right and fade it out if it still
+// ends up in the lens (sharp turns, backing up into it).
+const FOLLOW_SIDE = 0.95;      // lateral offset from the trail line
+const FOLLOW_FADE_NEAR = 1.7;  // fully invisible at/below this distance to camera
+const FOLLOW_FADE_FAR = 3.1;   // fully opaque at/above this distance
 const FOLLOW_TELEPORT = 12;    // snap to player if further than this
 const TRAIL_SPACING = 0.22;    // breadcrumb spacing
 const TRAIL_CAP = 64;          // ring buffer size (≥ 14u of path)
@@ -356,11 +362,21 @@ export function createPlayer(world) {
       if (!built?.group) return;
       detachFollower();
       trailPointBehind(FOLLOW_DIST, _trailOut);
+      // Collect materials once so the camera-proximity fade costs nothing per frame.
+      const fadeMats = [];
+      built.group.traverse((o) => {
+        const m = o.material;
+        if (!m) return;
+        for (const mat of Array.isArray(m) ? m : [m]) {
+          if (!fadeMats.includes(mat)) { mat.transparent = true; fadeMats.push(mat); }
+        }
+      });
       follower = {
         group: built.group, animator: built.animator, speciesId: lead.speciesId,
         hollowed: !!lead.hollowed, state: 'idle',
         x: _trailOut.x, z: _trailOut.z, y: group.position.y, face,
         happyCd: 6 + Math.random() * 6,
+        fadeMats, opacity: 1,
       };
       follower.group.position.set(follower.x, follower.y, follower.z);
       world.scene?.add(follower.group);
@@ -384,6 +400,10 @@ export function createPlayer(world) {
     if (!follower) return;
     const f = follower;
     trailPointBehind(FOLLOW_DIST, _trailOut);
+    // Step off the trail line to the player's right so the creature walks
+    // alongside the path rather than in the camera's line of sight.
+    _trailOut.x += Math.cos(face) * FOLLOW_SIDE;
+    _trailOut.z += -Math.sin(face) * FOLLOW_SIDE;
     const dxP = group.position.x - f.x, dzP = group.position.z - f.z;
     if (dxP * dxP + dzP * dzP > FOLLOW_TELEPORT * FOLLOW_TELEPORT) {
       f.x = _trailOut.x; f.z = _trailOut.z;
@@ -418,6 +438,19 @@ export function createPlayer(world) {
     }
     f.group.position.set(f.x, f.y, f.z);
     f.group.rotation.y = f.face;
+    /* never let the follower block the shot: fade it out near the lens */
+    const cam = world.camera;
+    if (cam && f.fadeMats?.length) {
+      const cdx = cam.position.x - f.x, cdy = cam.position.y - (f.y + 0.5), cdz = cam.position.z - f.z;
+      const cd = Math.sqrt(cdx * cdx + cdy * cdy + cdz * cdz);
+      const want = clamp01((cd - FOLLOW_FADE_NEAR) / (FOLLOW_FADE_FAR - FOLLOW_FADE_NEAR));
+      const next = damp(f.opacity, want, 12, dt);
+      if (Math.abs(next - f.opacity) > 0.01) {
+        f.opacity = next;
+        for (const mat of f.fadeMats) mat.opacity = next;
+        f.group.visible = next > 0.02;
+      }
+    }
     try { f.animator?.update?.(dt); } catch (e) { /* tolerate */ }
   }
 

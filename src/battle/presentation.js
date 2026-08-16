@@ -90,9 +90,9 @@ export async function createPresentation(game, config = {}) {
   // ---------------------------------------------------------------- helpers
   function focusOf(side) {
     const entry = mons[side];
-    if (entry) return { x: entry.group.position.x, y: entry.focusY, z: entry.group.position.z };
+    if (entry) return { x: entry.group.position.x, y: entry.focusY, z: entry.group.position.z, radius: entry.radius };
     const mark = arena.marks[side];
-    return { x: mark.x, y: 1.1, z: mark.z };
+    return { x: mark.x, y: 1.1, z: mark.z, radius: 0.8 };
   }
 
   const _proj = new THREE.Vector3();
@@ -315,9 +315,12 @@ export async function createPresentation(game, config = {}) {
   }
 
   // ------------------------------------------------------------ event beats
+  // The wide establishing shot plays UNDER the UI's VS card (battleUI starts
+  // the card on 'intro' without blocking), and it is kept short so both
+  // send-ins land while the card is still on screen.
   async function onIntro() {
-    await camDir.shot('wide', { ms: 750 });
-    await camDir.shot('rest', { ms: 480 });
+    await camDir.shot('wide', { ms: 700 });
+    await camDir.shot('rest', { ms: 240, variant: 0 });
   }
 
   async function onSend(ev) {
@@ -345,15 +348,25 @@ export async function createPresentation(game, config = {}) {
 
     const bbox = new THREE.Box3().setFromObject(group);
     let height = bbox.max.y - bbox.min.y;
+    let spanXZ = Math.max(bbox.max.x - bbox.min.x, bbox.max.z - bbox.min.z);
     if (!isFinite(height) || height < 0.05) height = species?.size ?? 1.2;
+    if (!isFinite(spanXZ) || spanXZ < 0.05) spanXZ = height;
     if (species?.size && Math.abs(height - species.size) / species.size > 0.4) {
-      group.scale.multiplyScalar(species.size / Math.max(0.05, height));
+      const k = species.size / Math.max(0.05, height);
+      group.scale.multiplyScalar(k);
       height = species.size;
+      spanXZ *= k;
     }
     const baseScale = group.scale.clone();
     scene.add(group);
     group.scale.setScalar(0.02);
-    mons[side] = { group, animator, speciesId, mon: inst, baseScale, focusY: height * 0.55 };
+    // `radius`: the model's true bounding radius (quadrupeds are far LONGER
+    // than they are tall) — the camera director needs it to keep close-ups
+    // outside the creature instead of inside its ribcage.
+    mons[side] = {
+      group, animator, speciesId, mon: inst, baseScale,
+      focusY: height * 0.55, radius: Math.max(spanXZ, height) * 0.5,
+    };
 
     const aColor = aspectColor(species?.aspects?.[0] ?? 'neutral');
     vfx.materialize(particles, { at: { x: mark.x, y: 0.05, z: mark.z }, color: aColor, height });
