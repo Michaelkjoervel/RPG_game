@@ -48,6 +48,23 @@ class Game {
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this._resize();
     window.addEventListener('resize', () => this._resize());
+
+    // A lost GPU context stops all drawing while the DOM keeps animating — the
+    // game looks frozen mid-frame and feels like being stuck in the scenery.
+    // Say so out loud instead of leaving the player staring at a stale image.
+    canvas.addEventListener('webglcontextlost', (e) => {
+      e.preventDefault();                 // required, or the context can never come back
+      this._contextLost = true;
+      this._showStallOverlay('The world lost its light — the browser dropped this page’s 3D context.');
+    }, false);
+    canvas.addEventListener('webglcontextrestored', () => {
+      this._contextLost = false;
+      this._hideStallOverlay();
+      // Rebuilding the current zone re-uploads everything the GPU just forgot.
+      if (this.mode === 'overworld' && this.overworld) {
+        this.overworld.loadZone(G.pos.zone, [G.pos.x, G.pos.z]).catch((err) => console.error('[game] zone rebuild failed', err));
+      }
+    }, false);
     bus.on('settings:changed', ({ key, value }) => {
       if (key !== 'quality') return;
       this.renderer.shadowMap.enabled = value !== 'low';
@@ -92,14 +109,58 @@ class Game {
       try { this.activeScene.update?.(dt); } catch (e) { console.error('[update]', e); }
     }
     if (this.activeScene?.scene && this.activeScene?.camera) {
-      if (this.activeScene.render) this.activeScene.render(this.renderer, dt);
-      else this.renderer.render(this.activeScene.scene, this.activeScene.camera);
+      try {
+        if (this.activeScene.render) this.activeScene.render(this.renderer, dt);
+        else this.renderer.render(this.activeScene.scene, this.activeScene.camera);
+        this._lastDrawAt = performance.now();
+        if (this._stalled) { this._stalled = false; this._hideStallOverlay(); }
+      } catch (e) {
+        this._warnOnce('render', e);
+        this._renderError = e;
+      }
+      // A picture that stopped updating is invisible as a bug — surface it.
+      this._lastDrawAt ??= performance.now();
+      if (!this._stalled && performance.now() - this._lastDrawAt > 2500) {
+        this._stalled = true;
+        this._showStallOverlay(this._contextLost
+          ? 'The world lost its light — the browser dropped this page’s 3D context.'
+          : `Drawing stopped: ${this._renderError?.message ?? 'the renderer stopped producing frames'}`);
+      }
     }
     if (this.mode === 'overworld' && !this._paused) {
       G.playtimeSec += dt;
       G.calendar.dayTime = (G.calendar.dayTime + dt / 900) % 1; // 15-min day cycle
     }
     input.endFrame();
+  }
+
+  _showStallOverlay(reason) {
+    console.error('[game] rendering stalled:', reason);
+    let el = document.getElementById('stall-overlay');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'stall-overlay';
+      el.style.cssText = `position:fixed;inset:0;z-index:120;display:flex;flex-direction:column;
+        align-items:center;justify-content:center;gap:14px;text-align:center;padding:24px;
+        background:radial-gradient(ellipse at 50% 45%,rgba(8,9,15,.86) 0%,rgba(8,9,15,.96) 100%);
+        font-family:'Segoe UI',system-ui,sans-serif;color:#b9b2a3;`;
+      el.innerHTML = `
+        <div style="font-family:Georgia,serif;font-size:26px;letter-spacing:.18em;color:#ffe9b0">LUMENFALL</div>
+        <div id="stall-why" style="max-width:44ch;line-height:1.55;font-size:13.5px"></div>
+        <button id="stall-reload" style="margin-top:6px;padding:10px 22px;border-radius:999px;
+          border:1px solid rgba(255,233,176,.35);background:rgba(255,233,176,.10);color:#ffe9b0;
+          font-family:Georgia,serif;font-size:15px;letter-spacing:.06em;cursor:pointer">Wake the world</button>
+        <div style="font-size:11.5px;color:#7c766c">Your last autosave is kept.</div>`;
+      document.body.appendChild(el);
+      el.querySelector('#stall-reload').addEventListener('click', () => location.reload());
+    }
+    el.querySelector('#stall-why').textContent = reason;
+    el.style.display = 'flex';
+  }
+
+  _hideStallOverlay() {
+    const el = document.getElementById('stall-overlay');
+    if (el) el.style.display = 'none';
   }
 
   _warnOnce(key, e) {
