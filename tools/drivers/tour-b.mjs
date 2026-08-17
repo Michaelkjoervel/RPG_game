@@ -20,7 +20,7 @@ const SEED = `(async () => {
   G.glim = 1240; G.sigils = [true, true, false, false, false];
   G.quests = { q_main_3: { step: 0, done: false } };
   for (const f of ['intro_done','tutorial_done','dm_tip_shown','kb_beat','kl_beat',
-                   'ww_hollowed_seen','shard_stolen','gloam_ambush_done','ashe_1','ashe_2'])
+                   'ww_hollowed_seen','shard_stolen','gloam_ambush_done','bryn_1','bryn_2'])
     setFlag(f);
   G.pos = { zone: 'brighthollow', x: 0, z: 6, face: 0 };
   saveGame(1);

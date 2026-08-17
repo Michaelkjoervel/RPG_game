@@ -59,7 +59,7 @@ crate, barrel, campfire, tent, ice_spike, snow_pile, lava_rock, ember_vent, spir
 banner, statue_warden, waterfall, dock, boat, stalagmite, stalactite, hangmoss, glowfern
 
 ## NPC ids (data/npcs.js defines; zones reference)
-elder_maren, ashe, keeper_bramwell, keeper_liora, keeper_maro, keeper_sera,
+elder_maren, bryn, keeper_bramwell, keeper_liora, keeper_maro, keeper_sera,
 merchant_pip (brighthollow), merchant_wren (driftmoor), herbalist_syl (whisperwood),
 deserter_finn (gloamcavern), lanternkeeper_ode (gloamcavern), ferryman_juno (mirrorlake),
 climber_bo (skyreach), scholar_imre (sunkenruins), lt_vess, lt_dorn, archon_sol,

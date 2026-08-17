@@ -18,16 +18,16 @@ export const STORY_TRIGGERS = [
   { id: 'shard_theft', zone: 'brighthollow', scene: 'shardTheft',
     condition: (G) => !!G.flags.ww_hollowed_seen && !!G.sigils[1] && !G.flags.shard_stolen },
   { id: 'gloam_ambush', zone: 'gloamcavern', scene: 'gloamAmbush', condition: (G) => !!G.flags.shard_stolen && !G.flags.gloam_ambush_done },
-  { id: 'ashe_vess_glimpse', zone: 'gloamcavern', scene: 'asheVessGlimpse', condition: (G) => !!G.flags.gloam_ambush_done && !G.flags.ashe_vess_seen },
+  { id: 'bryn_vess_glimpse', zone: 'gloamcavern', scene: 'brynVessGlimpse', condition: (G) => !!G.flags.gloam_ambush_done && !G.flags.bryn_vess_seen },
   { id: 'liora_dapplyn_found', zone: 'whisperwood', scene: 'lioraDapplynFound',
     condition: (G) => !!G.quests.sq_liora_dapplyn && !G.quests.sq_liora_dapplyn.done && !G.flags.liora_dapplyn_found },
 
-  // -------------------------------------------------------------------------- Ashe (rival) — one per zone, gated by the ASHE_STAGES flags npcs.js already tracks
-  { id: 'ashe_stage_1', zone: 'dawnmeadow', scene: 'asheStage1', condition: (G) => !!G.sigils[0] && !G.flags.ashe_1 },
-  { id: 'ashe_stage_2', zone: 'whisperwood', scene: 'asheStage2', condition: (G) => !!G.flags.ww_hollowed_seen && !G.flags.ashe_2 },
-  { id: 'ashe_stage_3', zone: 'mirrorlake', scene: 'asheStage3', condition: (G) => !!G.sigils[2] && !G.flags.ashe_3 },
-  { id: 'ashe_stage_4', zone: 'skyreach', scene: 'asheStage4', condition: (G) => !!G.flags.storm_calmed && !G.flags.ashe_4 },
-  { id: 'ashe_stage_5', zone: 'hollowspire', scene: 'asheStage5', condition: (G) => !!G.flags.ruins_cleared && !G.flags.ashe_5 },
+  // -------------------------------------------------------------------------- Bryn (rival) — one per zone, gated by the BRYN_STAGES flags npcs.js already tracks
+  { id: 'bryn_stage_1', zone: 'dawnmeadow', scene: 'brynStage1', condition: (G) => !!G.sigils[0] && !G.flags.bryn_1 },
+  { id: 'bryn_stage_2', zone: 'whisperwood', scene: 'brynStage2', condition: (G) => !!G.flags.ww_hollowed_seen && !G.flags.bryn_2 },
+  { id: 'bryn_stage_3', zone: 'mirrorlake', scene: 'brynStage3', condition: (G) => !!G.sigils[2] && !G.flags.bryn_3 },
+  { id: 'bryn_stage_4', zone: 'skyreach', scene: 'brynStage4', condition: (G) => !!G.flags.storm_calmed && !G.flags.bryn_4 },
+  { id: 'bryn_stage_5', zone: 'hollowspire', scene: 'brynStage5', condition: (G) => !!G.flags.ruins_cleared && !G.flags.bryn_5 },
 
   // ------------------------------------------------------------------------------- Skyreach
   { id: 'sq_climber_battle1', zone: 'skyreach', scene: 'climberBattle1',

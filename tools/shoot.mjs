@@ -37,8 +37,13 @@ const browser = await chromium.launch({
 });
 // BEAUTY=1: full-size, high quality (for visual QA screenshots).
 // Default: small viewport + low quality so software rendering keeps a usable framerate.
+// QA_VIEWPORT=WxH overrides both modes (used to reproduce a player's window shape).
 const BEAUTY = process.env.QA_BEAUTY === '1';
-const page = await browser.newPage({ viewport: BEAUTY ? { width: 1600, height: 900 } : { width: 960, height: 540 } });
+const vpEnv = /^(\d+)x(\d+)$/.exec(process.env.QA_VIEWPORT ?? '');
+const viewport = vpEnv
+  ? { width: +vpEnv[1], height: +vpEnv[2] }
+  : BEAUTY ? { width: 1600, height: 900 } : { width: 960, height: 540 };
+const page = await browser.newPage({ viewport });
 if (!BEAUTY) {
   await page.addInitScript(() => {
     localStorage.setItem('lumenfall_settings', JSON.stringify({

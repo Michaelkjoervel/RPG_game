@@ -8,7 +8,7 @@ export async function run(page, h) {
   await page.evaluate(() => {
     const G = window.LF.G;
     G.flags.ww_hollowed_seen = true;
-    G.flags.ashe_2 = true;
+    G.flags.bryn_2 = true;
     G.flags.liora_dapplyn_done = true;
   });
   console.log('BOOT OK');

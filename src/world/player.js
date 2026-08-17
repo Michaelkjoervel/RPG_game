@@ -502,19 +502,72 @@ export function createPlayer(world) {
   function resolveColliders() {
     const cols = world.colliders;
     if (!cols) return;
-    for (let pass = 0; pass < 2; pass++) {
+    // Four passes so a wedge between several props still resolves; a body dead
+    // centre in a collider has no escape direction of its own, so it gets a
+    // deterministic one (its facing) instead of being skipped and left trapped.
+    for (let pass = 0; pass < 4; pass++) {
+      let moved = false;
       for (let i = 0; i < cols.length; i++) {
         const c = cols[i];
-        const dx = group.position.x - c.x, dz = group.position.z - c.z;
+        let dx = group.position.x - c.x, dz = group.position.z - c.z;
         const rr = c.r + PLAYER_RADIUS;
-        const d2 = dx * dx + dz * dz;
-        if (d2 >= rr * rr || d2 < 1e-8) continue;
+        let d2 = dx * dx + dz * dz;
+        if (d2 >= rr * rr) continue;
+        if (d2 < 1e-8) { dx = Math.sin(face); dz = Math.cos(face); d2 = 1; }
         const d = Math.sqrt(d2);
         const push = (rr - d) / d;
         group.position.x += dx * push;
         group.position.z += dz * push;
+        moved = true;
+      }
+      if (!moved) break;
+    }
+  }
+
+  /* -------- stuck watchdog -----------------------------------------------
+     Whatever wedges the player — overlapping props, a bad spawn, a scene that
+     teleported them into a wall — holding a direction must always get them
+     out. If we want to move but have covered almost no ground for a while,
+     search outward for open floor and step there. */
+  const STUCK_WINDOW = 1.2;      // seconds of trying before we call it stuck
+  const STUCK_DIST = 0.2;        // ground covered in that window to count as moving
+  let stuckT = 0, stuckX = 0, stuckZ = 0;
+  function isFree(x, z) {
+    const cols = world.colliders;
+    if (!cols) return true;
+    for (let i = 0; i < cols.length; i++) {
+      const c = cols[i];
+      const dx = x - c.x, dz = z - c.z;
+      const rr = c.r + PLAYER_RADIUS;
+      if (dx * dx + dz * dz < rr * rr) return false;
+    }
+    return true;
+  }
+  function updateStuckWatchdog(dt, wantsToMove) {
+    if (!wantsToMove || frozen) { stuckT = 0; stuckX = group.position.x; stuckZ = group.position.z; return; }
+    stuckT += dt;
+    if (stuckT < STUCK_WINDOW) return;
+    const dx = group.position.x - stuckX, dz = group.position.z - stuckZ;
+    const covered = Math.sqrt(dx * dx + dz * dz);
+    stuckT = 0; stuckX = group.position.x; stuckZ = group.position.z;
+    if (covered >= STUCK_DIST) return;
+    // Spiral outward for the nearest open spot and place the Warden there.
+    for (let ring = 1; ring <= 6; ring++) {
+      const r = ring * 1.1;
+      for (let a = 0; a < 12; a++) {
+        const ang = (a / 12) * Math.PI * 2 + ring * 0.4;
+        const x = group.position.x + Math.cos(ang) * r;
+        const z = group.position.z + Math.sin(ang) * r;
+        if (!isFree(x, z)) continue;
+        group.position.x = x; group.position.z = z;
+        group.position.y = heightAt(x, z);
+        vx = 0; vz = 0; speed = 0;
+        console.warn('[player] freed from geometry');
+        return;
       }
     }
+    const sp = world.zone?.spawn;   // last resort: back to the zone entrance
+    if (sp) { group.position.x = sp[0]; group.position.z = sp[1]; group.position.y = heightAt(sp[0], sp[1]); }
   }
   function clampToBounds() {
     const size = world.zone?.size;
@@ -739,6 +792,7 @@ export function createPlayer(world) {
     group.position.z += vz * dt;
     resolveColliders();
     clampToBounds();
+    updateStuckWatchdog(dt, targetSpeed > 0);
     /* deep water blocks (slide along the shore if one axis is passable) */
     if (waterDepthAt(group.position.x, group.position.z) > MAX_WADE_DEPTH) {
       const nx = group.position.x, nz = group.position.z;

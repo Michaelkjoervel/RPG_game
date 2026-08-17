@@ -4,7 +4,7 @@
 // Schema (addendum): { id, name, kind, appearance:{palette,...}, dialogue, wanderRadius, battle? }
 //   dialogue: dialogueId | fn(G) -> dialogueId              — shown BEFORE any battle prompt
 //   battle:   battleObj  | fn(G) -> battleObj|null           — EXTENSION: a function lets
-//             story-staged fighters (Ashe) compute a team from live state; game/story.js's
+//             story-staged fighters (Bryn) compute a team from live state; game/story.js's
 //             resolveBattle() accepts either shape. `null` from a fn means "not fightable now".
 //   battleObj: { team:[{speciesId,level,hollowed?,talisman?}...], ai:'basic'|'tactical'|'boss',
 //                twoActions?:true, reward:{glim,items?:[{id,qty}]}, onWin?:{sigil?,flag?}, once:flagName }
@@ -38,46 +38,46 @@ function ambientVillager(prefix) {
   };
 }
 
-// ---------------------------------------------------------------------------------- Ashe (rival)
-// Starter-advantage matchup: Ashe always picks the line that's strong against the player's.
-export const ASHE_COUNTER_LINE = {
+// ---------------------------------------------------------------------------------- Bryn (rival)
+// Starter-advantage matchup: Bryn always picks the line that's strong against the player's.
+export const BRYN_COUNTER_LINE = {
   kindlet: ['nixling', 'maelfin', 'tidelorn'],
   nixling: ['thistlit', 'briarback', 'sylvathorn'],
   thistlit: ['kindlet', 'charvane', 'pyrelith'],
 };
-export const ASHE_STAGES = [
-  // Stage 1 deliberately does NOT counter-pick: Ashe mirrors the player's own starter at
+export const BRYN_STAGES = [
+  // Stage 1 deliberately does NOT counter-pick: Bryn mirrors the player's own starter at
   // level 5, keeping the first rival fight winnable (~40-60%) for every starter choice.
   // Counter-line picks begin at stage 2 and stay from there on. team() receives the
-  // counter line `l` plus the player's starter id (see ashelBattle below).
-  { level: 5, flag: 'ashe_1', team: (l, starter) => [{ speciesId: starter ?? 'vellit', level: 5 }] },
-  { level: 12, flag: 'ashe_2', team: (l) => [
+  // counter line `l` plus the player's starter id (see brynBattle below).
+  { level: 5, flag: 'bryn_1', team: (l, starter) => [{ speciesId: starter ?? 'vellit', level: 5 }] },
+  { level: 12, flag: 'bryn_2', team: (l) => [
     { speciesId: l[0], level: 12 }, { speciesId: 'pebbin', level: 10 },
   ] },
-  { level: 17, flag: 'ashe_3', team: (l) => [
+  { level: 17, flag: 'bryn_3', team: (l) => [
     { speciesId: l[1], level: 17, talisman: 'haste_feather' }, { speciesId: 'pipwing', level: 15 },
   ] },
-  { level: 25, flag: 'ashe_4', team: (l) => [
+  { level: 25, flag: 'bryn_4', team: (l) => [
     { speciesId: l[1], level: 25 }, { speciesId: 'shardling', level: 22 }, { speciesId: 'oozel', level: 21 },
   ] },
-  { level: 38, flag: 'ashe_5', team: (l) => [
+  { level: 38, flag: 'bryn_5', team: (l) => [
     { speciesId: l[2], level: 38, talisman: 'might_band' }, { speciesId: 'stratovane', level: 34 },
     { speciesId: 'rimehorn', level: 33 }, { speciesId: 'noctyra', level: 32 },
   ] },
 ];
-export function asheStageIndex(G) {
-  return ASHE_STAGES.findIndex((s) => !G.flags[s.flag]);
+export function brynStageIndex(G) {
+  return BRYN_STAGES.findIndex((s) => !G.flags[s.flag]);
 }
-function ashelLine(G) {
-  return ASHE_COUNTER_LINE[G.starter] ?? ASHE_COUNTER_LINE.kindlet;
+function brynLine(G) {
+  return BRYN_COUNTER_LINE[G.starter] ?? BRYN_COUNTER_LINE.kindlet;
 }
-function ashelBattle(G) {
-  const idx = asheStageIndex(G);
+function brynBattle(G) {
+  const idx = brynStageIndex(G);
   if (idx === -1) return null;
-  const stage = ASHE_STAGES[idx];
+  const stage = BRYN_STAGES[idx];
   const rewardGlim = [60, 110, 180, 280, 420][idx];
   return {
-    team: stage.team(ashelLine(G), G.starter),
+    team: stage.team(brynLine(G), G.starter),
     ai: 'tactical',
     reward: { glim: rewardGlim },
     onWin: { flag: stage.flag },
@@ -101,20 +101,20 @@ export const NPCS = {
       return 'dlg_maren_ambient';
     },
   },
-  ashe: {
-    id: 'ashe', name: 'Ashe', kind: 'rival',
+  bryn: {
+    id: 'bryn', name: 'Bryn', kind: 'rival',
     appearance: { palette: [0xff8a4a, 0x2a2f3f], hair: 'tousled', accessory: 'satchel', build: 'lean' },
     wanderRadius: 3,
     dialogue: (G) => {
-      const idx = asheStageIndex(G);
-      return idx === -1 ? 'dlg_ashe_epilogue' : `dlg_ashe_pre_${idx + 1}`;
+      const idx = brynStageIndex(G);
+      return idx === -1 ? 'dlg_bryn_epilogue' : `dlg_bryn_pre_${idx + 1}`;
     },
-    battle: ashelBattle,
+    battle: brynBattle,
     // Called AFTER the battle resolves (onWin flag already applied on a win, never applied
     // on a loss) — so a win's index has already advanced past the just-finished stage while
-    // a loss's has not. See ASHE_STAGES above.
-    postWinDialogue: (G) => { const i = asheStageIndex(G); return `dlg_ashe_win_${i === -1 ? 5 : Math.max(1, i)}`; },
-    postLossDialogue: (G) => { const i = asheStageIndex(G); return `dlg_ashe_loss_${i === -1 ? 5 : i + 1}`; },
+    // a loss's has not. See BRYN_STAGES above.
+    postWinDialogue: (G) => { const i = brynStageIndex(G); return `dlg_bryn_win_${i === -1 ? 5 : Math.max(1, i)}`; },
+    postLossDialogue: (G) => { const i = brynStageIndex(G); return `dlg_bryn_loss_${i === -1 ? 5 : i + 1}`; },
   },
   merchant_pip: {
     id: 'merchant_pip', name: 'Pip', kind: 'merchant', shopId: 'shop_brighthollow',

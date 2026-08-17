@@ -11,7 +11,7 @@ const SEED = `(async () => {
   gainItem('woven_charm', 6); gainItem('tonic', 3);
   G.sigils = [true, true, false, false, false];
   for (const f of ['intro_done','tutorial_done','dm_tip_shown','kb_beat','kl_beat',
-                   'ww_hollowed_seen','shard_stolen','gloam_ambush_done','ashe_1','ashe_2'])
+                   'ww_hollowed_seen','shard_stolen','gloam_ambush_done','bryn_1','bryn_2'])
     setFlag(f);
   G.quests = { q_main_3: { step: 0, done: false } };
   G.pos = { zone: 'dawnmeadow', x: 0, z: 0, face: 0 };

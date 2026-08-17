@@ -313,7 +313,9 @@ const ID_OVERRIDES = {
   keeper_maro: (kind, a) => ({ ...archetypeFor('keeper_maro', 'keeper', a), primary: 0x2e6a7a, secondary: 0x1f4a56, special: (ctx) => { fisherCoat(ctx); lantern(ctx, 1); } }),
   keeper_sera: (kind, a) => ({ ...archetypeFor('keeper_sera', 'keeper', a), primary: 0x5a6478, secondary: 0xffd94f, hat: 'goggles', special: (ctx) => coatTails(ctx) }),
   archon_sol: (kind, a) => ({ ...archetypeFor('archon_sol', 'keeper', a), primary: 0xf4efe0, secondary: GOLD, accent: GOLD, height: 1.78, cape: 0xffe9b0, special: (ctx) => crackedHalo(ctx) }),
-  ashe: (kind, a) => ({ ...archetypeFor('ashe', 'rival', a), build: 'slim' }),
+  // skin/hair are pinned rather than left to basePalette()'s id hash: the rival's look is
+  // established art, and it must not silently reroll just because the id string changed.
+  bryn: (kind, a) => ({ ...archetypeFor('bryn', 'rival', a), build: 'slim', skin: 0xf0d4b0, hair: 0x4a3830 }),
   elder_maren: (kind, a) => ({ ...archetypeFor('elder_maren', 'villager', a), primary: 0x6a5a8a, secondary: 0xead9bd, hat: 'none', height: 1.5, build: 'slim' }),
   lt_vess: (kind, a) => ({ ...archetypeFor('lt_vess', 'seeker', a), primary: 0x3a4a5c, secondary: 0xa8d8ff, accent: 0xa8d8ff, hat: 'hood' }),
   lt_dorn: (kind, a) => ({ ...archetypeFor('lt_dorn', 'seeker', a), primary: 0x7a4a34, secondary: 0xc9995c, build: 'broad', hat: 'none', special: (ctx) => pauldron(ctx, -1) }),

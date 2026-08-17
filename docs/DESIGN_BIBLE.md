@@ -57,8 +57,8 @@ believes cruelty now prevents extinction later.
 
 - **Protagonist**: a young Warden-initiate from Brighthollow (default name **Rowan**, player-renamable).
 - **Mentor**: **Elder Maren**, Brighthollow's scholar-elder. Gives the starter choice and the Kindred Codex.
-- **Rival**: **Ashe** — childhood friend, warm but fiercely competitive. Picks the starter strong
-  against yours. Mid-game, Ashe flirts with the Order's promises of power before turning back — their
+- **Rival**: **Bryn** — childhood friend, warm but fiercely competitive. Picks the starter strong
+  against yours. Mid-game, Bryn flirts with the Order's promises of power before turning back — their
   arc is doubt, not villainy. Recurring battles (5 total, escalating).
 - **Antagonists**: the **Hollow Order** — rank-and-file **Seekers** (masked, gray-robed), lieutenants
   **Vess** (icy tactician, Frost/Umbra teams) and **Dorn** (jovial brute, Terra/Ember teams), and
@@ -70,7 +70,7 @@ believes cruelty now prevents extinction later.
   **Thalassyr** → final battle → epilogue: shardlight rekindles where the player's bonds run deep.
   Post-game: hunt the Firstborn (Aurios, Nyxmara, Thalassyr).
 - Smaller stories live in side quests (see quests data): a Seeker deserter, Driftmoor's sunken
-  ferry, the lantern-keeper of Gloamcavern, Ashe's family, Keeper Liora's lost Dapplyn, etc.
+  ferry, the lantern-keeper of Gloamcavern, Bryn's family, Keeper Liora's lost Dapplyn, etc.
 
 ## 3. Aspects (elements)
 

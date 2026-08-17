@@ -31,13 +31,13 @@ D.dlg_intro_1 = many('Elder Maren', [
 ]);
 D.dlg_intro_2 = many('Elder Maren', [
   'There — do you feel that? A thread, drawn taut between two hearts.',
-  'Ashe will want to see. They always do.',
+  'Bryn will want to see. They always do.',
 ]);
-D.dlg_ashe_tutorial_pre = many('Ashe', [
+D.dlg_bryn_tutorial_pre = many('Bryn', [
   'Wait, you already chose?! No fair, I wanted first look—',
   'Fine. Fine! Spar me for it. Winner brags for a week.',
 ]);
-D.dlg_ashe_tutorial_post = one('Ashe', 'Not bad, {player}. Not bad at all. This is going to be fun.');
+D.dlg_bryn_tutorial_post = one('Bryn', 'Not bad, {player}. Not bad at all. This is going to be fun.');
 D.dlg_intro_3 = many('Elder Maren', [
   'Go on then, the two of you — the road doesn\'t wait for either of you.',
   'And {player} — mind the gate east. Dawnmeadow\'s gentler than most, but the world rarely is.',
@@ -49,47 +49,47 @@ D.dlg_maren_progress = one('Elder Maren', 'Every Sigil you carry is a promise ke
 D.dlg_maren_injured = one('Elder Maren', 'I\'m well enough — a graze, no more. It\'s the shard I mourn, not my arm.');
 D.dlg_maren_postgame = one('Elder Maren', 'The light\'s coming back into my garden. I\'d almost forgotten that color.');
 
-// ========================================================================================== Ashe
-D.dlg_ashe_pre_1 = many('Ashe', [
+// ========================================================================================== Bryn
+D.dlg_bryn_pre_1 = many('Bryn', [
   'Bramwell\'s Sigil, already? Ha — I\'ll have mine and yours both by moonrise.',
   'Come on then, let\'s see if that first win was luck.',
 ]);
-D.dlg_ashe_win_1 = one('Ashe', '...Okay. Okay! That was NOT luck. Rematch. Someday. Not today.');
-D.dlg_ashe_loss_1 = one('Ashe', 'Ha! Still got it. Don\'t sulk, {player}, it\'s a bad look on you.');
+D.dlg_bryn_win_1 = one('Bryn', '...Okay. Okay! That was NOT luck. Rematch. Someday. Not today.');
+D.dlg_bryn_loss_1 = one('Bryn', 'Ha! Still got it. Don\'t sulk, {player}, it\'s a bad look on you.');
 
-D.dlg_ashe_pre_2 = many('Ashe', [
+D.dlg_bryn_pre_2 = many('Bryn', [
   'Hey. You — you saw it too, right? In the wood. Tell me you saw it.',
   'I keep telling myself it doesn\'t change anything. Doesn\'t feel true yet. Fight me, it\'ll clear my head.',
 ]);
-D.dlg_ashe_win_2 = one('Ashe', 'Thanks. I mean it. I needed that more than I needed to win.');
-D.dlg_ashe_loss_2 = one('Ashe', 'Ha — see, some things don\'t change. Feels good to laugh again.');
+D.dlg_bryn_win_2 = one('Bryn', 'Thanks. I mean it. I needed that more than I needed to win.');
+D.dlg_bryn_loss_2 = one('Bryn', 'Ha — see, some things don\'t change. Feels good to laugh again.');
 
-D.dlg_ashe_vess_glimpse = many('', [
-  'Ashe, talking with someone in gray, low-voiced, near the crystal wall. They straighten when they see you.',
+D.dlg_bryn_vess_glimpse = many('', [
+  'Bryn, talking with someone in gray, low-voiced, near the crystal wall. They straighten when they see you.',
 ]);
-D.dlg_ashe_vess_glimpse.lines.push({ speaker: 'Ashe', text: 'Oh — hey. That was nobody. Just... someone with an interesting offer. I said no. Mostly.' });
+D.dlg_bryn_vess_glimpse.lines.push({ speaker: 'Bryn', text: 'Oh — hey. That was nobody. Just... someone with an interesting offer. I said no. Mostly.' });
 
-D.dlg_ashe_pre_3 = many('Ashe', [
+D.dlg_bryn_pre_3 = many('Bryn', [
   'They said the Order could make me strong enough to matter. Fast. No years of walking and bonding.',
   'I didn\'t say yes. I just... didn\'t say no fast enough. Fight me — I need to remember why.',
 ]);
-D.dlg_ashe_win_3 = one('Ashe', 'There it is. That\'s why. Thanks for the reminder, {player}.');
-D.dlg_ashe_loss_3 = one('Ashe', '...Maybe they had a point. No — no, forget I said that.');
+D.dlg_bryn_win_3 = one('Bryn', 'There it is. That\'s why. Thanks for the reminder, {player}.');
+D.dlg_bryn_loss_3 = one('Bryn', '...Maybe they had a point. No — no, forget I said that.');
 
-D.dlg_ashe_pre_4 = many('Ashe', [
+D.dlg_bryn_pre_4 = many('Bryn', [
   'Vess keeps finding me. I keep not walking away fast enough.',
   'I\'m not one of them. I\'m NOT. Prove it with me — one more fight, like old times.',
 ]);
-D.dlg_ashe_win_4 = one('Ashe', 'Old times. Yeah. I\'d like more of those, actually.');
-D.dlg_ashe_loss_4 = one('Ashe', 'Still losing to you. Some things are allowed to stay the same.');
+D.dlg_bryn_win_4 = one('Bryn', 'Old times. Yeah. I\'d like more of those, actually.');
+D.dlg_bryn_loss_4 = one('Bryn', 'Still losing to you. Some things are allowed to stay the same.');
 
-D.dlg_ashe_pre_5 = many('Ashe', [
+D.dlg_bryn_pre_5 = many('Bryn', [
   'I\'m done wavering, {player}. Whatever\'s through that door, I\'m at your side, not behind you.',
   'One last spar, for luck. Then let\'s go end this together.',
 ]);
-D.dlg_ashe_win_5 = one('Ashe', 'Good. You\'ll need every edge you\'ve got in there. Go — I\'ve got your back.');
-D.dlg_ashe_loss_5 = one('Ashe', 'Ha! Fine, FINE, you\'ve earned the last word. Now let\'s go.');
-D.dlg_ashe_epilogue = one('Ashe', 'Turns out being someone\'s rival was never the hard part, {player}. Being their friend was.');
+D.dlg_bryn_win_5 = one('Bryn', 'Good. You\'ll need every edge you\'ve got in there. Go — I\'ve got your back.');
+D.dlg_bryn_loss_5 = one('Bryn', 'Ha! Fine, FINE, you\'ve earned the last word. Now let\'s go.');
+D.dlg_bryn_epilogue = one('Bryn', 'Turns out being someone\'s rival was never the hard part, {player}. Being their friend was.');
 
 // ===================================================================================== Pip / villagers (Brighthollow)
 ambientInto(D, 'dlg_pip', 'Pip', {

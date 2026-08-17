@@ -284,6 +284,24 @@ export function createCameraRig(world) {
       camX += sx; camY += sy; camZ += sz;
     }
 
+    /* --- never end up inside a prop ---
+       The segment test above stops the camera crossing a collider, but shake,
+       idle drift and a target that is itself against a wall can still leave the
+       eye inside one. Push it straight out to the surface; if it is somehow
+       inside several, the last one wins and the next frame settles the rest. */
+    if (world.colliders) {
+      for (let i = 0; i < world.colliders.length; i++) {
+        const c = world.colliders[i];
+        const dx = camX - c.x, dz = camZ - c.z;
+        const rr = c.r + COLLIDER_CLEARANCE;
+        const d2 = dx * dx + dz * dz;
+        if (d2 >= rr * rr) continue;
+        if (d2 < 1e-8) { camX = c.x + rr; continue; }
+        const d = Math.sqrt(d2), push = (rr - d) / d;
+        camX += dx * push; camZ += dz * push;
+      }
+    }
+
     /* --- never clip underground (contract requirement) --- */
     if (world.heightAt) {
       const floor = world.heightAt(camX, camZ) + GROUND_CLEARANCE;

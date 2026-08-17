@@ -10,7 +10,7 @@ import { bus } from '../core/events.js';
 import { G, resetState, setFlag, gainItem, gainGlim, markCodex } from '../core/state.js';
 import { game } from './game.js';
 import { STORY_TRIGGERS } from '../data/story.js';
-import { NPCS, ASHE_COUNTER_LINE, SQ_SCHOLAR_MURALS } from '../data/npcs.js';
+import { NPCS, BRYN_COUNTER_LINE, SQ_SCHOLAR_MURALS } from '../data/npcs.js';
 import { QUESTS } from '../data/quests.js';
 import { startQuest, completeQuest, updateQuests } from './quests.js';
 
@@ -321,16 +321,16 @@ SCENES.gloamAmbush = async (world) => {
   world?.game?.autosave?.();
 };
 
-SCENES.asheVessGlimpse = async () => {
-  setFlag('ashe_vess_seen');
-  await say('dlg_ashe_vess_glimpse');
+SCENES.brynVessGlimpse = async () => {
+  setFlag('bryn_vess_seen');
+  await say('dlg_bryn_vess_glimpse');
 };
 
-// All five Ashe stages reuse the exact same NPC-interaction flow — ASHE_STAGES + asheStageIndex
+// All five Bryn stages reuse the exact same NPC-interaction flow — BRYN_STAGES + brynStageIndex
 // (src/data/npcs.js) always resolve to whichever stage is next, and STORY_TRIGGERS' condition
 // already ensures we only fire the one that matches the current zone/story beat.
-SCENES.asheStage1 = SCENES.asheStage2 = SCENES.asheStage3 = SCENES.asheStage4 = SCENES.asheStage5 =
-  (world) => runNpcInteraction(NPCS.ashe, world);
+SCENES.brynStage1 = SCENES.brynStage2 = SCENES.brynStage3 = SCENES.brynStage4 = SCENES.brynStage5 =
+  (world) => runNpcInteraction(NPCS.bryn, world);
 
 SCENES.climberBattle1 = async (world) => {
   await say('dlg_bo_pass1');
@@ -456,16 +456,16 @@ export async function startNewGame(gameRef) {
   gainItem('kindred_codex', 1);
 
   await say('dlg_intro_2');
-  await say('dlg_ashe_tutorial_pre');
+  await say('dlg_bryn_tutorial_pre');
 
   _suppressDefeatFlow = true;
-  const opponentId = ASHE_COUNTER_LINE[speciesId]?.[0] ?? 'nixling';
+  const opponentId = BRYN_COUNTER_LINE[speciesId]?.[0] ?? 'nixling';
   await runBattle(g, {
     team: [{ speciesId: opponentId, level: 5 }], kind: 'warden', ai: 'basic',
-    canFlee: false, canCatch: false, enemyName: 'Ashe',
+    canFlee: false, canCatch: false, enemyName: 'Bryn',
   });
   _suppressDefeatFlow = false;
-  await say('dlg_ashe_tutorial_post');
+  await say('dlg_bryn_tutorial_post');
 
   startQuest('q_main_1');
   startQuest('sq_gleam');
