@@ -60,9 +60,23 @@ class Input {
   pressed(action) { return this.actions.has(action); }
   justPressed(action) { return this._justPressed.has(action); }
 
+  // Embedded frames can forbid the gamepad feature by permissions policy, in
+  // which case getGamepads() THROWS rather than returning an empty list. One
+  // refusal is permanent, so stop asking — and never let it break the frame.
+  _pollGamepad() {
+    if (this._gamepadBlocked) return null;
+    try {
+      return navigator.getGamepads?.()[0] ?? null;
+    } catch (e) {
+      this._gamepadBlocked = true;
+      console.warn('[input] gamepads unavailable here — keyboard and mouse only');
+      return null;
+    }
+  }
+
   update() {
     // Gamepad poll
-    const gp = navigator.getGamepads?.()[0];
+    const gp = this._pollGamepad();
     let gx = 0, gy = 0;
     if (gp) {
       gx = Math.abs(gp.axes[0]) > 0.15 ? gp.axes[0] : 0;

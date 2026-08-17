@@ -84,7 +84,9 @@ class Game {
   _loop() {
     requestAnimationFrame(() => this._loop());
     const dt = Math.min(this.clock.getDelta(), 0.05);
-    input.update();
+    // A throwing input device (blocked permissions policy) or a bad frame must
+    // never take the whole game down — the next frame is already scheduled.
+    try { input.update(); } catch (e) { this._warnOnce('input', e); }
     tweenTick(dt);
     if (!this._paused && this.activeScene) {
       try { this.activeScene.update?.(dt); } catch (e) { console.error('[update]', e); }
@@ -98,6 +100,13 @@ class Game {
       G.calendar.dayTime = (G.calendar.dayTime + dt / 900) % 1; // 15-min day cycle
     }
     input.endFrame();
+  }
+
+  _warnOnce(key, e) {
+    (this._warned ??= new Set());
+    if (this._warned.has(key)) return;
+    this._warned.add(key);
+    console.warn(`[game] ${key} failed and was disabled for this frame path:`, e);
   }
 
   pause(v) { this._paused = v; bus.emit(v ? 'game:paused' : 'game:resumed'); }
