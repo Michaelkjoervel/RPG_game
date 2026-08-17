@@ -95,12 +95,14 @@ class Game {
   start() {
     input.attach();
     this.initRenderer();
+    this._initDiagnostics();
     this._loop();
   }
 
   _loop() {
     requestAnimationFrame(() => this._loop());
     const dt = Math.min(this.clock.getDelta(), 0.05);
+    this._dt = dt;
     // A throwing input device (blocked permissions policy) or a bad frame must
     // never take the whole game down — the next frame is already scheduled.
     try { input.update(); } catch (e) { this._warnOnce('input', e); }
@@ -131,7 +133,47 @@ class Game {
       G.playtimeSec += dt;
       G.calendar.dayTime = (G.calendar.dayTime + dt / 900) % 1; // 15-min day cycle
     }
+    this._updateDiagnostics();
     input.endFrame();
+  }
+
+  // F1 — live state readout. Exists so a player who is stuck can tell us what
+  // the game thinks is happening, instead of us guessing from a screenshot.
+  _initDiagnostics() {
+    window.addEventListener('keydown', (e) => {
+      if (e.code !== 'F1') return;
+      e.preventDefault();
+      this._diag = !this._diag;
+      const el = this._diagEl ?? (this._diagEl = (() => {
+        const d = document.createElement('div');
+        d.id = 'diag-overlay';
+        d.style.cssText = `position:fixed;left:12px;bottom:12px;z-index:130;padding:10px 14px;
+          border-radius:10px;background:rgba(8,9,15,.88);border:1px solid rgba(255,233,176,.22);
+          color:#dfd8c8;font:12px/1.6 ui-monospace,Menlo,Consolas,monospace;white-space:pre;
+          pointer-events:none;max-width:60ch`;
+        document.body.appendChild(d);
+        return d;
+      })());
+      el.style.display = this._diag ? 'block' : 'none';
+    });
+  }
+
+  _updateDiagnostics() {
+    if (!this._diag || !this._diagEl) return;
+    const w = this.overworld, p = w?.player, cam = w?.camera;
+    const f = (n) => (typeof n === 'number' ? n.toFixed(2) : String(n));
+    let out = `mode ${this.mode}   paused ${this._paused}   fps~${Math.round(1 / Math.max(this._dt || 0.016, 0.001))}\n`;
+    out += `zone ${w?.zone?.id ?? '—'}   colliders ${w?.colliders?.length ?? '—'}\n`;
+    if (p) {
+      const gy = w.heightAt ? w.heightAt(p.pos.x, p.pos.z) : NaN;
+      out += `player  ${f(p.pos.x)}, ${f(p.pos.y)}, ${f(p.pos.z)}   ground ${f(gy)}\n`;
+      out += `frozen  ${p.isFrozen?.() ?? '?'}   input ${f(input.axes.x)}, ${f(input.axes.y)}\n`;
+    } else out += 'player  — (none)\n';
+    if (cam) {
+      const cgy = w.heightAt ? w.heightAt(cam.position.x, cam.position.z) : NaN;
+      out += `camera  ${f(cam.position.x)}, ${f(cam.position.y)}, ${f(cam.position.z)}   ground ${f(cgy)}`;
+    }
+    this._diagEl.textContent = out;
   }
 
   _showStallOverlay(reason) {

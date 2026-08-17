@@ -23,6 +23,7 @@ const RAIL = [
   { id: 'quests', label: 'Quests', kind: 'content' },
   { id: 'save', label: 'Save', kind: 'modal' },
   { id: 'settings', label: 'Settings', kind: 'content' },
+  { id: 'unstick', label: 'I’m stuck', kind: 'unstick' },
   { id: 'resume', label: 'Resume', kind: 'resume' },
 ];
 
@@ -203,6 +204,19 @@ async function selectRail() {
   const item = RAIL[railIdx];
   if (!item) return;
   if (item.kind === 'resume') { sfx('ui_confirm'); close(); return; }
+  // Escape hatch: whatever pinned the Warden — a cutscene that never handed
+  // control back, a wedge between props, a camera buried in scenery — this
+  // frees them, puts them on open ground and re-seats the camera.
+  if (item.kind === 'unstick') {
+    sfx('ui_confirm');
+    try {
+      const w = game.overworld;
+      w?.player?.recover?.();
+      w?.cameraRig?.recenter?.();
+    } catch (e) { console.error('[menus] unstick failed', e); }
+    close();
+    return;
+  }
   if (item.kind === 'modal') {
     sfx('ui_confirm');
     unbindRailInput();

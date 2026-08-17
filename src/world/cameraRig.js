@@ -108,6 +108,7 @@ export function createCameraRig(world) {
   let idleTimer = 0;
   let time = 0;
   let yawInitialized = false;
+  let badCamT = 0;            // seconds the eye has been in an invalid pose
 
   const shakes = []; // { t, dur, mag, fx,fy,fz, px,py,pz }
 
@@ -308,6 +309,27 @@ export function createCameraRig(world) {
       if (camY < floor) camY = floor;
     }
 
+    /* --- last-resort recovery ---
+       If any of the above produced a nonsense eye (NaN from a missing height
+       sample, or still buried after the pushes), the player sees an opaque
+       frame and reasonably concludes the game is stuck. Snap the rig back to a
+       known-good pose behind the Warden instead of rendering from inside a hill. */
+    const buried = world.heightAt ? camY < world.heightAt(camX, camZ) : false;
+    if (!Number.isFinite(camX) || !Number.isFinite(camY) || !Number.isFinite(camZ) || buried) {
+      badCamT += dt;
+      if (badCamT > 0.5) {
+        badCamT = 0;
+        const gy = world.heightAt ? world.heightAt(px, pz) : 0;
+        yaw = (world.player?.face ?? 0) + Math.PI;
+        pitch = DEFAULT_PITCH;
+        curDist = zoomTarget = DEFAULT_DIST;
+        camX = px + Math.sin(yaw) * Math.cos(pitch) * curDist;
+        camZ = pz + Math.cos(yaw) * Math.cos(pitch) * curDist;
+        camY = gy + EYE_HEIGHT + Math.sin(pitch) * curDist;
+        console.warn('[camera] recovered from an invalid pose');
+      }
+    } else badCamT = 0;
+
     camera.position.set(camX, camY, camZ);
     _lookScratch.set(targetX, targetY, targetZ);
     camera.lookAt(_lookScratch);
@@ -333,7 +355,38 @@ export function createCameraRig(world) {
     if (_current === api) _current = null;
   }
 
-  const api = { camera, update, impulse, dispose };
+  function recenter() {
+    const p = world.player;
+    const px = p?.pos?.x ?? 0, pz = p?.pos?.z ?? 0;
+    const gy = world.heightAt ? world.heightAt(px, pz) : 0;
+    yaw = (p?.face ?? 0) + Math.PI;
+    pitch = DEFAULT_PITCH;
+    curDist = zoomTarget = DEFAULT_DIST;
+    badCamT = 0;
+    camera.position.set(
+      px + Math.sin(yaw) * Math.cos(pitch) * curDist,
+      gy + EYE_HEIGHT + Math.sin(pitch) * curDist,
+      pz + Math.cos(yaw) * Math.cos(pitch) * curDist,
+    );
+  }
+
+  // Explicit re-seat behind the Warden — used by the pause menu's rescue action.
+  function recenter() {
+    const p = world.player;
+    const px = p?.pos?.x ?? 0, pz = p?.pos?.z ?? 0;
+    const gy = world.heightAt ? world.heightAt(px, pz) : 0;
+    yaw = (p?.face ?? 0) + Math.PI;
+    pitch = DEFAULT_PITCH;
+    curDist = zoomTarget = DEFAULT_DIST;
+    badCamT = 0;
+    camera.position.set(
+      px + Math.sin(yaw) * Math.cos(pitch) * curDist,
+      gy + EYE_HEIGHT + Math.sin(pitch) * curDist,
+      pz + Math.cos(yaw) * Math.cos(pitch) * curDist,
+    );
+  }
+
+  const api = { camera, update, impulse, recenter, dispose };
   _current = api;
   return api;
 }

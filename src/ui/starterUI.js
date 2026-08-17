@@ -307,6 +307,7 @@ export function chooseStarter(game) {
 
     let SPECIES = {};
     let handle = null;
+    let prevMode = 'title';
     let ready = false;
 
     (async () => {
@@ -316,6 +317,7 @@ export function chooseStarter(game) {
       } catch (e) { console.warn('[starterUI] creature data unavailable yet', e); }
       handle = await buildScene();
       ready = true;
+      prevMode = game.mode;
       game.mode = 'cutscene';
       game.setScene(handle);
       render();
@@ -373,6 +375,9 @@ export function chooseStarter(game) {
       await delay(0.32);
       root.remove();
       handle.dispose();
+      // Hand the mode back exactly as we found it — leaving 'cutscene' behind
+      // strands the player: frozen, with menus still working.
+      game.mode = prevMode;
       resolve(STARTERS[idx]);
     }
 

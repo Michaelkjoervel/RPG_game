@@ -543,6 +543,31 @@ export function createPlayer(world) {
     }
     return true;
   }
+  /* Freeze is set by cutscenes and released when they end. If a scene throws,
+     or a battle-loss teleport swaps the player out from under it, the release
+     can be lost and the Warden is locked forever while menus still work. No
+     dialogue, no menu, no battle => nothing owns the freeze; take it off. */
+  // Keyed off the player's own intent rather than the UI's bookkeeping: if you
+  // are holding a direction, no one is talking to you, and you still haven't
+  // moved, then whatever set the freeze is gone and the lock is ours to break.
+  let orphanFreezeT = 0;
+  function updateFreezeWatchdog(dt) {
+    if (!frozen) { orphanFreezeT = 0; return; }
+    const ix = input.axes.x, iy = input.axes.y;
+    const pressing = Math.sqrt(ix * ix + iy * iy) > 0.1;
+    if (!pressing || dialogueVisible() || world.game?.mode !== 'overworld') { orphanFreezeT = 0; return; }
+    orphanFreezeT += dt;
+    if (orphanFreezeT > 1.5) {
+      orphanFreezeT = 0;
+      frozen = false;
+      console.warn('[player] released an orphaned cutscene freeze');
+    }
+  }
+  function dialogueVisible() {
+    const el = document.querySelector('#ui-root .dlg-root');
+    return !!el && el.classList.contains('open');
+  }
+
   function updateStuckWatchdog(dt, wantsToMove) {
     if (!wantsToMove || frozen) { stuckT = 0; stuckX = group.position.x; stuckZ = group.position.z; return; }
     stuckT += dt;
@@ -736,6 +761,7 @@ export function createPlayer(world) {
   function update(dt) {
     time += dt;
     prevSpeed = speed;
+    updateFreezeWatchdog(dt);
 
     /* --- read input, camera-relative --- */
     let ax = 0, az = 0, mag = 0;
@@ -878,6 +904,27 @@ export function createPlayer(world) {
       if (promptText) { promptText = null; bus.emit('prompt:hide'); }
       promptTimer = 0;
       G.pos.x = x; G.pos.z = z; G.pos.face = face;
+    },
+    isFrozen() { return frozen; },
+    /** Player-triggered rescue: drop any stranded freeze, step to open ground. */
+    recover() {
+      frozen = false;
+      vx = 0; vz = 0; speed = 0;
+      const sp = world.zone?.spawn;
+      let x = group.position.x, z = group.position.z;
+      if (!isFree(x, z)) {
+        let found = false;
+        for (let ring = 1; ring <= 8 && !found; ring++) {
+          for (let a = 0; a < 12 && !found; a++) {
+            const ang = (a / 12) * Math.PI * 2 + ring * 0.4;
+            const cx = x + Math.cos(ang) * ring * 1.1, cz = z + Math.sin(ang) * ring * 1.1;
+            if (isFree(cx, cz)) { x = cx; z = cz; found = true; }
+          }
+        }
+        if (!found && sp) { x = sp[0]; z = sp[1]; }
+      }
+      api.teleport(x, z, face);
+      bus.emit('notify', { text: 'You shake yourself loose.', icon: '✦' });
     },
     setFrozen(v) {
       frozen = !!v;
