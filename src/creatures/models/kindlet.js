@@ -41,8 +41,10 @@ export function build_kindlet(kit = kitDefault) {
   const root = new THREE.Group();
 
   // --- Body: a plump, roly-poly pup. Squashed slightly so it reads "round
-  // and clumsy" rather than lean. ---
+  // and clumsy" rather than lean. Gradient-painted: soot belly warming to an
+  // ember-lit back, so the pup never reads as a flat black blot. ---
   const body = kit.blob(0.19, skin, { seed: 4, noise: 0.12, squash: { x: 1.05, y: 0.92, z: 1.15 } });
+  kit.paint(body, { from: 0x1e1512, to: 0x54382a, noise: 0.06, seed: 4 });
   root.add(body);
   body.position.y = 0.24;
 
@@ -50,15 +52,23 @@ export function build_kindlet(kit = kitDefault) {
   // z-fight.
   kit.at(body, kit.orb(0.1, belly, { sy: 0.7, sx: 0.85 }), 0, -0.11, 0.09);
 
+  // Faint ember speckles along the spine — coals under the soot, echoing the
+  // tail flame without stealing its show.
+  for (const [x, y, z, s] of [[0.03, 0.16, 0.02, 0.011], [-0.04, 0.15, -0.05, 0.009], [0.01, 0.16, -0.1, 0.008]]) {
+    kit.at(body, kit.orb(s, emberGlow.clone()), x, y, z);
+  }
+
   // --- Head: wide flat salamander head, overlapping the body for a
-  // seamless silhouette. ---
-  const head = kit.at(body, kit.orb(0.13, skin, { sy: 0.82, sz: 1.05 }), 0, 0.1, 0.14);
+  // seamless silhouette. A tiny clumsy head-tilt is baked into the rest pose. ---
+  const head = kit.at(body, kit.orb(0.13, skin, { sy: 0.82, sz: 1.05 }), 0, 0.1, 0.14, { rz: 0.07 });
+  kit.paint(head, { from: 0x2a1e19, to: 0x4c352a, noise: 0.05, seed: 5 });
 
   // Big, readable eyes (art direction: "always big readable eyes"). Kindlet
   // is eager and clumsy, so the eyes sit wide and a touch high, giving an
-  // open, excitable expression.
-  const eyeL = kit.at(head, kit.eye(0.052, { irisColor: 0x241a12, skinColor: 0x2b211d, glintSize: 0.02 }), 0.088, 0.03, 0.095, { ry: 0.35 });
-  const eyeR = kit.at(head, kit.eye(0.052, { irisColor: 0x241a12, skinColor: 0x2b211d, glintSize: 0.02 }), -0.088, 0.03, 0.095, { ry: -0.35 });
+  // open, excitable expression. The dark-amber irisColor auto-enlivens into
+  // a warm ember iris + dark pupil (kit.eye's overhaul).
+  const eyeL = kit.at(head, kit.eye(0.058, { irisColor: 0x241a12, skinColor: 0x2b211d, glintSize: 0.022 }), 0.088, 0.032, 0.098, { ry: 0.25 });
+  const eyeR = kit.at(head, kit.eye(0.058, { irisColor: 0x241a12, skinColor: 0x2b211d, glintSize: 0.022 }), -0.088, 0.032, 0.098, { ry: -0.25 });
 
   // Small brow ridges for expression (salamanders have no external ears).
   const browL = kit.at(head, kit.brow(0.07, skin), 0.08, 0.09, 0.11, { rz: 0.15 });
@@ -88,6 +98,9 @@ export function build_kindlet(kit = kitDefault) {
   // Kindred carries (Design Bible §1). Self-driving fx, pulses on its own.
   const spark = kit.heartspark(0.032, pal.eye, { seed: 11 });
   kit.at(body, spark, 0, 0.02, 0.16);
+
+  // Soft AO disc plants the pup on the ground.
+  root.add(kit.shadowDisc(0.24, 0.4));
 
   return {
     group: kit.groundPlant(root),

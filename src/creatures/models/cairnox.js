@@ -22,26 +22,36 @@ export function build_cairnox(kit = kitDefault) {
 
   const root = new THREE.Group();
 
-  // Base stone — wide, planted, patient.
+  // Base stone — wide, planted, patient. Every stone is gradient-painted
+  // dark-under/bleached-top so the stack reads as weathered rock, not clay.
   const body = kit.blob(0.24, stoneA, { seed: 100, noise: 0.15, squash: { x: 1.2, y: 0.85, z: 1.15 } });
+  kit.paint(body, { from: 0x544c40, to: 0x9c9282, noise: 0.08, seed: 100 });
   root.add(body);
   body.position.y = 0.32;
 
-  // Second stone, offset for the "precariously balanced" cairn read.
-  const stone2 = kit.at(body, kit.blob(0.17, stoneB, { seed: 101, noise: 0.13, squash: { x: 1.05, y: 0.9, z: 1 } }), 0.02, 0.26, -0.01);
-  // Third stone.
-  const stone3 = kit.at(stone2, kit.blob(0.12, stoneC, { seed: 102, noise: 0.12 }), -0.015, 0.18, 0.015);
+  // Second stone, offset + tilted for the "precariously balanced" cairn read.
+  const stone2 = kit.at(body, kit.blob(0.17, stoneB, { seed: 101, noise: 0.13, squash: { x: 1.05, y: 0.9, z: 1 } }), 0.03, 0.26, -0.01, { rz: -0.07 });
+  kit.paint(stone2, { from: 0x4a4337, to: 0x847a68, noise: 0.08, seed: 101 });
+  // Third stone, counter-tilted.
+  const stone3 = kit.at(stone2, kit.blob(0.12, stoneC, { seed: 102, noise: 0.12 }), -0.03, 0.18, 0.015, { rz: 0.1 });
+  kit.paint(stone3, { from: 0x3e372a, to: 0x6e6350, noise: 0.08, seed: 102 });
 
-  // Moss shoulder tufts on the base stone.
+  // Moss shoulder tufts on the base stone, plus trailing grass sprigs so the
+  // shoulder-line silhouette is irregular, not lumpen.
   kit.at(body, kit.fluffTuft(0.07, moss, { count: 5, seed: 103 }), 0.19, 0.13, 0.04);
   kit.at(body, kit.fluffTuft(0.06, moss, { count: 5, seed: 104 }), -0.19, 0.11, 0.02);
+  const sprigMat = kit.mat(0x7ab558, { rough: 0.5, side: THREE.DoubleSide });
+  kit.at(body, kit.furFan(3, 0.07, sprigMat, { width: 0.014, spread: 0.9, curl: -0.2, seed: 105 }), 0.21, 0.15, 0.05);
+  kit.at(body, kit.furFan(2, 0.055, sprigMat, { width: 0.012, spread: 0.7, curl: -0.25, seed: 106 }), -0.2, 0.13, -0.03);
 
   // Small head stone with a mossy brow-cap, carrying the family
   // resemblance to Pebbin's cap.
   const head = kit.at(stone3, kit.blob(0.09, stoneA, { seed: 105, noise: 0.1 }), 0, 0.15, 0.02);
-  kit.at(head, kit.orb(0.06, moss.clone(), { sy: 0.5, sx: 1.1 }), 0, 0.055, -0.01);
-  const eyeL = kit.at(head, kit.eye(0.03, { irisColor: 0xffb85c, scleraColor: 0x2a241c, skinColor: 0x847a6c, glintSize: 0.011 }), 0.045, -0.005, 0.075, { ry: 0.3 });
-  const eyeR = kit.at(head, kit.eye(0.03, { irisColor: 0xffb85c, scleraColor: 0x2a241c, skinColor: 0x847a6c, glintSize: 0.011 }), -0.045, -0.005, 0.075, { ry: -0.3 });
+  kit.paint(head, { from: 0x5e564a, to: 0x9c9282, noise: 0.06, seed: 107 });
+  const brow = kit.at(head, kit.orb(0.06, moss.clone(), { sy: 0.5, sx: 1.1 }), 0, 0.055, -0.01);
+  kit.paint(brow, { from: 0x3d6132, to: 0x6d9e54, noise: 0.08, seed: 108 });
+  const eyeL = kit.at(head, kit.eye(0.034, { irisColor: 0xffb85c, scleraColor: 0x2a241c, skinColor: 0x847a6c, glintSize: 0.012, irisScale: 1.08 }), 0.045, -0.002, 0.075, { ry: 0.3 });
+  const eyeR = kit.at(head, kit.eye(0.034, { irisColor: 0xffb85c, scleraColor: 0x2a241c, skinColor: 0x847a6c, glintSize: 0.012, irisScale: 1.08 }), -0.045, -0.002, 0.075, { ry: -0.3 });
 
   // --- Legs: four thick, planted stone legs — real stability at this size. ---
   const legDefs = [
@@ -63,6 +73,8 @@ export function build_cairnox(kit = kitDefault) {
   // luminous now that it orbits the keystone rather than the body.
   const glowOrbit = kit.mote(2, { color: pal.eye, size: 0.02, radius: 0.14, height: 0.06, speed: 0.4, seed: 107 });
   kit.at(stone2, glowOrbit, 0, -0.02, 0.15);
+
+  root.add(kit.shadowDisc(0.42, 0.42));
 
   return {
     group: kit.groundPlant(root),

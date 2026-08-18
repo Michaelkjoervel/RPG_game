@@ -42,23 +42,31 @@ export function build_pebbin(kit = kitDefault) {
 
   const root = new THREE.Group();
 
-  // Wide base stone.
+  // Wide base stone — gradient-painted like real weathered rock: dark damp
+  // base shading up to sun-bleached top.
   const body = kit.blob(0.15, stone, { seed: 90, noise: 0.16, squash: { x: 1.15, y: 0.85, z: 1.1 } });
+  kit.paint(body, { from: 0x5c554a, to: 0xa39a8a, noise: 0.07, seed: 90 });
   root.add(body);
   body.position.y = 0.16;
 
   // Narrower middle stone, slightly offset — the precarious "balanced
   // stack" read, even at just two stones tall.
-  const mid = kit.at(body, kit.blob(0.1, stoneDark, { seed: 91, noise: 0.14, squash: { x: 1, y: 0.9, z: 1 } }), 0.01, 0.16, -0.005);
+  const mid = kit.at(body, kit.blob(0.1, stoneDark, { seed: 91, noise: 0.14, squash: { x: 1, y: 0.9, z: 1 } }), 0.01, 0.16, -0.005, { rz: -0.06 });
+  kit.paint(mid, { from: 0x4e483e, to: 0x827a6c, noise: 0.07, seed: 91 });
 
-  // Small head stone with the moss cap.
-  const head = kit.at(mid, kit.blob(0.075, stone, { seed: 92, noise: 0.12 }), -0.005, 0.1, 0.01);
+  // Small head stone with the moss cap, cocked a touch the other way — the
+  // toddler wobble written into the stack itself.
+  const head = kit.at(mid, kit.blob(0.075, stone, { seed: 92, noise: 0.12 }), -0.005, 0.1, 0.01, { rz: 0.09 });
+  kit.paint(head, { from: 0x6e6659, to: 0xa8a08f, noise: 0.06, seed: 92 });
   const cap = kit.at(head, kit.orb(0.05, moss, { sy: 0.55, sx: 1.15, sz: 1.1 }), 0, 0.05, -0.005);
+  kit.paint(cap, { from: 0x3d6132, to: 0x74a558, noise: 0.08, seed: 93 });
   kit.at(cap, kit.orb(0.014, moss.clone(), { sy: 0.7 }), 0.03, 0.02, 0.02);
   kit.at(cap, kit.orb(0.011, moss.clone(), { sy: 0.7 }), -0.025, 0.018, -0.015);
+  // One tiny sprout on the cap — new growth on old stone.
+  kit.at(cap, kit.leafBlade(0.035, kit.mat(0x86c05c, { rough: 0.5, side: THREE.DoubleSide }), { width: 0.012 }), 0.012, 0.028, 0, { rz: Math.PI / 2 - 0.35 });
 
-  const eyeL = kit.at(head, kit.eye(0.026, { irisColor: 0x4a3a28, skinColor: 0x8a8378, glintSize: 0.01 }), 0.04, -0.005, 0.062, { ry: 0.35 });
-  const eyeR = kit.at(head, kit.eye(0.026, { irisColor: 0x4a3a28, skinColor: 0x8a8378, glintSize: 0.01 }), -0.04, -0.005, 0.062, { ry: -0.35 });
+  const eyeL = kit.at(head, kit.eye(0.029, { irisColor: 0x4a3a28, skinColor: 0x8a8378, glintSize: 0.011 }), 0.04, -0.002, 0.062, { ry: 0.35 });
+  const eyeR = kit.at(head, kit.eye(0.029, { irisColor: 0x4a3a28, skinColor: 0x8a8378, glintSize: 0.011 }), -0.04, -0.002, 0.062, { ry: -0.35 });
 
   // Two short, stubby stone feet — a toddler's unsteady stance.
   const legDefs = [[0.07, 0.05, 0.02], [-0.07, 0.05, 0.02]];
@@ -69,6 +77,8 @@ export function build_pebbin(kit = kitDefault) {
 
   const spark = kit.heartspark(0.03, pal.eye, { seed: 93 });
   kit.at(body, spark, 0, 0.05, 0.13);
+
+  root.add(kit.shadowDisc(0.22, 0.4));
 
   return {
     group: kit.groundPlant(root),

@@ -32,6 +32,7 @@
 import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
 import { seededRandom } from '../../core/rng.js';
+import { applyVertexGradient, jitterGeometry } from '../../gfx/materials.js';
 
 /**
  * A row of independently pulsing bioluminescent points on `parent`.
@@ -65,6 +66,16 @@ export function build_thalassyr(kit = kitDefault) {
   const skinHex = 0x35527d;
   const skin = kit.mat(skinHex, { rough: 0.35, metal: 0.06, emissive: 0x152947, emissiveIntensity: 0.6 });
   const skinDeep = kit.mat(0x2a4166, { rough: 0.4, emissive: 0x101f38, emissiveIntensity: 0.5 });
+  // Visual-overhaul pass: every big hull segment is vertex-gradient painted
+  // (abyssal navy under -> moonlit slate-blue along the spine, faint mottle)
+  // so the coils shade as lit volumes and separate where they overlap.
+  const skinV = kit.mat(0xffffff, { vertexColors: true, rough: 0.35, metal: 0.06, emissive: 0x152947, emissiveIntensity: 0.6 });
+  const SKIN_LO = 0x243a5e, SKIN_HI = 0x4d7096;
+  const paintHull = (mesh, seed, jit = 0) => {
+    if (jit) jitterGeometry(mesh.geometry, jit, seed);
+    applyVertexGradient(mesh.geometry, { from: SKIN_LO, to: SKIN_HI, noise: 0.035, seed });
+    return mesh;
+  };
   const belly = kit.mat(0x7b96b8, { rough: 0.5 });
   // The crest is a SOLID translucent sail, not a glow: additive blending over
   // a bright sky washed it into pale detached leaves. Straight alpha over a
@@ -81,8 +92,9 @@ export function build_thalassyr(kit = kitDefault) {
   // would lay the leviathan broadside with its head and tail growing out of
   // the flanks of a barrel). Deliberately short — the NECK and TAIL carry the
   // length; an over-long torso swallows both.
-  const body = kit.capsule(0.34, 0.5, skin, { capSeg: 5, radSeg: 12 });
+  const body = kit.capsule(0.34, 0.5, skinV, { capSeg: 5, radSeg: 12 });
   body.geometry.rotateX(Math.PI / 2);
+  paintHull(body, 81, 0.008);
   root.add(body);
   body.position.y = 0.62;
 
@@ -121,8 +133,9 @@ export function build_thalassyr(kit = kitDefault) {
     const [r, len, pitch] = NECK[i];
     const pivot = new THREE.Group(); pivot.name = `neck${i}`;
     kit.at(neckParent, pivot, attach[0], attach[1], attach[2], { rx: pitch });
-    const seg = kit.capsule(r, len, skin, { capSeg: 4, radSeg: 10 });
+    const seg = kit.capsule(r, len, skinV, { capSeg: 4, radSeg: 10 });
     seg.geometry.rotateX(Math.PI / 2);            // nose-to-tail, never rotateZ
+    paintHull(seg, 82 + i);
     kit.at(pivot, seg, 0, 0, len * 0.5);
     // Pale throat line under each neck segment.
     const throat = kit.capsule(r * 0.5, len * 0.9, belly, { capSeg: 3, radSeg: 7 });
@@ -140,7 +153,7 @@ export function build_thalassyr(kit = kitDefault) {
   // The head is attached with a pitch that cancels most of the neck's final
   // rise, so a neck reared near-vertical still ends in a face that looks
   // FORWARD at the player rather than at the sky.
-  const head = kit.at(headAnchor, kit.blob(0.36, skin, { seed: 190, squash: { x: 0.92, y: 0.8, z: 1.3 } }), 0, 0.02, headZ, { rx: 0.5 });
+  const head = kit.at(headAnchor, paintHull(kit.blob(0.36, skinV, { seed: 190, squash: { x: 0.92, y: 0.8, z: 1.3 } }), 88), 0, 0.02, headZ, { rx: 0.5 });
   const brow = kit.at(head, kit.orb(0.32, skinDeep, { sy: 0.52, sz: 0.82 }), 0, 0.17, 0.02, { rx: -0.15 });
   const snout = kit.at(head, kit.orb(0.24, skin, { sy: 0.8, sz: 1.35 }), 0, -0.03, 0.33);
   // The mouth is a real GAP: a dark line between an upper jaw and a lower one
@@ -206,7 +219,12 @@ export function build_thalassyr(kit = kitDefault) {
   // way back, and a chain that thins to a whisker by mid-body reads as a
   // tadpole tail rather than a body.
   const SEGMENTS = 15, SEG_LEN = 0.3, START_R = 0.34, END_R = 0.055;
-  const tail = kit.at(body, kit.tailChain(SEGMENTS, skin, { segLen: SEG_LEN, startR: START_R, endR: END_R }), 0, -0.02, -0.38);
+  const tail = kit.at(body, kit.tailChain(SEGMENTS, skinV, { segLen: SEG_LEN, startR: START_R, endR: END_R }), 0, -0.02, -0.38);
+  tail.pivots.forEach((p, i) => {
+    for (const child of p.children) {
+      if (child.isMesh && child.geometry && child.geometry.attributes) paintHull(child, 100 + i);
+    }
+  });
   // THE COIL. Per-joint rotations compound, so these are increments, and the
   // running totals are what matter. Yaw sweeps the body out to one side by
   // ~65° and brings it back (a long lazy S laid across the ground, which is

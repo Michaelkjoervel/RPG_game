@@ -11,7 +11,8 @@
 //   [{x, z, hx, hz, cos, sin, r2, surface:'wood'}] (cos/sin of the prop yaw,
 //   r2 = squared broad-phase radius).
 import * as THREE from 'three';
-import { windSway } from '../gfx/materials.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { windSway, jitterGeometry } from '../gfx/materials.js';
 import { G } from '../core/state.js';
 import { seededRandom, hashStr } from '../core/rng.js';
 import { clamp, lerp, TAU } from '../core/math.js';
@@ -24,9 +25,35 @@ const _quat = new THREE.Quaternion();
 const _scl = new THREE.Vector3();
 const _eul = new THREE.Euler();
 const _col = new THREE.Color();
+const _c1 = new THREE.Color();
+const _c2 = new THREE.Color();
 
 const warned = new Set();
 const warnOnce = (msg) => { if (!warned.has(msg)) { warned.add(msg); console.warn('[props]', msg); } };
+
+// Seeded hash noise in [-1,1] — mirrors materials.js so baked mottling matches.
+function hashN(x, y, z, seed = 0) {
+  const s = Math.sin(x * 127.1 + y * 311.7 + z * 74.7 + seed * 53.13) * 43758.5453;
+  return (s - Math.floor(s)) * 2 - 1;
+}
+
+// Shared soft radial disc texture (contact shadows / glow pools) — module-level,
+// generated once, never disposed (materials referencing it are per-build).
+let _discTex = null;
+function discTex() {
+  if (_discTex) return _discTex;
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d');
+  const grad = g.createRadialGradient(64, 64, 6, 64, 64, 62);
+  grad.addColorStop(0, 'rgba(255,255,255,1)');
+  grad.addColorStop(0.55, 'rgba(255,255,255,0.45)');
+  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 128, 128);
+  _discTex = new THREE.CanvasTexture(c);
+  return _discTex;
+}
 
 // Day factor: 0 = full night, 1 = full day (dayTime 0 = midnight, 0.5 = noon).
 function daylight(t) {
@@ -99,6 +126,7 @@ export function buildProps(zone, heightAt) {
       flatShading: opts.flat !== false,
       roughness: opts.rough ?? 0.92,
       metalness: opts.metal ?? 0.0,
+      vertexColors: !!opts.vcolor,
       transparent: !!opts.transparent,
       opacity: opts.opacity ?? 1,
       side: opts.side ?? THREE.FrontSide,
@@ -133,6 +161,215 @@ export function buildProps(zone, heightAt) {
   const LAMP_GLASS  = std('lamp_glass', { emissive: 0xffd9a0, emissiveIntensity: 1.2, rough: 0.3, night: true });
   const BERRY       = std('berry', { emissive: 0xd83a4a, emissiveIntensity: 0.25, rough: 0.6 });
   const SPIRE_SEAM  = std('spire_seam', { emissive: 0xcfd4e8, emissiveIntensity: 0.55, rough: 0.6, pulse: { amp: 0.2, speed: 0.4 } });
+
+  // Vertex-colored variants — merged prop geometries bake their palette +
+  // gradients into geometry colors; instance color then only carries a subtle
+  // per-instance brightness / warm-cool jitter (part.vjit).
+  const FOLIAGE_V  = std('foliage_v', { sway: 0.55, rough: 0.95, vcolor: true });
+  const FOLIAGE2_V = std('foliage2_v', { sway: 0.28, rough: 0.95, vcolor: true });
+  const SOLID_V    = std('solid_v', { vcolor: true });
+  const FROND_V    = std('frond_v', { sway: 0.8, side: THREE.DoubleSide, rough: 0.95, vcolor: true });
+
+  // Soft contact-shadow disc (instanced under large props) + warm glow pool.
+  const SHADOW = (() => {
+    const m = new THREE.MeshBasicMaterial({
+      color: 0x000000, map: discTex(), transparent: true, opacity: 0.34,
+      depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2,
+    });
+    matCache.set('shadow_disc', m);
+    disposables.push({ mat: m });
+    return m;
+  })();
+
+  // ------------------------------------------------------- merged-geo assembly
+  // piece(src, o): clone a primitive, optionally jitter, transform, and return a
+  // non-indexed geometry ready for color baking + merging. Never mutates `src`.
+  //   o: { t:[x,y,z], r:[x,y,z], s:number|[x,y,z], jit, jseed }
+  const _tmpE = new THREE.Euler();
+  function piece(src, o = {}) {
+    const g = src.index ? src.toNonIndexed() : src.clone();
+    const s = o.s ?? 1;
+    const sv = typeof s === 'number' ? [s, s, s] : s;
+    _tmpE.set(...(o.r ?? [0, 0, 0]));
+    _m4.compose(
+      _pos.set(...(o.t ?? [0, 0, 0])),
+      _quat.setFromEuler(_tmpE),
+      _scl.set(sv[0], sv[1], sv[2]),
+    );
+    g.applyMatrix4(_m4);
+    if (o.jit) jitterGeometry(g, o.jit, o.jseed ?? 1);
+    return g;
+  }
+
+  // Bake an absolute vertical color ramp (post-transform coords) into a piece.
+  //   ramp(g, from, to, lo, hi, {noise, seed, exp, axis:0|1|2})
+  function ramp(g, from, to, lo, hi, o = {}) {
+    const p = g.attributes.position;
+    const noise = o.noise ?? 0.045, seed = o.seed ?? 1, exp = o.exp ?? 1, ax = o.axis ?? 1;
+    _c1.set(from); _c2.set(to);
+    const span = Math.max(1e-5, hi - lo);
+    const colors = new Float32Array(p.count * 3);
+    for (let i = 0; i < p.count; i++) {
+      const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+      const v = ax === 0 ? x : ax === 2 ? z : y;
+      let t = clamp((v - lo) / span, 0, 1);
+      t = Math.pow(t, exp);
+      const n = noise ? hashN(x, y, z, seed) * noise : 0;
+      colors[i * 3 + 0] = _c1.r + (_c2.r - _c1.r) * t + n;
+      colors[i * 3 + 1] = _c1.g + (_c2.g - _c1.g) * t + n;
+      colors[i * 3 + 2] = _c1.b + (_c2.b - _c1.b) * t + n * 0.7;
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    return g;
+  }
+
+  // Flat single-color bake with mottling.
+  function tintG(g, hex, noise = 0.04, seed = 1) {
+    const p = g.attributes.position;
+    _c1.set(hex);
+    const colors = new Float32Array(p.count * 3);
+    for (let i = 0; i < p.count; i++) {
+      const n = noise ? hashN(p.getX(i), p.getY(i), p.getZ(i), seed) * noise : 0;
+      colors[i * 3 + 0] = _c1.r + n;
+      colors[i * 3 + 1] = _c1.g + n;
+      colors[i * 3 + 2] = _c1.b + n * 0.7;
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    return g;
+  }
+
+  // Per-face painter (non-indexed geometry): fn(cx,cy,cz,nx,ny,nz) -> hex.
+  const _fa = new THREE.Vector3(), _fb = new THREE.Vector3(), _fc = new THREE.Vector3();
+  function paintFaces(g, fn) {
+    const p = g.attributes.position;
+    const colors = new Float32Array(p.count * 3);
+    for (let f = 0; f < p.count; f += 3) {
+      _fa.fromBufferAttribute(p, f);
+      _fb.fromBufferAttribute(p, f + 1);
+      _fc.fromBufferAttribute(p, f + 2);
+      const cx = (_fa.x + _fb.x + _fc.x) / 3, cy = (_fa.y + _fb.y + _fc.y) / 3, cz = (_fa.z + _fb.z + _fc.z) / 3;
+      _fb.sub(_fa); _fc.sub(_fa);
+      _fb.cross(_fc).normalize();
+      _c1.set(fn(cx, cy, cz, _fb.x, _fb.y, _fb.z));
+      for (let k = 0; k < 3; k++) {
+        colors[(f + k) * 3 + 0] = _c1.r;
+        colors[(f + k) * 3 + 1] = _c1.g;
+        colors[(f + k) * 3 + 2] = _c1.b;
+      }
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    return g;
+  }
+
+  // Merge colored pieces into one cached geometry (key must be variant-unique).
+  function merged(key, build) {
+    return geo(key, () => {
+      const pieces = build().filter(Boolean);
+      const g = mergeGeometries(pieces, false) ?? pieces[0];
+      for (const p of pieces) { if (p !== g) p.dispose(); }
+      return g;
+    });
+  }
+
+  // Shadow-disc part (instanced with the prop; sits just above local ground).
+  const shadowP = (r, y = 0.05) => {
+    const p = P(planeG(2, 2), SHADOW, 0xffffff, [0, y, 0], [r, r, r], [-Math.PI / 2, 0, 0], 0, false);
+    p.ro = 1; // render after opaque ground
+    return p;
+  };
+
+  // ---------------------------------------------------- organic form builders
+  // Tapered, leaning trunk with root flare (rings bend progressively).
+  function trunkG({ h = 2, r0 = 0.26, r1 = 0.13, lean = 0, flare = 0.55, seed = 1, segs = 7 }) {
+    const g = new THREE.CylinderGeometry(r1, r0, h, segs, 4).toNonIndexed();
+    g.translate(0, h / 2, 0);
+    const p = g.attributes.position;
+    for (let i = 0; i < p.count; i++) {
+      const y = p.getY(i);
+      const t = clamp(y / h, 0, 1);
+      const fl = 1 + flare * Math.pow(Math.max(0, 1 - t * 3.2), 2.2); // root flare
+      const dx = lean * t * t * h;                                     // progressive lean
+      p.setXYZ(i, p.getX(i) * fl + dx, y, p.getZ(i) * fl);
+    }
+    jitterGeometry(g, r0 * 0.14, seed);
+    return g;
+  }
+
+  // Gable roof: triangular prism, ridge along local X, slopes ramped dark
+  // eave -> light ridge, gable end triangles painted in the wall tone.
+  function gableG({ L = 3.8, halfW = 1.85, roofH = 1.4, y = 2.2, dark = 0x7e3a30, light = 0xb85c4a, wall = 0xe8dcc2, seed = 1 }) {
+    const g = new THREE.CylinderGeometry(1, 1, L, 3, 1, false, Math.PI / 2).toNonIndexed();
+    g.rotateZ(Math.PI / 2);                    // ridge along X, apex up
+    g.scale(1, roofH / 1.5, halfW / 0.8660254);
+    g.translate(0, y + roofH / 3, 0);          // base plane sits at `y`
+    jitterGeometry(g, 0.02, seed);
+    paintFaces(g, (cx, cy, cz, nx) => {
+      if (Math.abs(nx) > 0.85) return wall;    // gable triangles
+      const t = clamp((cy - y) / roofH, 0, 1);
+      return lerpColorHex(dark, light, clamp(t * 0.9 + hashN(cx, cy, cz, seed) * 0.1, 0, 1));
+    });
+    return g;
+  }
+
+  // Multi-lobed canopy: k jittered icosphere lobes clustered around (0, cy, 0).
+  // Returns pieces[] (uncolored) + the [lo,hi] y-range for a shared ramp.
+  function canopyPieces(rng, { k = 5, cy = 2.6, R = 1.25, spread = 0.75, squash = 0.8, seed = 1, detail = 1 }) {
+    const pieces = [];
+    let lo = Infinity, hi = -Infinity;
+    for (let i = 0; i < k; i++) {
+      const top = i === 0;
+      const a = (i / Math.max(1, k - 1)) * TAU + rng() * 0.9;
+      const rad = top ? 0 : spread * R * (0.55 + rng() * 0.55);
+      const r = R * (top ? 0.85 : 0.5 + rng() * 0.42);
+      const px = Math.cos(a) * rad, pz = Math.sin(a) * rad;
+      const py = cy + (top ? R * 0.42 : (rng() - 0.35) * R * 0.55);
+      const g = piece(icoG(1, detail), {
+        t: [px, py, pz], s: [r, r * squash, r],
+        r: [0, rng() * TAU, 0], jit: 0.16, jseed: seed * 13 + i,
+      });
+      pieces.push(g);
+      lo = Math.min(lo, py - r * squash); hi = Math.max(hi, py + r * squash);
+    }
+    return { pieces, lo, hi };
+  }
+
+  // Clustered jittered stones (shared by rock kinds); colors baked top-lit.
+  function stonePieces(rng, { k = 3, R = 0.55, seed = 1, dark = 0x6e6b64, light = 0xa4a198 }) {
+    const pieces = [];
+    for (let i = 0; i < k; i++) {
+      const main = i === 0;
+      const a = rng() * TAU;
+      const rad = main ? 0 : R * (0.85 + rng() * 0.6);
+      const r = R * (main ? 1 : 0.3 + rng() * 0.4);
+      const sy = 0.62 + rng() * 0.3;
+      const g = piece(icoG(1, 1), {
+        t: [Math.cos(a) * rad, r * sy * 0.72, Math.sin(a) * rad],
+        s: [r * (0.9 + rng() * 0.35), r * sy, r * (0.9 + rng() * 0.35)],
+        r: [(rng() - 0.5) * 0.3, rng() * TAU, (rng() - 0.5) * 0.3],
+        jit: r * 0.24, jseed: seed * 7 + i,
+      });
+      ramp(g, dark, light, -R * 0.2, r * sy * 1.55, { noise: 0.05, seed: seed + i, exp: 1.25 });
+      pieces.push(g);
+    }
+    return pieces;
+  }
+
+  // A few baked grass blades (tiny cones) for prop feet.
+  function tuftPieces(rng, { n = 4, R = 0.5, h = 0.34, c1 = 0x4f9e4f, c2 = 0x7ec850, seed = 1 }) {
+    const pieces = [];
+    for (let i = 0; i < n; i++) {
+      const a = rng() * TAU, rad = R * (0.7 + rng() * 0.5);
+      const bh = h * (0.7 + rng() * 0.7);
+      const g = piece(coneG(0.035, 1, 4), {
+        t: [Math.cos(a) * rad, bh * 0.5, Math.sin(a) * rad],
+        s: [1, bh, 1],
+        r: [(rng() - 0.5) * 0.5, rng() * TAU, (rng() - 0.5) * 0.5],
+      });
+      ramp(g, lerpColorHex(c1, c2, rng()), c2, 0, bh, { noise: 0.03, seed: seed + i });
+      pieces.push(g);
+    }
+    return pieces;
+  }
 
   // ------------------------------------------------------------- placement utils
   const terrainY = (x, z) => { try { return heightAt(x, z); } catch (e) { return 0; } };
@@ -181,69 +418,203 @@ export function buildProps(zone, heightAt) {
   }
   const asCanopy = (p) => { p.jitH = CANOPY_HUE_JIT; return p; };
 
+  // Vertex-colored merged part: white tint, per-instance brightness/warmth jitter.
+  const V = (g, m, vjit = [0.07, 0.05]) => {
+    const p = P(g, m, 0xffffff, [0, 0, 0], 1, [0, 0, 0], 0);
+    p.vjit = vjit;
+    return p;
+  };
+
   const KINDS = {
     // ------------------------------------------------------------- trees
     tree_oak: {
-      variants: 3, collider: 0.55, cluster: true,
-      make: (rng) => [
-        P(cylG(0.14, 0.26, 1.7, 6), SOLID, 0x5d3f2b, [0, 0.85, 0], 1, [0, 0, (rng() - 0.5) * 0.12]),
-        P(cylG(0.07, 0.11, 0.9, 5), SOLID, 0x5d3f2b, [0.25, 1.55, 0.1], 1, [0, 0, -0.7]),
-        ...canopyStack(rng, FOLIAGE, [0x4f9e4f, 0x63b356, 0x7ec850], 4, 1.15, 1.9, 0.7),
-      ],
+      variants: 4, collider: 0.55, cluster: true,
+      make: (rng) => {
+        const vs = Math.floor(rng() * 1e6);
+        const lean = (rng() - 0.5) * 0.18;
+        const g = merged(`oakM${vs}`, () => {
+          const r2 = seededRandom(vs + 1);
+          const pieces = [];
+          const tr = trunkG({ h: 2.0, r0: 0.3, r1: 0.13, lean, flare: 0.7, seed: vs });
+          ramp(tr, 0x46311f, 0x7a5940, 0, 2.0, { noise: 0.05, seed: vs });
+          pieces.push(tr);
+          for (let i = 0; i < 3; i++) { // root nubs
+            const a = (i / 3) * TAU + r2() * 1.2;
+            const rn = piece(coneG(0.12, 0.4, 5), {
+              t: [Math.cos(a) * 0.3, 0.1, Math.sin(a) * 0.3],
+              r: [Math.sin(a) * 1.15, r2() * TAU, -Math.cos(a) * 1.15], jit: 0.03, jseed: vs + i,
+            });
+            ramp(rn, 0x412d1c, 0x5c422c, 0, 0.4, { seed: vs + i });
+            pieces.push(rn);
+          }
+          const br = piece(cylG(0.05, 0.1, 1.0, 5), { // branch into canopy
+            t: [lean * 2 + 0.35, 2.25, 0.1], r: [0.2, 0, -0.85], jit: 0.02, jseed: vs + 9,
+          });
+          ramp(br, 0x543c26, 0x6a4c33, 1.8, 2.8, { seed: vs });
+          pieces.push(br);
+          const cn = canopyPieces(r2, { k: 6, cy: 2.75, R: 1.3, spread: 0.8, squash: 0.78, seed: vs });
+          for (const c of cn.pieces) {
+            c.translate(lean * 1.7, 0, 0);
+            ramp(c, 0x35652c, 0x93ce5a, cn.lo, cn.hi, { noise: 0.05, seed: vs, exp: 1.15 });
+          }
+          pieces.push(...cn.pieces);
+          return pieces;
+        });
+        return [V(g, FOLIAGE_V, [0.08, 0.06]), shadowP(1.7)];
+      },
     },
     tree_pine: {
-      variants: 2, collider: 0.5, cluster: true,
-      make: (rng) => [
-        P(cylG(0.1, 0.2, 1.4, 6), SOLID, 0x5d4130, [0, 0.7, 0]),
-        asCanopy(P(coneG(1.25, 1.7, 8), FOLIAGE, 0x2f6b46, [0, 1.9, 0], [1, 1, 1], [0, rng() * TAU, 0])),
-        asCanopy(P(coneG(0.95, 1.5, 8), FOLIAGE, 0x37784e, [0, 2.85, 0], 1, [0, rng(), 0])),
-        asCanopy(P(coneG(0.62, 1.3, 8), FOLIAGE, 0x418a58, [0, 3.7, 0], 1, [0, rng() * 2, 0])),
-      ],
+      variants: 3, collider: 0.5, cluster: true,
+      make: (rng) => {
+        const vs = Math.floor(rng() * 1e6);
+        const g = merged(`pineM${vs}`, () => {
+          const r2 = seededRandom(vs + 1);
+          const pieces = [];
+          const tr = trunkG({ h: 1.7, r0: 0.22, r1: 0.09, lean: (r2() - 0.5) * 0.08, flare: 0.55, seed: vs });
+          ramp(tr, 0x3d2b1c, 0x66492f, 0, 1.7, { noise: 0.05, seed: vs });
+          pieces.push(tr);
+          let y = 1.25, r = 1.32;
+          const cones = [];
+          for (let i = 0; i < 4; i++) {
+            const h = 1.55 - i * 0.18;
+            const cone = piece(coneG(1, 1, 8), {
+              t: [(r2() - 0.5) * 0.14, y + h / 2, (r2() - 0.5) * 0.14],
+              s: [r * (0.94 + r2() * 0.12), h, r * (0.94 + r2() * 0.12)],
+              r: [(r2() - 0.5) * 0.07, r2() * TAU, (r2() - 0.5) * 0.07],
+              jit: 0.09, jseed: vs * 3 + i,
+            });
+            cones.push(cone);
+            y += h * 0.58;
+            r *= 0.7;
+          }
+          const hi = y + 1.0;
+          for (const c of cones) ramp(c, 0x1d4a33, 0x5fa963, 1.0, hi, { noise: 0.05, seed: vs, exp: 1.2 });
+          pieces.push(...cones);
+          return pieces;
+        });
+        return [V(g, FOLIAGE2_V, [0.08, 0.05]), shadowP(1.45)];
+      },
     },
     tree_birch: {
-      variants: 2, collider: 0.32, cluster: true,
-      make: (rng) => [
-        P(cylG(0.08, 0.13, 2.3, 6), SOLID, 0xd6cfbe, [0, 1.15, 0], 1, [0, 0, (rng() - 0.5) * 0.1]),
-        P(boxG(0.16, 0.08, 0.05), SOLID, 0x3a3a38, [0.02, 0.8, 0.09]),
-        P(boxG(0.14, 0.07, 0.05), SOLID, 0x3a3a38, [-0.04, 1.6, 0.08], 1, [0, 0.5, 0]),
-        ...canopyStack(rng, FOLIAGE, [0x8fce62, 0xa5d86e, 0x79bd58], 3, 0.85, 2.3, 0.45),
-      ],
+      variants: 3, collider: 0.32, cluster: true,
+      make: (rng) => {
+        const vs = Math.floor(rng() * 1e6);
+        const lean = (rng() - 0.5) * 0.2;
+        const g = merged(`birchM${vs}`, () => {
+          const r2 = seededRandom(vs + 1);
+          const pieces = [];
+          const h = 2.6;
+          const tr = trunkG({ h, r0: 0.13, r1: 0.06, lean, flare: 0.5, seed: vs, segs: 6 });
+          ramp(tr, 0xb9b2a2, 0xe8e2d2, 0, h, { noise: 0.04, seed: vs });
+          pieces.push(tr);
+          for (let i = 0; i < 4; i++) { // bark scars hug the leaning trunk
+            const t = 0.18 + i * 0.2 + r2() * 0.06;
+            const ry = t * h;
+            const rr = lerp(0.125, 0.062, t) * 1.12;
+            const band = piece(cylG(rr, rr * 1.06, 0.07 + r2() * 0.05, 6), {
+              t: [lean * t * t * h, ry, 0], r: [0, r2() * TAU, (r2() - 0.5) * 0.2],
+            });
+            tintG(band, i % 2 ? 0x3f3c36 : 0x55504a, 0.05, vs + i);
+            pieces.push(band);
+          }
+          const cn = canopyPieces(r2, { k: 4, cy: 2.95, R: 0.85, spread: 0.72, squash: 0.85, seed: vs + 5 });
+          for (const c of cn.pieces) {
+            c.translate(lean * 2.1, 0, 0);
+            ramp(c, 0x6da648, 0xbce07c, cn.lo, cn.hi, { noise: 0.06, seed: vs, exp: 1.1 });
+          }
+          pieces.push(...cn.pieces);
+          return pieces;
+        });
+        return [V(g, FOLIAGE_V, [0.08, 0.06]), shadowP(1.1)];
+      },
     },
     tree_willow: {
       variants: 2, collider: 0.6,
       make: (rng) => {
-        const parts = [
-          P(cylG(0.16, 0.3, 1.6, 6), SOLID, 0x6a5540, [0, 0.8, 0], 1, [0, 0, 0.12]),
-          asCanopy(P(blobG(1, 300, 0.22), FOLIAGE2, 0x5f9e57, [0, 2.3, 0], [1.5, 0.9, 1.5])),
-        ];
-        for (let i = 0; i < 9; i++) {
-          const a = (i / 9) * TAU + rng() * 0.4;
-          parts.push(asCanopy(P(planeG(0.22, 1.5), FROND, 0x6fb35f,
-            [Math.cos(a) * 1.35, 1.65, Math.sin(a) * 1.35], [1, 0.8 + rng() * 0.5, 1], [0, -a + Math.PI / 2, 0], 0.1, false)));
-        }
-        return parts;
+        const vs = Math.floor(rng() * 1e6);
+        const g = merged(`willowM${vs}`, () => {
+          const r2 = seededRandom(vs + 1);
+          const pieces = [];
+          const tr = trunkG({ h: 1.8, r0: 0.32, r1: 0.16, lean: 0.16, flare: 0.75, seed: vs });
+          ramp(tr, 0x4e3c28, 0x7a5f42, 0, 1.8, { noise: 0.05, seed: vs });
+          pieces.push(tr);
+          const cn = canopyPieces(r2, { k: 5, cy: 2.45, R: 1.45, spread: 0.62, squash: 0.6, seed: vs });
+          for (const c of cn.pieces) {
+            c.translate(0.28, 0, 0);
+            ramp(c, 0x3d6e38, 0x84c261, cn.lo, cn.hi, { noise: 0.05, seed: vs, exp: 1.1 });
+          }
+          pieces.push(...cn.pieces);
+          return pieces;
+        });
+        // Hanging frond curtain — one merged double-sided swaying sheet set.
+        const gf = merged(`willowF${vs}`, () => {
+          const r2 = seededRandom(vs + 3);
+          const pieces = [];
+          for (let i = 0; i < 12; i++) {
+            const a = (i / 12) * TAU + r2() * 0.4;
+            const len = 1.5 + r2() * 0.9;
+            const rad = 1.45 + r2() * 0.35;
+            const p = piece(planeG(0.2, 1), {
+              t: [Math.cos(a) * rad + 0.28, 2.15 - len / 2, Math.sin(a) * rad],
+              s: [1, len, 1], r: [0.13 * (r2() - 0.2), -a + Math.PI / 2, 0],
+            });
+            ramp(p, 0x71b358, 0x3f7a40, 2.3 - len, 2.3, { noise: 0.05, seed: vs + i, exp: 0.8 });
+            pieces.push(p);
+          }
+          return pieces;
+        });
+        const fr = V(gf, FROND_V, [0.07, 0.05]);
+        fr.shadow = false;
+        return [V(g, FOLIAGE2_V, [0.07, 0.05]), fr, shadowP(1.9)];
       },
     },
     tree_dead: {
-      variants: 2, collider: 0.38,
-      make: (rng) => [
-        P(cylG(0.09, 0.22, 2.1, 5), SOLID, 0x77706a, [0, 1.05, 0], 1, [0, 0, (rng() - 0.5) * 0.2]),
-        P(cylG(0.04, 0.08, 1.1, 4), SOLID, 0x77706a, [0.3, 1.9, 0], 1, [0, 0, -0.9]),
-        P(cylG(0.03, 0.07, 0.9, 4), SOLID, 0x6d6660, [-0.25, 1.6, 0.1], 1, [0.3, 0, 0.8]),
-        P(cylG(0.02, 0.05, 0.6, 4), SOLID, 0x6d6660, [0.05, 2.3, -0.15], 1, [-0.6, 0, 0.2]),
-      ],
+      variants: 3, collider: 0.38,
+      make: (rng) => {
+        const vs = Math.floor(rng() * 1e6);
+        const g = merged(`deadM${vs}`, () => {
+          const r2 = seededRandom(vs + 1);
+          const pieces = [];
+          const tr = trunkG({ h: 2.3, r0: 0.22, r1: 0.05, lean: (r2() - 0.5) * 0.3, flare: 0.85, seed: vs, segs: 6 });
+          ramp(tr, 0x554e46, 0x8a827a, 0, 2.3, { noise: 0.05, seed: vs });
+          pieces.push(tr);
+          for (let i = 0; i < 4; i++) { // gnarled reaching branches
+            const a = r2() * TAU;
+            const y0 = 1.2 + i * 0.32;
+            const len = 0.7 + r2() * 0.7;
+            const b = piece(cylG(0.02, 0.07, len, 4), {
+              t: [Math.cos(a) * 0.32, y0, Math.sin(a) * 0.32],
+              r: [Math.sin(a) * (0.8 + r2() * 0.5), 0, -Math.cos(a) * (0.8 + r2() * 0.5)],
+              jit: 0.03, jseed: vs + i,
+            });
+            ramp(b, 0x514a42, 0x7d766e, y0 - len / 2, y0 + len / 2, { seed: vs + i });
+            pieces.push(b);
+          }
+          return pieces;
+        });
+        return [V(g, SOLID_V, [0.07, 0.03]), shadowP(1.0)];
+      },
     },
     tree_glow: {
       variants: 2, collider: 0.55,
       make: (rng) => {
-        const parts = [
-          P(cylG(0.13, 0.24, 1.8, 6), SOLID, 0x3c4257, [0, 0.9, 0], 1, [0, 0, (rng() - 0.5) * 0.14]),
-          ...canopyStack(rng, FOLIAGE, [0x2e5f56, 0x387068, 0x2a4f52], 3, 1.05, 2.0, 0.55),
-        ];
+        const vs = Math.floor(rng() * 1e6);
+        const g = merged(`glowM${vs}`, () => {
+          const r2 = seededRandom(vs + 1);
+          const pieces = [];
+          const tr = trunkG({ h: 2.0, r0: 0.26, r1: 0.12, lean: (r2() - 0.5) * 0.14, flare: 0.65, seed: vs });
+          ramp(tr, 0x272b3c, 0x4a5570, 0, 2.0, { noise: 0.04, seed: vs });
+          pieces.push(tr);
+          const cn = canopyPieces(r2, { k: 5, cy: 2.6, R: 1.15, spread: 0.75, squash: 0.78, seed: vs });
+          for (const c of cn.pieces) ramp(c, 0x1c4640, 0x468579, cn.lo, cn.hi, { noise: 0.05, seed: vs, exp: 1.1 });
+          pieces.push(...cn.pieces);
+          return pieces;
+        });
+        const parts = [V(g, FOLIAGE2_V, [0.07, 0.04]), shadowP(1.5)];
         for (let i = 0; i < 5; i++) {
           const a = rng() * TAU, r = 0.55 + rng() * 0.6;
           parts.push(P(sphereG(0.09, 6, 5), GLOW_FRUIT, 0xffe9b0,
-            [Math.cos(a) * r, 2.1 + rng() * 1.2, Math.sin(a) * r], 1, [0, 0, 0], 0, false));
+            [Math.cos(a) * r, 2.3 + rng() * 1.1, Math.sin(a) * r], 1, [0, 0, 0], 0, false));
         }
         return parts;
       },
@@ -262,51 +633,93 @@ export function buildProps(zone, heightAt) {
     mushroom_giant: {
       variants: 2, collider: 0.7,
       make: (rng) => {
-        const cap = rng() > 0.5 ? 0xc25a6e : 0x8a6ec2;
-        const parts = [
-          P(cylG(0.3, 0.45, 1.7, 7), SOLID_S, 0xe8ddc8, [0, 0.85, 0], 1, [0, 0, (rng() - 0.5) * 0.1]),
-          P(sphereG(1, 9, 5), FOLIAGE2, cap, [0, 1.85, 0], [1.5, 0.75, 1.5]),
-          P(cylG(1.2, 1.35, 0.12, 9), SOLID_S, 0xf0e8d8, [0, 1.55, 0]),
-        ];
-        for (let i = 0; i < 5; i++) {
-          const a = rng() * TAU, r = rng() * 1.1;
-          parts.push(P(sphereG(0.11, 5, 4), SOLID_S, 0xf5efe2, [Math.cos(a) * r, 2.2 + rng() * 0.25, Math.sin(a) * r], [1, 0.5, 1], [0, 0, 0], 0, false));
-        }
-        return parts;
+        const vs = Math.floor(rng() * 1e6);
+        const capHex = rng() > 0.5 ? 0xc25a6e : 0x8a6ec2;
+        const g = merged(`mushGM${vs}`, () => {
+          const r2 = seededRandom(vs + 1);
+          const pieces = [];
+          const stem = trunkG({ h: 1.7, r0: 0.44, r1: 0.3, lean: 0.09, flare: 0.5, seed: vs });
+          ramp(stem, 0xcabb9e, 0xf0e6d2, 0, 1.7, { noise: 0.035, seed: vs });
+          pieces.push(stem);
+          const gills = piece(cylG(1.18, 1.32, 0.14, 10), { t: [0.14, 1.62, 0] });
+          ramp(gills, 0xd8c9ae, 0xf4ecda, 1.5, 1.75, { noise: 0.05, seed: vs + 2 });
+          pieces.push(gills);
+          const cap = piece(sphereG(1, 10, 6), { t: [0.14, 1.9, 0], s: [1.55, 0.8, 1.55], jit: 0.07, jseed: vs });
+          ramp(cap, lerpColorHex(capHex, 0x40202c, 0.42), lerpColorHex(capHex, 0xffe0d0, 0.28), 1.55, 2.7,
+            { noise: 0.05, seed: vs, exp: 0.85 });
+          pieces.push(cap);
+          for (let i = 0; i < 6; i++) { // pale spots hugging the dome
+            const a = r2() * TAU, rr = 0.35 + r2() * 0.85;
+            const sp = piece(sphereG(0.12, 6, 4), {
+              t: [0.14 + Math.cos(a) * rr, 1.92 + 0.72 * Math.sqrt(Math.max(0, 1 - (rr / 1.55) ** 2)), Math.sin(a) * rr],
+              s: [1 + r2() * 0.5, 0.45, 1 + r2() * 0.5],
+            });
+            tintG(sp, 0xf5efe2, 0.03, vs + i);
+            pieces.push(sp);
+          }
+          return pieces;
+        });
+        return [V(g, SOLID_V, [0.06, 0.04]), shadowP(1.5)];
       },
     },
     mushroom_cluster: {
       variants: 3, collider: 0, noPathAvoid: true,
       make: (rng) => {
-        const parts = [];
-        const n = 3 + Math.floor(rng() * 3);
-        for (let i = 0; i < n; i++) {
-          const a = rng() * TAU, r = rng() * 0.4, s = 0.5 + rng() * 0.7;
-          const cap = [0xc25a6e, 0x8a6ec2, 0xd8a05a][Math.floor(rng() * 3)];
-          const x = Math.cos(a) * r, z = Math.sin(a) * r;
-          parts.push(P(cylG(0.05 * s, 0.08 * s, 0.28 * s, 5), SOLID_S, 0xe8ddc8, [x, 0.14 * s, z]));
-          parts.push(P(sphereG(0.14 * s, 7, 4), SOLID_S, cap, [x, 0.3 * s, z], [1, 0.7, 1]));
-        }
-        return parts;
+        const vs = Math.floor(rng() * 1e6);
+        const g = merged(`mushCM${vs}`, () => {
+          const r2 = seededRandom(vs + 1);
+          const pieces = [];
+          const n = 3 + Math.floor(r2() * 3);
+          for (let i = 0; i < n; i++) {
+            const a = r2() * TAU, r = r2() * 0.4, s = 0.5 + r2() * 0.75;
+            const capHex = [0xc25a6e, 0x8a6ec2, 0xd8a05a][Math.floor(r2() * 3)];
+            const x = Math.cos(a) * r, z = Math.sin(a) * r;
+            const lean = (r2() - 0.5) * 0.35;
+            const stem = piece(cylG(0.05 * s, 0.085 * s, 0.3 * s, 5), { t: [x, 0.14 * s, z], r: [0, 0, lean] });
+            ramp(stem, 0xc9ba9e, 0xf0e6d2, 0, 0.3 * s, { seed: vs + i });
+            pieces.push(stem);
+            const cap = piece(sphereG(1, 8, 5), {
+              t: [x - lean * 0.3 * s, 0.32 * s, z], s: [0.16 * s, 0.115 * s, 0.16 * s], jit: 0.05, jseed: vs + i,
+            });
+            ramp(cap, lerpColorHex(capHex, 0x2c1420, 0.4), lerpColorHex(capHex, 0xffe8d8, 0.3),
+              0.2 * s, 0.45 * s, { noise: 0.05, seed: vs + i });
+            pieces.push(cap);
+          }
+          return pieces;
+        });
+        return [V(g, SOLID_V, [0.07, 0.05])];
       },
     },
     bush: {
       variants: 3, collider: 0.4, cluster: true,
-      make: (rng) => [
-        P(blobG(1, 410, 0.3), FOLIAGE, 0x4f9e4f, [0, 0.45, 0], [0.65, 0.55, 0.65], [0, rng() * TAU, 0], 0.1),
-        P(blobG(1, 411, 0.3), FOLIAGE, 0x63b356, [0.3, 0.35, 0.15], [0.4, 0.35, 0.4], [0, rng() * TAU, 0], 0.1),
-      ],
+      make: (rng) => {
+        const vs = Math.floor(rng() * 1e6);
+        const g = merged(`bushM${vs}`, () => {
+          const r2 = seededRandom(vs + 1);
+          const cn = canopyPieces(r2, { k: 4, cy: 0.42, R: 0.62, spread: 0.85, squash: 0.72, seed: vs });
+          for (const c of cn.pieces) ramp(c, 0x30632e, 0x84c455, cn.lo, cn.hi, { noise: 0.06, seed: vs, exp: 1.1 });
+          const tw = piece(cylG(0.025, 0.045, 0.5, 4), { t: [0.1, 0.35, 0.05], r: [0.3, 0, -0.4] });
+          tintG(tw, 0x5c422c, 0.04, vs);
+          return [...cn.pieces, tw];
+        });
+        return [V(g, FOLIAGE_V, [0.09, 0.07])];
+      },
     },
     berry_bush: {
       variants: 2, collider: 0.4,
       make: (rng) => {
-        const parts = [
-          P(blobG(1, 420, 0.3), FOLIAGE, 0x3f8a45, [0, 0.45, 0], [0.6, 0.5, 0.6], [0, rng() * TAU, 0], 0.08),
-        ];
-        for (let i = 0; i < 7; i++) {
-          const a = rng() * TAU, b = rng() * Math.PI;
+        const vs = Math.floor(rng() * 1e6);
+        const g = merged(`berryM${vs}`, () => {
+          const r2 = seededRandom(vs + 1);
+          const cn = canopyPieces(r2, { k: 4, cy: 0.4, R: 0.58, spread: 0.8, squash: 0.75, seed: vs });
+          for (const c of cn.pieces) ramp(c, 0x27552c, 0x63a648, cn.lo, cn.hi, { noise: 0.05, seed: vs, exp: 1.1 });
+          return cn.pieces;
+        });
+        const parts = [V(g, FOLIAGE_V, [0.08, 0.05])];
+        for (let i = 0; i < 8; i++) {
+          const a = rng() * TAU, b = 0.25 + rng() * 0.5 * Math.PI;
           parts.push(P(sphereG(0.05, 5, 4), BERRY, 0xd83a4a,
-            [Math.sin(b) * Math.cos(a) * 0.55, 0.45 + Math.cos(b) * 0.42, Math.sin(b) * Math.sin(a) * 0.55], 1, [0, 0, 0], 0, false));
+            [Math.sin(b) * Math.cos(a) * 0.62, 0.42 + Math.cos(b) * 0.42, Math.sin(b) * Math.sin(a) * 0.62], 1, [0, 0, 0], 0, false));
         }
         return parts;
       },
@@ -314,30 +727,64 @@ export function buildProps(zone, heightAt) {
     flower_patch: {
       variants: 4, collider: 0, noPathAvoid: true, pathRing: true,
       make: (rng) => {
-        const parts = [];
-        const petals = [0xffffff, 0xffd94f, 0xff9fb0, 0xb0a8ff, 0xffb85c];
-        const n = 5 + Math.floor(rng() * 4);
-        for (let i = 0; i < n; i++) {
-          const a = rng() * TAU, r = rng() * 0.65, s = 0.7 + rng() * 0.6;
-          const x = Math.cos(a) * r, z = Math.sin(a) * r;
-          const c = petals[Math.floor(rng() * petals.length)];
-          parts.push(P(cylG(0.012, 0.016, 0.24 * s, 4), FOLIAGE, 0x4f9e4f, [x, 0.12 * s, z], 1, [0, 0, 0], 0.05, false));
-          parts.push(P(octaG(0.05 * s), FOLIAGE, c, [x, 0.26 * s, z], [1, 0.5, 1], [0, rng() * TAU, 0], 0.12, false));
-        }
-        return parts;
+        const vs = Math.floor(rng() * 1e6);
+        const g = merged(`flowM${vs}`, () => {
+          const r2 = seededRandom(vs + 1);
+          const pieces = [];
+          const petals = [0xfff4f8, 0xffd94f, 0xff9fb0, 0xb0a8ff, 0xffb85c];
+          const n = 6 + Math.floor(r2() * 4);
+          for (let i = 0; i < n; i++) {
+            const a = r2() * TAU, r = 0.15 + r2() * 0.6, s = 0.8 + r2() * 0.7;
+            const x = Math.cos(a) * r, z = Math.sin(a) * r;
+            const cHex = petals[Math.floor(r2() * petals.length)];
+            const tilt = (r2() - 0.5) * 0.4;
+            const stem = piece(cylG(0.013, 0.018, 0.3 * s, 4), { t: [x, 0.15 * s, z], r: [tilt, 0, tilt] });
+            ramp(stem, 0x3f7a38, 0x6fb35a, 0, 0.3 * s, { seed: vs + i });
+            pieces.push(stem);
+            const leaf = piece(coneG(0.045, 0.16 * s, 4), {
+              t: [x + 0.06, 0.06 * s, z], r: [1.35, r2() * TAU, 0], s: [1, 1, 0.4],
+            });
+            tintG(leaf, 0x559444, 0.04, vs + i);
+            pieces.push(leaf);
+            const head = piece(icoG(1, 0), {
+              t: [x + tilt * 0.09 * s, 0.32 * s, z + tilt * 0.09 * s],
+              s: [0.075 * s, 0.042 * s, 0.075 * s], r: [tilt, r2() * TAU, tilt], jit: 0.012, jseed: vs + i,
+            });
+            ramp(head, lerpColorHex(cHex, 0x664433, 0.25), lerpColorHex(cHex, 0xffffff, 0.2),
+              0.28 * s, 0.37 * s, { noise: 0.04, seed: vs + i });
+            pieces.push(head);
+            const core = piece(sphereG(0.026 * s, 5, 4), { t: [x + tilt * 0.09 * s, 0.345 * s, z + tilt * 0.09 * s] });
+            tintG(core, 0xffe07a, 0.02, vs + i);
+            pieces.push(core);
+          }
+          return pieces;
+        });
+        return [V(g, FOLIAGE_V, [0.08, 0.05])];
       },
     },
     fern: {
       variants: 3, collider: 0, noPathAvoid: true, cluster: true,
       make: (rng) => {
-        const parts = [];
-        const n = 5 + Math.floor(rng() * 3);
-        for (let i = 0; i < n; i++) {
-          const a = (i / n) * TAU + rng() * 0.5;
-          parts.push(P(planeG(0.16, 0.7), FROND, 0x3f8a45,
-            [Math.cos(a) * 0.12, 0.3, Math.sin(a) * 0.12], [1, 0.8 + rng() * 0.5, 1], [-0.6 - rng() * 0.3, -a + Math.PI / 2, 0], 0.1, false));
-        }
-        return parts;
+        const vs = Math.floor(rng() * 1e6);
+        const g = merged(`fernM${vs}`, () => {
+          const r2 = seededRandom(vs + 1);
+          const pieces = [];
+          const n = 6 + Math.floor(r2() * 3);
+          for (let i = 0; i < n; i++) {
+            const a = (i / n) * TAU + r2() * 0.5;
+            const len = 0.55 + r2() * 0.4;
+            const p = piece(planeG(0.17, 1), {
+              t: [Math.cos(a) * 0.14, len * 0.4, Math.sin(a) * 0.14],
+              s: [1, len, 1], r: [-0.62 - r2() * 0.35, -a + Math.PI / 2, 0],
+            });
+            ramp(p, 0x2d6b34, 0x74b356, 0, len * 0.8, { noise: 0.05, seed: vs + i });
+            pieces.push(p);
+          }
+          return pieces;
+        });
+        const p = V(g, FROND_V, [0.09, 0.06]);
+        p.shadow = false;
+        return [p];
       },
     },
     glowfern: {
@@ -355,28 +802,60 @@ export function buildProps(zone, heightAt) {
     grass_tuft: {
       variants: 4, collider: 0, noPathAvoid: true, pathRing: true,
       make: (rng) => {
-        const parts = [];
-        const n = 4 + Math.floor(rng() * 3);
-        for (let i = 0; i < n; i++) {
-          const a = rng() * TAU, r = rng() * 0.14;
-          parts.push(P(coneG(0.035, 0.45, 4), FOLIAGE, lerpColorHex(0x7ec850, 0x4f9e4f, rng()),
-            [Math.cos(a) * r, 0.2, Math.sin(a) * r], [1, 0.7 + rng() * 0.7, 1], [(rng() - 0.5) * 0.4, rng() * TAU, (rng() - 0.5) * 0.4], 0.1, false));
-        }
-        return parts;
+        const vs = Math.floor(rng() * 1e6);
+        const g = merged(`grassM${vs}`, () => {
+          const r2 = seededRandom(vs + 1);
+          const pieces = [];
+          const n = 6 + Math.floor(r2() * 3);
+          for (let i = 0; i < n; i++) {
+            const a = r2() * TAU, r = r2() * 0.16;
+            const h = 0.34 + r2() * 0.32;
+            const b = piece(coneG(0.035, 1, 4), {
+              t: [Math.cos(a) * r, h * 0.48, Math.sin(a) * r], s: [1, h, 1],
+              r: [(r2() - 0.5) * 0.55, r2() * TAU, (r2() - 0.5) * 0.55],
+            });
+            ramp(b, lerpColorHex(0x3f7a38, 0x568c40, r2()), lerpColorHex(0x8fce5c, 0xb8d970, r2()),
+              0, h, { noise: 0.04, seed: vs + i });
+            pieces.push(b);
+          }
+          if (r2() > 0.55) { // occasional seed head
+            const h = 0.55 + r2() * 0.2;
+            const st = piece(cylG(0.012, 0.018, h, 4), { t: [0.05, h / 2, 0.03], r: [0.12, 0, -0.1] });
+            ramp(st, 0x6f9e57, 0xc9c078, 0, h, { seed: vs });
+            pieces.push(st);
+            const hd = piece(icoG(1, 0), { t: [0.05 + 0.07, h + 0.03, 0.03], s: [0.035, 0.075, 0.035] });
+            tintG(hd, 0xd9cb84, 0.04, vs);
+            pieces.push(hd);
+          }
+          return pieces;
+        });
+        return [V(g, FOLIAGE_V, [0.1, 0.07])];
       },
     },
     reeds: {
       variants: 3, collider: 0, noPathAvoid: true,
       make: (rng) => {
-        const parts = [];
-        const n = 5 + Math.floor(rng() * 4);
-        for (let i = 0; i < n; i++) {
-          const a = rng() * TAU, r = rng() * 0.35, h = 0.9 + rng() * 0.7;
-          const x = Math.cos(a) * r, z = Math.sin(a) * r;
-          parts.push(P(cylG(0.015, 0.025, h, 4), FOLIAGE, 0x6f9e57, [x, h / 2, z], 1, [(rng() - 0.5) * 0.15, 0, (rng() - 0.5) * 0.15], 0.06, false));
-          if (rng() > 0.4) parts.push(P(cylG(0.035, 0.035, 0.18, 5), FOLIAGE, 0x8a6a44, [x, h + 0.06, z], 1, [0, 0, 0], 0.06, false));
-        }
-        return parts;
+        const vs = Math.floor(rng() * 1e6);
+        const g = merged(`reedM${vs}`, () => {
+          const r2 = seededRandom(vs + 1);
+          const pieces = [];
+          const n = 6 + Math.floor(r2() * 4);
+          for (let i = 0; i < n; i++) {
+            const a = r2() * TAU, r = r2() * 0.38, h = 0.9 + r2() * 0.75;
+            const x = Math.cos(a) * r, z = Math.sin(a) * r;
+            const tilt = (r2() - 0.5) * 0.18;
+            const st = piece(cylG(0.015, 0.028, h, 4), { t: [x, h / 2, z], r: [tilt, 0, tilt] });
+            ramp(st, 0x4e7a3c, 0x9ec26a, 0, h, { noise: 0.04, seed: vs + i });
+            pieces.push(st);
+            if (r2() > 0.35) {
+              const hd = piece(cylG(0.037, 0.041, 0.2, 5), { t: [x + tilt * h * 0.5, h + 0.08, z + tilt * h * 0.5], r: [tilt, 0, tilt] });
+              ramp(hd, 0x6b4c30, 0x9a744c, h, h + 0.2, { seed: vs + i });
+              pieces.push(hd);
+            }
+          }
+          return pieces;
+        });
+        return [V(g, FOLIAGE_V, [0.08, 0.05])];
       },
     },
     lilypad: {
@@ -393,33 +872,70 @@ export function buildProps(zone, heightAt) {
     // ------------------------------------------------------------- rocks & crystal
     rock: {
       variants: 3, collider: 0.55, cluster: true,
-      make: (rng) => [
-        P(icoG(0.6, 0), SOLID, 0x8d8a84, [0, 0.32, 0], [1, 0.7 + rng() * 0.3, 1], [rng() * 0.4, rng() * TAU, rng() * 0.4], 0.05),
-        P(icoG(0.3, 0), SOLID, 0x807d78, [0.5, 0.16, 0.2], [1, 0.7, 1], [0, rng() * TAU, 0], 0.05),
-      ],
+      make: (rng) => {
+        const vs = Math.floor(rng() * 1e6);
+        const g = merged(`rockM${vs}`, () => {
+          const r2 = seededRandom(vs + 1);
+          return [
+            ...stonePieces(r2, { k: 3, R: 0.58, seed: vs, dark: 0x63605a, light: 0xa8a49a }),
+            ...tuftPieces(r2, { n: 3, R: 0.62, seed: vs + 5 }),
+          ];
+        });
+        return [V(g, SOLID_V, [0.07, 0.04]), shadowP(0.95)];
+      },
     },
     rock_mossy: {
       variants: 3, collider: 0.55,
-      make: (rng) => [
-        P(icoG(0.6, 0), SOLID, 0x86837d, [0, 0.32, 0], [1, 0.72, 1], [rng() * 0.3, rng() * TAU, rng() * 0.3], 0.05),
-        P(blobG(1, 520, 0.22), FOLIAGE2, 0x5c8a4a, [0, 0.55, 0], [0.55, 0.28, 0.55], [0, rng() * TAU, 0], 0.1, false),
-      ],
+      make: (rng) => {
+        const vs = Math.floor(rng() * 1e6);
+        const g = merged(`rockMoM${vs}`, () => {
+          const r2 = seededRandom(vs + 1);
+          const pieces = stonePieces(r2, { k: 2, R: 0.6, seed: vs, dark: 0x5c6054, light: 0x999688 });
+          // moss saddle hugging the crown, thin — not a green pillow
+          const moss = piece(icoG(1, 1), {
+            t: [0.08, 0.68, -0.05], s: [0.52, 0.17, 0.48], r: [0.1, r2() * TAU, -0.08], jit: 0.14, jseed: vs + 3,
+          });
+          ramp(moss, 0x3f6b34, 0x74a854, 0.5, 0.9, { noise: 0.06, seed: vs + 3 });
+          pieces.push(moss);
+          const drip = piece(icoG(1, 1), { // moss run-off down one flank
+            t: [0.4, 0.4, 0.22], s: [0.2, 0.28, 0.16], r: [0, r2() * TAU, 0], jit: 0.12, jseed: vs + 4,
+          });
+          ramp(drip, 0x35592c, 0x5c8a4a, 0.15, 0.7, { seed: vs + 4 });
+          pieces.push(drip);
+          pieces.push(...tuftPieces(r2, { n: 3, R: 0.68, seed: vs + 6 }));
+          return pieces;
+        });
+        return [V(g, SOLID_V, [0.07, 0.04]), shadowP(1.0)];
+      },
     },
     rock_crystal: {
       variants: 2, collider: 0.55,
-      make: (rng) => [
-        P(icoG(0.55, 0), SOLID, 0x6d6a72, [0, 0.3, 0], [1, 0.7, 1], [0, rng() * TAU, 0.2], 0.05),
-        P(octaG(0.22), GLOW_CRYSTAL, 0x9fe8ff, [0.1, 0.65, 0.05], [1, 2.2, 1], [0.15, rng() * TAU, -0.1], 0.08),
-        P(octaG(0.14), GLOW_CRYSTAL, 0xc2f0ff, [-0.28, 0.45, 0.14], [1, 1.9, 1], [-0.3, rng() * TAU, 0.25], 0.08),
-      ],
+      make: (rng) => {
+        const vs = Math.floor(rng() * 1e6);
+        const g = merged(`rockCrM${vs}`, () => {
+          const r2 = seededRandom(vs + 1);
+          return stonePieces(r2, { k: 3, R: 0.52, seed: vs, dark: 0x54525c, light: 0x8a8794 });
+        });
+        return [
+          V(g, SOLID_V, [0.07, 0.04]), shadowP(0.9),
+          P(octaG(0.22), GLOW_CRYSTAL, 0x9fe8ff, [0.1, 0.65, 0.05], [1, 2.2, 1], [0.15, rng() * TAU, -0.1], 0.08),
+          P(octaG(0.14), GLOW_CRYSTAL, 0xc2f0ff, [-0.28, 0.45, 0.14], [1, 1.9, 1], [-0.3, rng() * TAU, 0.25], 0.08),
+          P(octaG(0.1), GLOW_CRYSTAL, 0xb8e0ff, [0.38, 0.42, -0.22], [1, 1.6, 1], [0.3, rng() * TAU, 0.2], 0.08),
+        ];
+      },
     },
     crystal_cluster: {
       variants: 3, collider: 0.6,
       make: (rng) => {
-        const parts = [P(icoG(0.5, 0), SOLID, 0x5c5a64, [0, 0.22, 0], [1.2, 0.5, 1.2], [0, rng() * TAU, 0], 0.05)];
-        const n = 4 + Math.floor(rng() * 3);
+        const vs = Math.floor(rng() * 1e6);
+        const g = merged(`cryBM${vs}`, () => {
+          const r2 = seededRandom(vs + 1);
+          return stonePieces(r2, { k: 4, R: 0.5, seed: vs, dark: 0x46444e, light: 0x767380 });
+        });
+        const parts = [V(g, SOLID_V, [0.06, 0.03]), shadowP(1.05)];
+        const n = 5 + Math.floor(rng() * 3);
         for (let i = 0; i < n; i++) {
-          const a = rng() * TAU, r = rng() * 0.4, h = 1.2 + rng() * 1.5;
+          const a = rng() * TAU, r = rng() * 0.42, h = 1.1 + rng() * 1.6;
           parts.push(P(octaG(0.2), GLOW_CRYSTAL, rng() > 0.5 ? 0x9fe8ff : 0xb8a8ff,
             [Math.cos(a) * r, h * 0.35, Math.sin(a) * r], [0.8 + rng() * 0.4, h * 2.2, 0.8 + rng() * 0.4],
             [(rng() - 0.5) * 0.55, rng() * TAU, (rng() - 0.5) * 0.55], 0.08));
@@ -439,52 +955,137 @@ export function buildProps(zone, heightAt) {
     },
     stump: {
       variants: 2, collider: 0.35,
-      make: (rng) => [
-        P(cylG(0.3, 0.4, 0.45, 8), SOLID, 0x6b4a33, [0, 0.22, 0]),
-        P(cylG(0.28, 0.28, 0.03, 8), SOLID_S, 0xc9a878, [0, 0.46, 0]),
-        P(coneG(0.12, 0.2, 5), SOLID, 0x6b4a33, [0.34, 0.1, 0.1], 1, [0, 0, -1.2]),
-        P(coneG(0.1, 0.18, 5), SOLID, 0x6b4a33, [-0.3, 0.09, -0.14], 1, [0, 0, 1.2]),
-      ],
+      make: (rng) => {
+        const vs = Math.floor(rng() * 1e6);
+        const g = merged(`stumpM${vs}`, () => {
+          const r2 = seededRandom(vs + 1);
+          const pieces = [];
+          const body = trunkG({ h: 0.48, r0: 0.34, r1: 0.29, lean: 0.04, flare: 0.9, seed: vs });
+          ramp(body, 0x4a3323, 0x7a5940, 0, 0.5, { noise: 0.05, seed: vs });
+          pieces.push(body);
+          const top = piece(cylG(0.27, 0.27, 0.035, 8), { t: [0.02, 0.49, 0] });
+          tintG(top, 0xcfa87a, 0.04, vs);
+          pieces.push(top);
+          const ring = piece(cylG(0.17, 0.17, 0.042, 8), { t: [0.02, 0.49, 0] });
+          tintG(ring, 0xa8804e, 0.04, vs + 1);
+          pieces.push(ring);
+          const heart = piece(cylG(0.06, 0.06, 0.048, 6), { t: [0.02, 0.49, 0] });
+          tintG(heart, 0x7d5b38, 0.03, vs + 2);
+          pieces.push(heart);
+          for (let i = 0; i < 3; i++) { // root spurs
+            const a = (i / 3) * TAU + r2();
+            const rn = piece(coneG(0.11, 0.34, 5), {
+              t: [Math.cos(a) * 0.32, 0.08, Math.sin(a) * 0.32],
+              r: [Math.sin(a) * 1.25, 0, -Math.cos(a) * 1.25], jit: 0.03, jseed: vs + i,
+            });
+            ramp(rn, 0x412d1c, 0x5c422c, 0, 0.3, { seed: vs + i });
+            pieces.push(rn);
+          }
+          const moss = piece(icoG(1, 1), { t: [-0.16, 0.47, 0.12], s: [0.18, 0.06, 0.15], jit: 0.14, jseed: vs + 8 });
+          ramp(moss, 0x3f6b34, 0x74a854, 0.42, 0.55, { seed: vs + 8 });
+          pieces.push(moss);
+          pieces.push(...tuftPieces(r2, { n: 3, R: 0.45, seed: vs + 9 }));
+          return pieces;
+        });
+        return [V(g, SOLID_V, [0.06, 0.04]), shadowP(0.7)];
+      },
     },
     log: {
       variants: 2, collider: 0.35,
-      // A real fallen trunk: rounder body, bark ridge, and proper sawn end
-      // faces with growth rings on BOTH ends (the old single dark cylinder
-      // read as a flat smear on the forest floor).
-      make: (rng) => [
-        P(cylG(0.23, 0.27, 1.9, 9), SOLID, 0x8a6647, [0, 0.27, 0], 1, [0, 0, Math.PI / 2]),
-        P(boxG(1.6, 0.06, 0.09), SOLID, 0x6f5138, [0, 0.5, 0.04], 1, [0, 0, 0], 0.04, false),
-        // +X end: pale disc, darker growth ring, heartwood dot
-        P(cylG(0.24, 0.24, 0.025, 9), SOLID_S, 0xcfa87a, [0.96, 0.27, 0], 1, [0, 0, Math.PI / 2], 0, false),
-        P(cylG(0.155, 0.155, 0.032, 9), SOLID_S, 0xa8804e, [0.96, 0.27, 0], 1, [0, 0, Math.PI / 2], 0, false),
-        P(cylG(0.06, 0.06, 0.038, 8), SOLID_S, 0x7d5b38, [0.96, 0.27, 0], 1, [0, 0, Math.PI / 2], 0, false),
-        // -X end (slightly narrower — the trunk tapers)
-        P(cylG(0.245, 0.245, 0.025, 9), SOLID_S, 0xc9a06f, [-0.96, 0.27, 0], 1, [0, 0, Math.PI / 2], 0, false),
-        P(cylG(0.15, 0.15, 0.032, 9), SOLID_S, 0x9e7644, [-0.96, 0.27, 0], 1, [0, 0, Math.PI / 2], 0, false),
-        // snapped branch stub + moss saddle
-        P(cylG(0.05, 0.07, 0.32, 5), SOLID, 0x6b4a33, [0.35, 0.5, 0.06], 1, [0.9, 0, 0.5], 0.05, false),
-        P(blobG(1, 530, 0.2), FOLIAGE2, 0x5c8a4a, [-0.35, 0.47, 0], [0.4, 0.14, 0.3], [0, 0, 0], 0.1, false),
-      ],
+      // Fallen trunk: jittered bark body lit top-down, sawn end rings, snapped
+      // branch stub, moss saddle and grass at the contact line.
+      make: (rng) => {
+        const vs = Math.floor(rng() * 1e6);
+        const g = merged(`logM${vs}`, () => {
+          const r2 = seededRandom(vs + 1);
+          const pieces = [];
+          const body = piece(cylG(0.23, 0.27, 1.9, 9), { t: [0, 0.27, 0], r: [0, 0, Math.PI / 2], jit: 0.03, jseed: vs });
+          ramp(body, 0x5c422c, 0x9a7250, 0.02, 0.52, { noise: 0.05, seed: vs });
+          pieces.push(body);
+          const ends = [
+            [0.96, 0.24, 0xcfa87a], [0.96, 0.155, 0xa8804e], [0.96, 0.06, 0x7d5b38],
+            [-0.96, 0.245, 0xc9a06f], [-0.96, 0.15, 0x9e7644],
+          ];
+          let off = 0.025;
+          for (const [ex, er, ec] of ends) {
+            const d = piece(cylG(er, er, off, 9), { t: [ex + Math.sign(ex) * 0.004, 0.27, 0], r: [0, 0, Math.PI / 2] });
+            tintG(d, ec, 0.03, vs);
+            pieces.push(d);
+            off += 0.006;
+          }
+          const stub = piece(cylG(0.05, 0.07, 0.32, 5), { t: [0.35, 0.5, 0.06], r: [0.9, 0, 0.5], jit: 0.02, jseed: vs + 2 });
+          ramp(stub, 0x543c26, 0x6b4a33, 0.35, 0.65, { seed: vs + 2 });
+          pieces.push(stub);
+          const moss = piece(icoG(1, 1), { t: [-0.35, 0.49, 0], s: [0.4, 0.12, 0.28], jit: 0.14, jseed: vs + 3 });
+          ramp(moss, 0x3f6b34, 0x74a854, 0.4, 0.62, { seed: vs + 3 });
+          pieces.push(moss);
+          pieces.push(...tuftPieces(r2, { n: 4, R: 0.75, seed: vs + 4 }));
+          return pieces;
+        });
+        return [V(g, SOLID_V, [0.06, 0.04]), shadowP(1.0)];
+      },
     },
     // ------------------------------------------------------------- town & structures
     fence: {
-      variants: 1, collider: 0.45,
-      make: () => [
-        P(boxG(0.09, 0.75, 0.09), SOLID, 0x8a6a48, [-0.65, 0.37, 0]),
-        P(boxG(0.09, 0.75, 0.09), SOLID, 0x8a6a48, [0.65, 0.37, 0]),
-        P(boxG(1.55, 0.07, 0.05), SOLID, 0x9a7a55, [0, 0.55, 0]),
-        P(boxG(1.55, 0.07, 0.05), SOLID, 0x9a7a55, [0, 0.28, 0]),
-      ],
+      variants: 3, collider: 0.45,
+      make: (rng) => {
+        const vs = Math.floor(rng() * 1e6);
+        const g = merged(`fenceM${vs}`, () => {
+          const r2 = seededRandom(vs + 1);
+          const pieces = [];
+          for (const px of [-0.65, 0.65]) {
+            const lean = (r2() - 0.5) * 0.09;
+            const post = piece(boxG(0.1, 0.78, 0.1), { t: [px, 0.37, 0], r: [(r2() - 0.5) * 0.05, 0, lean], jit: 0.012, jseed: vs + px });
+            ramp(post, 0x63432c, 0x8a6a48, 0, 0.8, { noise: 0.05, seed: vs + px * 3 });
+            pieces.push(post);
+            const cap = piece(coneG(0.085, 0.1, 4), { t: [px - lean * 0.5, 0.79, 0], r: [0, r2(), lean] });
+            tintG(cap, 0x7a5a3a, 0.05, vs + px);
+            pieces.push(cap);
+          }
+          for (const [ry, sag] of [[0.56, 0.02], [0.29, 0.035]]) {
+            const rail = piece(boxG(1.58, 0.075, 0.055), { t: [0, ry, 0.02], r: [0, 0, (r2() - 0.5) * sag * 2], jit: 0.012, jseed: vs + ry });
+            ramp(rail, 0x7a5a3a, 0xa8845c, ry - 0.05, ry + 0.05, { noise: 0.06, seed: vs + ry * 7 });
+            pieces.push(rail);
+          }
+          return pieces;
+        });
+        return [V(g, SOLID_V, [0.07, 0.04])];
+      },
     },
     lamp_post: {
       variants: 1, collider: 0.28,
-      make: () => [
-        P(cylG(0.05, 0.08, 2.3, 6), SOLID, 0x3a3f4a, [0, 1.15, 0]),
-        P(cylG(0.16, 0.2, 0.08, 6), SOLID, 0x3a3f4a, [0, 0.04, 0]),
-        P(boxG(0.5, 0.05, 0.05), SOLID, 0x3a3f4a, [0.2, 2.28, 0]),
-        P(boxG(0.16, 0.22, 0.16), LAMP_GLASS, 0xffd9a0, [0.42, 2.14, 0], 1, [0, 0, 0], 0, false),
-        P(coneG(0.16, 0.14, 4), SOLID, 0x3a3f4a, [0.42, 2.32, 0]),
-      ],
+      make: (rng) => {
+        const vs = Math.floor(rng() * 1e6);
+        const g = merged(`lampM${vs}`, () => {
+          const pieces = [];
+          const base = piece(cylG(0.15, 0.21, 0.14, 7), { t: [0, 0.07, 0], jit: 0.008, jseed: vs });
+          ramp(base, 0x23262e, 0x3a3f4a, 0, 0.16, { seed: vs });
+          pieces.push(base);
+          const pole = piece(cylG(0.042, 0.075, 2.3, 6), { t: [0, 1.15, 0], jit: 0.006, jseed: vs + 1 });
+          ramp(pole, 0x272b34, 0x484e5c, 0, 2.3, { noise: 0.03, seed: vs + 1 });
+          pieces.push(pole);
+          const collar = piece(cylG(0.065, 0.052, 0.07, 6), { t: [0, 1.9, 0] });
+          tintG(collar, 0x3a3f4a, 0.03, vs);
+          pieces.push(collar);
+          const arm = piece(boxG(0.5, 0.05, 0.05), { t: [0.2, 2.28, 0] });
+          ramp(arm, 0x2c303a, 0x454b58, 2.25, 2.31, { seed: vs + 2 });
+          pieces.push(arm);
+          const brace = piece(boxG(0.32, 0.04, 0.04), { t: [0.15, 2.13, 0], r: [0, 0, 0.75] });
+          tintG(brace, 0x2c303a, 0.03, vs + 3);
+          pieces.push(brace);
+          const cap = piece(coneG(0.17, 0.15, 4), { t: [0.42, 2.33, 0], r: [0, Math.PI / 4, 0] });
+          ramp(cap, 0x2c303a, 0x4a505e, 2.26, 2.4, { seed: vs + 4 });
+          pieces.push(cap);
+          const tip = piece(sphereG(0.03, 5, 4), { t: [0.42, 2.43, 0] });
+          tintG(tip, 0x565c6a, 0.02, vs);
+          pieces.push(tip);
+          return pieces;
+        });
+        return [
+          V(g, SOLID_V, [0.05, 0.02]), shadowP(0.5),
+          P(boxG(0.16, 0.22, 0.16), LAMP_GLASS, 0xffd9a0, [0.42, 2.14, 0], 1, [0, 0, 0], 0, false),
+        ];
+      },
       effect: (x, y, z, s, rng) => {
         if (lightBudget <= 0) return null;
         lightBudget--;
@@ -497,29 +1098,86 @@ export function buildProps(zone, heightAt) {
     },
     shrine_stone: {
       variants: 2, collider: 0.5,
-      // Two-tone stonework: darker footing + bevel lip, mid-tone monolith with
-      // a chiseled shadow edge and a pale capstone — no more flat single gray.
-      make: (rng) => [
-        P(boxG(0.9, 0.3, 0.9), SOLID, 0x6f6c66, [0, 0.15, 0], 1, [0, rng() * 0.3, 0]),
-        P(boxG(0.97, 0.08, 0.97), SOLID_S, 0x8d8a84, [0, 0.31, 0], 1, [0, rng() * 0.3, 0], 0.04, false),
-        P(boxG(0.5, 1.5, 0.34), SOLID, 0x8d8a84, [0, 1.0, 0], 1, [0, 0, (rng() - 0.5) * 0.06]),
-        P(boxG(0.09, 1.32, 0.37), SOLID_S, 0x7b786f, [-0.22, 0.96, 0], 1, [0, 0, 0.03], 0.04, false),
-        P(boxG(0.55, 0.13, 0.4), SOLID_S, 0xa8a49a, [0, 1.76, 0], 1, [0, 0, (rng() - 0.5) * 0.08]),
-        P(boxG(0.3, 1.0, 0.02), GLOW_RUNE, 0xffe9b0, [0, 1.05, 0.18], 1, [0, 0, 0], 0, false),
-        P(blobG(1, 540, 0.2), FOLIAGE2, 0x5c8a4a, [0.3, 0.32, 0.25], [0.28, 0.12, 0.22], [0, rng() * TAU, 0], 0.1, false),
-      ],
+      make: (rng) => {
+        const vs = Math.floor(rng() * 1e6);
+        const g = merged(`shrineM${vs}`, () => {
+          const r2 = seededRandom(vs + 1);
+          const pieces = [];
+          const foot = piece(boxG(0.92, 0.32, 0.92), { t: [0, 0.15, 0], r: [0, r2() * 0.3, 0], jit: 0.02, jseed: vs });
+          ramp(foot, 0x5c5952, 0x7d7a72, 0, 0.34, { noise: 0.05, seed: vs });
+          pieces.push(foot);
+          const lip = piece(boxG(0.99, 0.09, 0.99), { t: [0, 0.32, 0], r: [0, r2() * 0.3, 0], jit: 0.015, jseed: vs + 1 });
+          tintG(lip, 0x8d8a84, 0.04, vs + 1);
+          pieces.push(lip);
+          const mono = piece(boxG(0.52, 1.5, 0.36), {
+            t: [0, 1.02, 0], r: [(r2() - 0.5) * 0.03, 0, (r2() - 0.5) * 0.07], jit: 0.028, jseed: vs + 2,
+          });
+          ramp(mono, 0x6f6c64, 0xaaa79c, 0.3, 1.85, { noise: 0.05, seed: vs + 2 });
+          pieces.push(mono);
+          const cap = piece(boxG(0.58, 0.14, 0.42), { t: [0, 1.82, 0], r: [0, 0, (r2() - 0.5) * 0.08], jit: 0.02, jseed: vs + 3 });
+          ramp(cap, 0x9a978e, 0xb8b5aa, 1.74, 1.9, { seed: vs + 3 });
+          pieces.push(cap);
+          const moss = piece(icoG(1, 1), { t: [0.28, 0.36, 0.24], s: [0.26, 0.1, 0.2], jit: 0.14, jseed: vs + 4 });
+          ramp(moss, 0x3f6b34, 0x74a854, 0.28, 0.46, { seed: vs + 4 });
+          pieces.push(moss);
+          const moss2 = piece(icoG(1, 1), { t: [-0.2, 1.72, 0.1], s: [0.14, 0.05, 0.12], jit: 0.14, jseed: vs + 5 });
+          ramp(moss2, 0x466e38, 0x78a856, 1.68, 1.78, { seed: vs + 5 });
+          pieces.push(moss2);
+          pieces.push(...tuftPieces(r2, { n: 4, R: 0.62, seed: vs + 6 }));
+          return pieces;
+        });
+        return [
+          V(g, SOLID_V, [0.06, 0.03]), shadowP(0.85),
+          P(boxG(0.3, 1.0, 0.02), GLOW_RUNE, 0xffe9b0, [0, 1.07, 0.19], 1, [0, 0, 0], 0, false),
+        ];
+      },
     },
     well: {
       variants: 1, collider: 0.85,
-      make: () => [
-        P(cylG(0.75, 0.85, 0.6, 9), SOLID, 0x8d8a84, [0, 0.3, 0]),
-        P(cylG(0.62, 0.62, 0.62, 9), SOLID, 0x2a3038, [0, 0.31, 0], 1, [0, 0, 0], 0, false),
-        P(boxG(0.1, 1.4, 0.1), SOLID, 0x6b4a33, [-0.7, 0.9, 0]),
-        P(boxG(0.1, 1.4, 0.1), SOLID, 0x6b4a33, [0.7, 0.9, 0]),
-        P(coneG(1.05, 0.55, 4), SOLID, 0x9a4a3a, [0, 1.85, 0], 1, [0, Math.PI / 4, 0]),
-        P(cylG(0.04, 0.04, 1.3, 5), SOLID, 0x5a4a3a, [0, 1.5, 0], 1, [0, 0, Math.PI / 2]),
-        P(cylG(0.16, 0.14, 0.2, 6), SOLID, 0x7a5a3a, [0, 1.1, 0]),
-      ],
+      make: (rng) => {
+        const vs = Math.floor(rng() * 1e6);
+        const g = merged(`wellM${vs}`, () => {
+          const r2 = seededRandom(vs + 1);
+          const pieces = [];
+          const n = 9;
+          for (let i = 0; i < n; i++) { // individual rim stones
+            const a = (i / n) * TAU;
+            const st = piece(boxG(0.52, 0.5 + r2() * 0.14, 0.34), {
+              t: [Math.cos(a) * 0.72, 0.26, Math.sin(a) * 0.72],
+              r: [0, -a + Math.PI / 2, (r2() - 0.5) * 0.06], jit: 0.03, jseed: vs + i,
+            });
+            ramp(st, i % 2 ? 0x6f6c64 : 0x7d7a70, i % 2 ? 0x999688 : 0xa8a49a, 0, 0.6, { noise: 0.05, seed: vs + i });
+            pieces.push(st);
+          }
+          const water = piece(cylG(0.6, 0.6, 0.04, 9), { t: [0, 0.34, 0] });
+          tintG(water, 0x1c2a38, 0.02, vs);
+          pieces.push(water);
+          for (const px of [-0.72, 0.72]) { // posts
+            const post = piece(boxG(0.11, 1.5, 0.11), { t: [px, 0.95, 0], jit: 0.012, jseed: vs + px });
+            ramp(post, 0x544230, 0x7a5f42, 0.4, 1.7, { noise: 0.05, seed: vs + px * 5 });
+            pieces.push(post);
+          }
+          pieces.push(gableG({ L: 2.0, halfW: 1.08, roofH: 0.62, y: 1.68, dark: 0x7e3a30, light: 0xb0564a, wall: 0x6b4f36, seed: vs }));
+          const ridge = piece(boxG(2.06, 0.07, 0.09), { t: [0, 2.32, 0] });
+          tintG(ridge, 0x5c3a2c, 0.04, vs);
+          pieces.push(ridge);
+          const axle = piece(cylG(0.045, 0.045, 1.4, 5), { t: [0, 1.42, 0], r: [0, 0, Math.PI / 2] });
+          tintG(axle, 0x4a3a2a, 0.04, vs);
+          pieces.push(axle);
+          const crank = piece(boxG(0.05, 0.26, 0.05), { t: [0.78, 1.32, 0], r: [0, 0, 0.3] });
+          tintG(crank, 0x3f332a, 0.03, vs);
+          pieces.push(crank);
+          const rope = piece(cylG(0.018, 0.018, 0.55, 4), { t: [0, 1.15, 0] });
+          tintG(rope, 0xb0946a, 0.05, vs);
+          pieces.push(rope);
+          const bucket = piece(cylG(0.16, 0.13, 0.2, 6), { t: [0, 0.98, 0], jit: 0.01, jseed: vs + 8 });
+          ramp(bucket, 0x5c452e, 0x8a6a48, 0.88, 1.08, { seed: vs + 8 });
+          pieces.push(bucket);
+          pieces.push(...tuftPieces(r2, { n: 4, R: 1.0, seed: vs + 9 }));
+          return pieces;
+        });
+        return [V(g, SOLID_V, [0.05, 0.03]), shadowP(1.25)];
+      },
     },
     house_small: {
       variants: 2, collider: 2.5, faceCenter: true, sinkY: 0.25,
@@ -527,25 +1185,90 @@ export function buildProps(zone, heightAt) {
 
 
       make: (rng) => {
-        const wall = rng() > 0.5 ? 0xe8dcc2 : 0xdcd2c0;
+        const vs = Math.floor(rng() * 1e6);
+        const warm = rng() > 0.5;
+        const g = merged(`hsM${vs}`, () => {
+          const r2 = seededRandom(vs + 1);
+          const wallLo = warm ? 0xcbbb9a : 0xbdb4a2, wallHi = warm ? 0xf4ead4 : 0xece6d8;
+          const roofD = warm ? 0x793830 : 0x5f463c, roofL = warm ? 0xba5c4a : 0x9a7458;
+          const wood = 0x5f4530, woodL = 0x77573c;
+          const pieces = [];
+          // stone footing skirt
+          const fo = piece(boxG(3.56, 0.44, 3.06), { t: [0, 0.21, 0], jit: 0.025, jseed: vs });
+          ramp(fo, 0x63605a, 0x8d8a80, 0, 0.46, { noise: 0.05, seed: vs });
+          pieces.push(fo);
+          // plaster walls (footing -> pale top)
+          const w = piece(boxG(3.4, 1.92, 2.9), { t: [0, 1.36, 0] });
+          ramp(w, wallLo, wallHi, 0.38, 2.35, { noise: 0.03, seed: vs + 1 });
+          pieces.push(w);
+          // eave shadow band under the roof line
+          const eave = piece(boxG(3.44, 0.15, 2.94), { t: [0, 2.26, 0] });
+          tintG(eave, lerpColorHex(wallLo, 0x241a12, 0.42), 0.02, vs);
+          pieces.push(eave);
+          // gable roof, ridge along x, with beam + overhang
+          pieces.push(gableG({ L: 3.95, halfW: 1.9, roofH: 1.5, y: 2.3, dark: roofD, light: roofL, wall: lerpColorHex(wallHi, wallLo, 0.35), seed: vs }));
+          const ridge = piece(boxG(4.02, 0.1, 0.13), { t: [0, 3.82, 0] });
+          tintG(ridge, lerpColorHex(roofD, 0x201410, 0.35), 0.03, vs);
+          pieces.push(ridge);
+          for (const s of [-1, 1]) { // fascia boards under both eaves
+            const fa = piece(boxG(3.98, 0.1, 0.09), { t: [0, 2.3, s * 1.86] });
+            tintG(fa, wood, 0.04, vs + s);
+            pieces.push(fa);
+          }
+          // timber frame (corners + front cross-brace + mid rail)
+          for (const px of [-1.68, 1.68]) {
+            const post = piece(boxG(0.13, 1.98, 0.13), { t: [px, 1.34, 1.42] });
+            ramp(post, wood, woodL, 0.4, 2.3, { noise: 0.04, seed: vs + px });
+            pieces.push(post);
+          }
+          const lintel = piece(boxG(3.42, 0.12, 0.12), { t: [0, 2.16, 1.43] });
+          tintG(lintel, wood, 0.04, vs + 3);
+          pieces.push(lintel);
+          const brace = piece(boxG(0.11, 1.15, 0.1), { t: [-1.62, 1.33, 1.44], r: [0, 0, 0.62] });
+          tintG(brace, wood, 0.04, vs + 4);
+          pieces.push(brace);
+          // door: recess, plank leaf, frame, lintel, step
+          const rec = piece(boxG(0.86, 1.46, 0.06), { t: [0.6, 1.08, 1.44] });
+          tintG(rec, 0x2c2018, 0.02, vs);
+          pieces.push(rec);
+          const door = piece(boxG(0.74, 1.36, 0.07), { t: [0.6, 1.06, 1.46] });
+          ramp(door, 0x543c26, 0x7d5f42, 0.4, 1.8, { noise: 0.06, seed: vs + 5 });
+          pieces.push(door);
+          for (const px of [0.19, 1.01]) {
+            const jamb = piece(boxG(0.09, 1.5, 0.1), { t: [px, 1.1, 1.45] });
+            tintG(jamb, wood, 0.04, vs + px);
+            pieces.push(jamb);
+          }
+          const dlin = piece(boxG(0.95, 0.1, 0.11), { t: [0.6, 1.88, 1.45] });
+          tintG(dlin, wood, 0.04, vs + 6);
+          pieces.push(dlin);
+          const step = piece(boxG(1.0, 0.15, 0.5), { t: [0.6, 0.08, 1.68], jit: 0.02, jseed: vs + 7 });
+          ramp(step, 0x6f6c64, 0x939088, 0, 0.17, { seed: vs + 7 });
+          pieces.push(step);
+          // window frames + sills (glow panes are separate parts)
+          for (const [wx, wy, wz, ry] of [[-0.85, 1.4, 1.45, 0], [1.71, 1.4, -0.5, Math.PI / 2]]) {
+            const fr = piece(boxG(0.68, 0.68, 0.07), { t: [wx, wy, wz], r: [0, ry, 0] });
+            tintG(fr, wood, 0.04, vs + wx);
+            pieces.push(fr);
+            const sill = piece(boxG(0.76, 0.08, 0.13), { t: [wx + Math.sin(ry) * 0.04, wy - 0.38, wz + Math.cos(ry) * 0.04], r: [0, ry, 0] });
+            tintG(sill, woodL, 0.04, vs + wx * 3);
+            pieces.push(sill);
+          }
+          // chimney with cap lip
+          const ch = piece(boxG(0.44, 1.6, 0.44), { t: [-1.0, 3.3, -0.5], jit: 0.015, jseed: vs + 8 });
+          ramp(ch, 0x6f6058, 0x968a80, 2.4, 4.1, { noise: 0.05, seed: vs + 8 });
+          pieces.push(ch);
+          const chCap = piece(boxG(0.54, 0.12, 0.54), { t: [-1.0, 4.12, -0.5] });
+          tintG(chCap, 0x5c534c, 0.04, vs + 9);
+          pieces.push(chCap);
+          pieces.push(...tuftPieces(r2, { n: 5, R: 1.95, seed: vs + 10 }));
+          return pieces;
+        });
         return [
-          P(boxG(3.4, 2.2, 2.9), SOLID_S, wall, [0, 1.1, 0]),
-          // timber frame
-          P(boxG(0.12, 2.2, 0.12), SOLID, 0x6b4a33, [-1.66, 1.1, 1.42]),
-          P(boxG(0.12, 2.2, 0.12), SOLID, 0x6b4a33, [1.66, 1.1, 1.42]),
-          P(boxG(3.4, 0.12, 0.12), SOLID, 0x6b4a33, [0, 2.18, 1.42]),
-          P(boxG(0.12, 1.3, 0.1), SOLID, 0x6b4a33, [-0.9, 1.4, 1.44], 1, [0, 0, 0.5]),
-          // roof
-          P(coneG(2.9, 1.7, 4), SOLID, 0x9a4a3a, [0, 3.05, 0], [1.05, 1, 0.85], [0, Math.PI / 4, 0]),
-          // door + step
-          P(boxG(0.8, 1.4, 0.1), SOLID, 0x6b4a33, [0.6, 0.7, 1.48]),
-          P(sphereG(0.05, 5, 4), SOLID_S, 0xc9b878, [0.85, 0.72, 1.55], 1, [0, 0, 0], 0, false),
-          P(boxG(1.0, 0.14, 0.5), SOLID, 0x8d8a84, [0.6, 0.07, 1.68]),
-          // windows (night glow)
-          P(boxG(0.55, 0.55, 0.08), WINDOW, 0xffc97a, [-0.85, 1.35, 1.47], 1, [0, 0, 0], 0, false),
-          P(boxG(0.55, 0.55, 0.08), WINDOW, 0xffc97a, [1.72, 1.35, -0.5], 1, [0, Math.PI / 2, 0], 0, false),
-          // chimney
-          P(boxG(0.42, 1.2, 0.42), SOLID, 0x8d8a84, [-1.0, 3.2, -0.5]),
+          V(g, SOLID_V, [0.045, 0.03]), shadowP(2.6),
+          P(boxG(0.55, 0.55, 0.06), WINDOW, 0xffc97a, [-0.85, 1.4, 1.46], 1, [0, 0, 0], 0, false),
+          P(boxG(0.55, 0.55, 0.06), WINDOW, 0xffc97a, [1.73, 1.4, -0.5], 1, [0, Math.PI / 2, 0], 0, false),
+          P(sphereG(0.05, 5, 4), SOLID_S, 0xc9b878, [0.85, 1.06, 1.52], 1, [0, 0, 0], 0, false),
         ];
       },
     },
@@ -553,34 +1276,127 @@ export function buildProps(zone, heightAt) {
       variants: 1, collider: 3.6, faceCenter: true, sinkY: 0.3,
       surface: 'wood', surfaceRect: [2.7, 2.0],
 
-      make: () => [
-        P(boxG(5.2, 2.6, 3.8), SOLID_S, 0xe8dcc2, [0, 1.3, 0]),
-        P(boxG(3.0, 2.0, 3.0), SOLID_S, 0xdcd2c0, [1.8, 3.4, 0]),
-        P(coneG(2.6, 1.5, 4), SOLID, 0x9a4a3a, [1.8, 5.1, 0], [1.05, 1, 0.9], [0, Math.PI / 4, 0]),
-        P(coneG(3.4, 1.6, 4), SOLID, 0x8a4234, [-0.8, 3.35, 0], [1.1, 1, 0.85], [0, Math.PI / 4, 0]),
-        P(boxG(0.14, 2.6, 0.14), SOLID, 0x6b4a33, [-2.55, 1.3, 1.86]),
-        P(boxG(0.14, 2.6, 0.14), SOLID, 0x6b4a33, [2.55, 1.3, 1.86]),
-        P(boxG(5.2, 0.14, 0.14), SOLID, 0x6b4a33, [0, 2.56, 1.86]),
-        P(boxG(0.95, 1.6, 0.12), SOLID, 0x6b4a33, [0, 0.8, 1.92]),
-        P(boxG(1.3, 0.16, 0.6), SOLID, 0x8d8a84, [0, 0.08, 2.2]),
-        P(boxG(0.6, 0.6, 0.1), WINDOW, 0xffc97a, [-1.5, 1.5, 1.92], 1, [0, 0, 0], 0, false),
-        P(boxG(0.6, 0.6, 0.1), WINDOW, 0xffc97a, [1.5, 1.5, 1.92], 1, [0, 0, 0], 0, false),
-        P(boxG(0.55, 0.55, 0.1), WINDOW, 0xffc97a, [1.8, 3.6, 1.52], 1, [0, 0, 0], 0, false),
-        P(boxG(0.5, 1.5, 0.5), SOLID, 0x8d8a84, [-1.9, 3.4, -1.0]),
-      ],
+      make: (rng) => {
+        const vs = Math.floor(rng() * 1e6);
+        const g = merged(`hlM${vs}`, () => {
+          const r2 = seededRandom(vs + 1);
+          const wallLo = 0xcbbb9a, wallHi = 0xf4ead4;
+          const roofD = 0x74352c, roofL = 0xb2564a;
+          const wood = 0x5f4530, woodL = 0x77573c;
+          const pieces = [];
+          const fo = piece(boxG(5.36, 0.5, 3.96), { t: [0, 0.24, 0], jit: 0.03, jseed: vs });
+          ramp(fo, 0x63605a, 0x8d8a80, 0, 0.52, { noise: 0.05, seed: vs });
+          pieces.push(fo);
+          const w = piece(boxG(5.2, 2.2, 3.8), { t: [0, 1.5, 0] });
+          ramp(w, wallLo, wallHi, 0.45, 2.65, { noise: 0.03, seed: vs + 1 });
+          pieces.push(w);
+          const eave = piece(boxG(5.24, 0.16, 3.84), { t: [0, 2.54, 0] });
+          tintG(eave, lerpColorHex(wallLo, 0x241a12, 0.42), 0.02, vs);
+          pieces.push(eave);
+          // main gable roof, ridge along x
+          pieces.push(gableG({ L: 5.8, halfW: 2.42, roofH: 1.75, y: 2.6, dark: roofD, light: roofL, wall: lerpColorHex(wallHi, wallLo, 0.35), seed: vs }));
+          const ridge = piece(boxG(5.88, 0.11, 0.14), { t: [0, 4.37, 0] });
+          tintG(ridge, lerpColorHex(roofD, 0x201410, 0.35), 0.03, vs);
+          pieces.push(ridge);
+          // dormer gable over the entrance
+          const dw = piece(boxG(1.5, 1.15, 1.15), { t: [0, 3.1, 1.35] });
+          ramp(dw, wallLo, wallHi, 2.6, 3.7, { noise: 0.03, seed: vs + 2 });
+          pieces.push(dw);
+          const dr = gableG({ L: 1.66, halfW: 0.72, roofH: 0.62, y: 3.66, dark: roofD, light: roofL, wall: lerpColorHex(wallHi, wallLo, 0.35), seed: vs + 2 });
+          dr.rotateY(Math.PI / 2);
+          dr.translate(0, 0, 1.35);
+          pieces.push(dr);
+          // timber frame across the front
+          for (const px of [-2.56, 2.56]) {
+            const post = piece(boxG(0.14, 2.3, 0.14), { t: [px, 1.5, 1.86] });
+            ramp(post, wood, woodL, 0.4, 2.6, { noise: 0.04, seed: vs + px });
+            pieces.push(post);
+          }
+          const rail = piece(boxG(5.2, 0.13, 0.13), { t: [0, 2.44, 1.87] });
+          tintG(rail, wood, 0.04, vs + 3);
+          pieces.push(rail);
+          for (const px of [-1.9, 1.9]) {
+            const brace = piece(boxG(0.11, 1.2, 0.1), { t: [px, 1.5, 1.88], r: [0, 0, px > 0 ? -0.55 : 0.55] });
+            tintG(brace, wood, 0.04, vs + px * 7);
+            pieces.push(brace);
+          }
+          // door + frame + step
+          const rec = piece(boxG(1.0, 1.66, 0.06), { t: [0, 1.18, 1.9] });
+          tintG(rec, 0x2c2018, 0.02, vs);
+          pieces.push(rec);
+          const door = piece(boxG(0.88, 1.56, 0.07), { t: [0, 1.16, 1.92] });
+          ramp(door, 0x543c26, 0x7d5f42, 0.4, 2.0, { noise: 0.06, seed: vs + 5 });
+          pieces.push(door);
+          for (const px of [-0.5, 0.5]) {
+            const jamb = piece(boxG(0.1, 1.7, 0.1), { t: [px, 1.2, 1.91] });
+            tintG(jamb, wood, 0.04, vs + px);
+            pieces.push(jamb);
+          }
+          const dlin = piece(boxG(1.14, 0.11, 0.12), { t: [0, 2.1, 1.91] });
+          tintG(dlin, wood, 0.04, vs + 6);
+          pieces.push(dlin);
+          const step = piece(boxG(1.3, 0.17, 0.6), { t: [0, 0.09, 2.2], jit: 0.02, jseed: vs + 7 });
+          ramp(step, 0x6f6c64, 0x939088, 0, 0.19, { seed: vs + 7 });
+          pieces.push(step);
+          // window frames + sills
+          for (const [wx, wy] of [[-1.5, 1.55], [1.5, 1.55]]) {
+            const fr = piece(boxG(0.74, 0.74, 0.07), { t: [wx, wy, 1.9] });
+            tintG(fr, wood, 0.04, vs + wx);
+            pieces.push(fr);
+            const sill = piece(boxG(0.82, 0.09, 0.14), { t: [wx, wy - 0.42, 1.94] });
+            tintG(sill, woodL, 0.04, vs + wx * 3);
+            pieces.push(sill);
+          }
+          const dfr = piece(boxG(0.66, 0.66, 0.07), { t: [0, 3.2, 1.93] });
+          tintG(dfr, wood, 0.04, vs + 11);
+          pieces.push(dfr);
+          // chimney
+          const ch = piece(boxG(0.52, 2.4, 0.52), { t: [-1.9, 3.4, -1.0], jit: 0.02, jseed: vs + 8 });
+          ramp(ch, 0x6f6058, 0x968a80, 2.2, 4.6, { noise: 0.05, seed: vs + 8 });
+          pieces.push(ch);
+          const chCap = piece(boxG(0.64, 0.13, 0.64), { t: [-1.9, 4.62, -1.0] });
+          tintG(chCap, 0x5c534c, 0.04, vs + 9);
+          pieces.push(chCap);
+          pieces.push(...tuftPieces(r2, { n: 6, R: 2.7, seed: vs + 10 }));
+          return pieces;
+        });
+        return [
+          V(g, SOLID_V, [0.04, 0.025]), shadowP(3.4),
+          P(boxG(0.6, 0.6, 0.06), WINDOW, 0xffc97a, [-1.5, 1.55, 1.91], 1, [0, 0, 0], 0, false),
+          P(boxG(0.6, 0.6, 0.06), WINDOW, 0xffc97a, [1.5, 1.55, 1.91], 1, [0, 0, 0], 0, false),
+          P(boxG(0.52, 0.52, 0.06), WINDOW, 0xffc97a, [0, 3.2, 1.94], 1, [0, 0, 0], 0, false),
+          P(sphereG(0.055, 5, 4), SOLID_S, 0xc9b878, [0.32, 1.16, 1.98], 1, [0, 0, 0], 0, false),
+        ];
+      },
     },
     shop_stall: {
       variants: 2, collider: 1.4, faceCenter: true,
       make: (rng) => {
         const stripe = rng() > 0.5 ? 0xc25a4a : 0x4a7ac2;
-        const parts = [
-          P(boxG(2.4, 0.9, 1.1), SOLID, 0x8a6a48, [0, 0.45, 0]),
-          P(boxG(2.5, 0.08, 1.2), SOLID_S, 0xa88a5c, [0, 0.94, 0]),
-          P(boxG(0.08, 2.1, 0.08), SOLID, 0x6b4a33, [-1.2, 1.05, -0.5]),
-          P(boxG(0.08, 2.1, 0.08), SOLID, 0x6b4a33, [1.2, 1.05, -0.5]),
-          P(boxG(0.08, 2.4, 0.08), SOLID, 0x6b4a33, [-1.2, 1.2, 0.62]),
-          P(boxG(0.08, 2.4, 0.08), SOLID, 0x6b4a33, [1.2, 1.2, 0.62]),
-        ];
+        const vs = Math.floor(rng() * 1e6);
+        const g = merged(`stallM${vs}`, () => {
+          const r2 = seededRandom(vs + 1);
+          const pieces = [];
+          const base = piece(boxG(2.4, 0.9, 1.1), { t: [0, 0.45, 0], jit: 0.015, jseed: vs });
+          ramp(base, 0x6b4f36, 0x947452, 0, 0.95, { noise: 0.05, seed: vs });
+          pieces.push(base);
+          for (let i = 0; i < 5; i++) { // front plank lines
+            const pl = piece(boxG(0.44, 0.86, 0.03), { t: [-0.96 + i * 0.48, 0.45, 0.55] });
+            ramp(pl, lerpColorHex(0x6b4f36, 0x4a3624, r2() * 0.6), 0x8a6a48, 0, 0.9, { noise: 0.07, seed: vs + i });
+            pieces.push(pl);
+          }
+          const top = piece(boxG(2.52, 0.09, 1.22), { t: [0, 0.95, 0] });
+          ramp(top, 0xa8885c, 0xc9a878, 0.9, 1.0, { noise: 0.05, seed: vs + 6 });
+          pieces.push(top);
+          for (const [px, pz, h] of [[-1.2, -0.5, 2.1], [1.2, -0.5, 2.1], [-1.2, 0.62, 2.4], [1.2, 0.62, 2.4]]) {
+            const post = piece(boxG(0.09, h, 0.09), { t: [px, h / 2, pz], jit: 0.01, jseed: vs + px + pz });
+            ramp(post, 0x543c26, 0x77573c, 0, h, { noise: 0.04, seed: vs + px * 3 + pz });
+            pieces.push(post);
+          }
+          pieces.push(...tuftPieces(r2, { n: 3, R: 1.35, seed: vs + 7 }));
+          return pieces;
+        });
+        const parts = [V(g, SOLID_V, [0.05, 0.03]), shadowP(1.7)];
         for (let i = 0; i < 5; i++) {
           const c = i % 2 ? 0xf0e8d8 : stripe;
           // lit top face…
@@ -629,29 +1445,102 @@ export function buildProps(zone, heightAt) {
     },
     cart: {
       variants: 2, collider: 1.0,
-      make: (rng) => [
-        P(boxG(1.7, 0.5, 1.0), SOLID, 0x8a6a48, [0, 0.65, 0]),
-        P(cylG(0.42, 0.42, 0.09, 9), SOLID, 0x6b4a33, [0.55, 0.42, 0.55], 1, [Math.PI / 2, 0, 0]),
-        P(cylG(0.42, 0.42, 0.09, 9), SOLID, 0x6b4a33, [0.55, 0.42, -0.55], 1, [Math.PI / 2, 0, 0]),
-        P(cylG(0.04, 0.05, 1.3, 5), SOLID, 0x6b4a33, [-1.2, 0.5, 0.3], 1, [0, 0, 1.1]),
-        P(cylG(0.04, 0.05, 1.3, 5), SOLID, 0x6b4a33, [-1.2, 0.5, -0.3], 1, [0, 0, 1.1]),
-        P(sphereG(0.28, 6, 5), CLOTH, 0xd8c8a8, [0.2, 1.05, 0], [1.4, 0.55, 0.9], [0, 0.3, 0], 0.08, false),
-      ],
+      make: (rng) => {
+        const vs = Math.floor(rng() * 1e6);
+        const g = merged(`cartM${vs}`, () => {
+          const r2 = seededRandom(vs + 1);
+          const pieces = [];
+          const bed = piece(boxG(1.7, 0.48, 1.0), { t: [0, 0.64, 0], jit: 0.015, jseed: vs });
+          ramp(bed, 0x66492f, 0x8f6f4c, 0.4, 0.9, { noise: 0.06, seed: vs });
+          pieces.push(bed);
+          for (const s of [-1, 1]) { // top rails
+            const rail = piece(boxG(1.76, 0.08, 0.09), { t: [0, 0.92, s * 0.5] });
+            tintG(rail, 0x543c26, 0.06, vs + s);
+            pieces.push(rail);
+          }
+          for (const s of [-1, 1]) { // wheels: rim + pale hub
+            const wheel = piece(cylG(0.42, 0.42, 0.1, 9), { t: [0.55, 0.42, s * 0.56], r: [Math.PI / 2, 0, 0], jit: 0.012, jseed: vs + s * 3 });
+            ramp(wheel, 0x4a3624, 0x6b4a33, 0.02, 0.85, { noise: 0.05, seed: vs + s });
+            pieces.push(wheel);
+            const hub = piece(cylG(0.13, 0.13, 0.13, 7), { t: [0.55, 0.42, s * 0.58], r: [Math.PI / 2, 0, 0] });
+            tintG(hub, 0x8f6f4c, 0.04, vs + s * 5);
+            pieces.push(hub);
+          }
+          const axle = piece(cylG(0.05, 0.05, 1.24, 5), { t: [0.55, 0.42, 0], r: [Math.PI / 2, 0, 0] });
+          tintG(axle, 0x3f2f20, 0.03, vs);
+          pieces.push(axle);
+          for (const s of [-1, 1]) { // handles
+            const h = piece(cylG(0.04, 0.05, 1.3, 5), { t: [-1.2, 0.5, s * 0.3], r: [0, 0, 1.1] });
+            ramp(h, 0x543c26, 0x77573c, 0.1, 0.95, { seed: vs + s * 7 });
+            pieces.push(h);
+          }
+          const hay = piece(icoG(1, 1), { t: [0.15, 1.0, 0], s: [0.72, 0.34, 0.46], jit: 0.16, jseed: vs + 9 });
+          ramp(hay, 0xb08d4c, 0xe0c078, 0.75, 1.35, { noise: 0.08, seed: vs + 9 });
+          pieces.push(hay);
+          return pieces;
+        });
+        return [V(g, SOLID_V, [0.06, 0.04]), shadowP(1.25)];
+      },
     },
     crate: {
       variants: 2, collider: 0.5, cluster: true,
-      make: (rng) => [
-        P(boxG(0.75, 0.75, 0.75), SOLID, 0x9a7a55, [0, 0.37, 0], 1, [0, rng() * 0.5, 0]),
-        P(boxG(0.79, 0.1, 0.1), SOLID, 0x7a5c3d, [0, 0.7, 0], 1, [0, rng() * 0.5, 0], 0.03, false),
-      ],
+      make: (rng) => {
+        const vs = Math.floor(rng() * 1e6);
+        const yaw = rng() * 0.5;
+        const g = merged(`crateM${vs}`, () => {
+          const pieces = [];
+          const body = piece(boxG(0.75, 0.75, 0.75), { t: [0, 0.37, 0], r: [0, yaw, 0], jit: 0.012, jseed: vs });
+          ramp(body, 0x7d5f3f, 0xa8875e, 0, 0.78, { noise: 0.06, seed: vs });
+          pieces.push(body);
+          for (const ey of [0.08, 0.7]) { // edge battens
+            const b1 = piece(boxG(0.8, 0.1, 0.1), { t: [0, ey, 0], r: [0, yaw, 0] });
+            tintG(b1, 0x5f4530, 0.05, vs + ey * 9);
+            pieces.push(b1);
+            const b2 = piece(boxG(0.1, 0.1, 0.8), { t: [0, ey, 0], r: [0, yaw, 0] });
+            tintG(b2, 0x5f4530, 0.05, vs + ey * 11);
+            pieces.push(b2);
+          }
+          const diag = piece(boxG(0.9, 0.09, 0.04), { t: [0, 0.39, Math.cos(yaw) * 0.385], r: [0, yaw, 0.75] });
+          tintG(diag, 0x6b4f36, 0.05, vs + 3);
+          pieces.push(diag);
+          return pieces;
+        });
+        return [V(g, SOLID_V, [0.07, 0.04]), shadowP(0.62)];
+      },
     },
     barrel: {
       variants: 2, collider: 0.42, cluster: true,
-      make: (rng) => [
-        P(cylG(0.32, 0.28, 0.8, 9), SOLID, 0x8a6a48, [0, 0.4, 0]),
-        P(cylG(0.345, 0.345, 0.07, 9), SOLID_S, 0x4a4038, [0, 0.62, 0]),
-        P(cylG(0.345, 0.345, 0.07, 9), SOLID_S, 0x4a4038, [0, 0.2, 0]),
-      ],
+      make: (rng) => {
+        const vs = Math.floor(rng() * 1e6);
+        const g = merged(`barrelM${vs}`, () => {
+          const pieces = [];
+          const body = piece(cylG(0.3, 0.26, 0.82, 10), { t: [0, 0.41, 0] });
+          // belly bulge
+          const bp = body.attributes.position;
+          for (let i = 0; i < bp.count; i++) {
+            const y = bp.getY(i);
+            const f = 1 + 0.18 * Math.sin(clamp(y / 0.82, 0, 1) * Math.PI);
+            bp.setXYZ(i, bp.getX(i) * f, y, bp.getZ(i) * f);
+          }
+          paintFaces(body, (cx, cy, cz) => { // stave tones around the hoop
+            const sector = Math.floor(((Math.atan2(cz, cx) + Math.PI) / TAU) * 10);
+            const base = sector % 2 ? 0x8a6a48 : 0x7a5c3d;
+            return lerpColorHex(base, 0xa8875e, clamp(cy / 0.85, 0, 1) * 0.5);
+          });
+          pieces.push(body);
+          for (const hy of [0.2, 0.62]) {
+            const f = 1 + 0.18 * Math.sin((hy / 0.82) * Math.PI);
+            const hoop = piece(cylG(0.315 * f, 0.315 * f, 0.07, 10), { t: [0, hy, 0] });
+            tintG(hoop, 0x3f3a34, 0.03, vs + hy * 7);
+            pieces.push(hoop);
+          }
+          const lid = piece(cylG(0.27, 0.27, 0.03, 10), { t: [0, 0.83, 0] });
+          tintG(lid, 0x997550, 0.05, vs + 5);
+          pieces.push(lid);
+          return pieces;
+        });
+        return [V(g, SOLID_V, [0.07, 0.04]), shadowP(0.55)];
+      },
     },
     campfire: {
       variants: 1, collider: 0.6,
@@ -686,61 +1575,178 @@ export function buildProps(zone, heightAt) {
     ruin_pillar: {
       variants: 3, collider: 0.55,
       make: (rng) => {
-        const h = 1.6 + rng() * 1.6;
-        const parts = [
-          P(boxG(0.95, 0.3, 0.95), SOLID, 0x9a978e, [0, 0.15, 0], 1, [0, rng() * 0.4, 0]),
-          P(cylG(0.34, 0.4, h, 8), SOLID, 0xa8a49a, [0, 0.3 + h / 2, 0], 1, [(rng() - 0.5) * 0.1, 0, (rng() - 0.5) * 0.1]),
-          P(cylG(0.42, 0.36, 0.22, 8), SOLID, 0x9a978e, [0, 0.3 + h + 0.1, 0], 1, [(rng() - 0.5) * 0.14, 0, (rng() - 0.5) * 0.14]),
-        ];
-        if (rng() > 0.5) parts.push(P(icoG(0.24, 0), SOLID, 0x9a978e, [0.7, 0.14, 0.4], [1, 0.6, 1], [0, rng() * TAU, 0], 0.05, false));
-        return parts;
+        const vs = Math.floor(rng() * 1e6);
+        const g = merged(`rpilM${vs}`, () => {
+          const r2 = seededRandom(vs + 1);
+          const h = 1.5 + r2() * 1.7;
+          const tiltZ = (r2() - 0.5) * 0.12;
+          const pieces = [];
+          const plinth = piece(boxG(0.98, 0.34, 0.98), { t: [0, 0.16, 0], r: [0, r2() * 0.4, 0], jit: 0.03, jseed: vs });
+          ramp(plinth, 0x767268, 0x94918a, 0, 0.36, { noise: 0.05, seed: vs });
+          pieces.push(plinth);
+          const col = piece(cylG(0.32, 0.4, h, 8, 3), {
+            t: [tiltZ * h * 0.5, 0.3 + h / 2, 0], r: [(r2() - 0.5) * 0.06, 0, tiltZ], jit: 0.05, jseed: vs + 1,
+          });
+          ramp(col, 0x878378, 0xbab6aa, 0.3, 0.3 + h, { noise: 0.06, seed: vs + 1 });
+          pieces.push(col);
+          // broken crown — jagged chunk instead of a clean cap
+          const crown = piece(icoG(1, 0), {
+            t: [tiltZ * h, 0.3 + h + 0.08, 0], s: [0.4, 0.24, 0.4], r: [0.2, r2() * TAU, tiltZ], jit: 0.1, jseed: vs + 2,
+          });
+          ramp(crown, 0x8d8a80, 0xb4b0a4, 0.2 + h, 0.6 + h, { seed: vs + 2 });
+          pieces.push(crown);
+          if (r2() > 0.4) { // fallen drum
+            const drum = piece(cylG(0.3, 0.3, 0.5, 8), {
+              t: [0.85, 0.28, 0.45], r: [Math.PI / 2 - 0.15, 0, r2()], jit: 0.04, jseed: vs + 3,
+            });
+            ramp(drum, 0x7d7a70, 0xa19e93, 0, 0.55, { seed: vs + 3 });
+            pieces.push(drum);
+          }
+          const moss = piece(icoG(1, 1), { t: [0.2, 0.36, 0.28], s: [0.24, 0.09, 0.2], jit: 0.14, jseed: vs + 4 });
+          ramp(moss, 0x3f6b34, 0x74a854, 0.28, 0.46, { seed: vs + 4 });
+          pieces.push(moss);
+          pieces.push(...tuftPieces(r2, { n: 4, R: 0.7, seed: vs + 5 }));
+          return pieces;
+        });
+        return [V(g, SOLID_V, [0.06, 0.03]), shadowP(0.95)];
       },
     },
     ruin_arch: {
       variants: 2, collider: 0, sinkY: 0.15,
-      make: (rng) => [
-        P(boxG(0.7, 3.0, 0.7), SOLID, 0xa8a49a, [-1.5, 1.5, 0], 1, [0, 0, (rng() - 0.5) * 0.05]),
-        P(boxG(0.7, 3.0, 0.7), SOLID, 0xa8a49a, [1.5, 1.5, 0], 1, [0, 0, (rng() - 0.5) * 0.05]),
-        P(boxG(2.2, 0.6, 0.75), SOLID, 0x9a978e, [-0.5, 3.25, 0], 1, [0, 0, 0.04]),
-        P(boxG(1.1, 0.55, 0.72), SOLID, 0x9a978e, [1.25, 3.2, 0], 1, [0, 0, -0.09]),
-        P(blobG(1, 560, 0.2), FOLIAGE2, 0x5c8a4a, [-1.5, 3.05, 0.2], [0.4, 0.15, 0.3], [0, rng() * TAU, 0], 0.1, false),
-      ],
+      make: (rng) => {
+        const vs = Math.floor(rng() * 1e6);
+        const g = merged(`rarchM${vs}`, () => {
+          const r2 = seededRandom(vs + 1);
+          const pieces = [];
+          for (const s of [-1, 1]) { // stacked-block legs
+            let y = 0;
+            const blocks = 3 + Math.floor(r2() * 2);
+            for (let i = 0; i < blocks; i++) {
+              const bh = 0.7 + r2() * 0.4;
+              const b = piece(boxG(0.72 - i * 0.03, bh, 0.72 - i * 0.03), {
+                t: [s * 1.5 + (r2() - 0.5) * 0.08, y + bh / 2, (r2() - 0.5) * 0.08],
+                r: [0, (r2() - 0.5) * 0.14, (r2() - 0.5) * 0.04], jit: 0.03, jseed: vs + s * 3 + i,
+              });
+              ramp(b, 0x827e74, 0xb4b0a4, y - 0.1, y + bh + 0.4, { noise: 0.06, seed: vs + s + i });
+              pieces.push(b);
+              y += bh;
+            }
+          }
+          const lintel = piece(boxG(2.3, 0.62, 0.78), { t: [-0.5, 3.28, 0], r: [0, 0, 0.04], jit: 0.035, jseed: vs + 8 });
+          ramp(lintel, 0x8d8a80, 0xb8b4a8, 2.9, 3.6, { noise: 0.05, seed: vs + 8 });
+          pieces.push(lintel);
+          const lintel2 = piece(boxG(1.15, 0.56, 0.74), { t: [1.22, 3.22, 0], r: [0, 0, -0.09], jit: 0.035, jseed: vs + 9 });
+          ramp(lintel2, 0x8d8a80, 0xb0aca0, 2.9, 3.5, { noise: 0.05, seed: vs + 9 });
+          pieces.push(lintel2);
+          const moss = piece(icoG(1, 1), { t: [-1.5, 3.58, 0.15], s: [0.38, 0.13, 0.28], jit: 0.14, jseed: vs + 5 });
+          ramp(moss, 0x3f6b34, 0x74a854, 3.45, 3.75, { seed: vs + 5 });
+          pieces.push(moss);
+          for (const s of [-1, 1]) { // rubble at the feet
+            const rub = piece(icoG(1, 1), {
+              t: [s * 1.85, 0.14, 0.35 * s], s: [0.26, 0.16, 0.22], r: [0, r2() * TAU, 0], jit: 0.16, jseed: vs + s + 20,
+            });
+            ramp(rub, 0x7d7a70, 0xa19e93, 0, 0.32, { seed: vs + s });
+            pieces.push(rub);
+          }
+          pieces.push(...tuftPieces(r2, { n: 5, R: 1.7, seed: vs + 6 }));
+          return pieces;
+        });
+        return [V(g, SOLID_V, [0.06, 0.03]), shadowP(2.3)];
+      },
     },
     ruin_wall: {
       variants: 3, collider: 1.6,
       make: (rng) => {
-        const parts = [P(boxG(3.2, 1.2, 0.55), SOLID, 0xa8a49a, [0, 0.6, 0], 1, [0, 0, (rng() - 0.5) * 0.04])];
-        let x = -1.4;
-        while (x < 1.4) {
-          const w = 0.4 + rng() * 0.5, h = 0.3 + rng() * 1.1;
-          parts.push(P(boxG(w, h, 0.55), SOLID, 0x9e9a90, [x, 1.2 + h / 2, 0], 1, [0, 0, (rng() - 0.5) * 0.08]));
-          x += w + 0.15 + rng() * 0.35;
-        }
-        parts.push(P(blobG(1, 570, 0.2), FOLIAGE2, 0x5c8a4a, [0.6, 1.28, 0.2], [0.45, 0.16, 0.3], [0, rng() * TAU, 0], 0.1, false));
-        return parts;
+        const vs = Math.floor(rng() * 1e6);
+        const g = merged(`rwallM${vs}`, () => {
+          const r2 = seededRandom(vs + 1);
+          const pieces = [];
+          const base = piece(boxG(3.25, 1.2, 0.58), { t: [0, 0.6, 0], r: [0, 0, (r2() - 0.5) * 0.04], jit: 0.04, jseed: vs });
+          ramp(base, 0x7d7a70, 0xaaa79b, 0, 1.7, { noise: 0.06, seed: vs });
+          pieces.push(base);
+          let x = -1.4;
+          let i = 0;
+          while (x < 1.4) {
+            const w = 0.4 + r2() * 0.5, h = 0.3 + r2() * 1.1;
+            const b = piece(boxG(w, h, 0.56), {
+              t: [x, 1.2 + h / 2, (r2() - 0.5) * 0.05], r: [0, 0, (r2() - 0.5) * 0.1], jit: 0.035, jseed: vs + i,
+            });
+            ramp(b, 0x8a877c, 0xb8b4a8, 1.1, 1.3 + h, { noise: 0.06, seed: vs + i });
+            pieces.push(b);
+            x += w + 0.15 + r2() * 0.35;
+            i++;
+          }
+          const moss = piece(icoG(1, 1), { t: [0.6, 1.3, 0.2], s: [0.42, 0.15, 0.28], jit: 0.14, jseed: vs + 9 });
+          ramp(moss, 0x3f6b34, 0x74a854, 1.18, 1.48, { seed: vs + 9 });
+          pieces.push(moss);
+          for (const s of [-1, 1]) { // tumbled blocks at the wall feet
+            const rub = piece(icoG(1, 0), {
+              t: [s * (1.5 + r2() * 0.5), 0.13, 0.5 + r2() * 0.3], s: [0.24, 0.15, 0.2], r: [0, r2() * TAU, 0], jit: 0.1, jseed: vs + s + 30,
+            });
+            ramp(rub, 0x7d7a70, 0x9e9a8e, 0, 0.3, { seed: vs + s + 3 });
+            pieces.push(rub);
+          }
+          pieces.push(...tuftPieces(r2, { n: 5, R: 1.5, seed: vs + 11 }));
+          return pieces;
+        });
+        const p = shadowP(1.4);
+        p.scl = [2.0, 1.4, 1.4];
+        return [V(g, SOLID_V, [0.06, 0.03]), p];
       },
     },
     statue_warden: {
       variants: 1, collider: 0.8,
-      // Two-tone carved stone: dark bevel courses between plinth steps, a
-      // darker hem/under-robe beneath a lighter over-robe, sash + cuff trim —
-      // reads as sculpted work instead of one flat gray cone.
-      make: () => [
-        P(boxG(1.5, 0.5, 1.5), SOLID, 0x8d8a84, [0, 0.25, 0]),
-        P(boxG(1.56, 0.1, 1.56), SOLID_S, 0x6f6c66, [0, 0.52, 0], 1, [0, 0, 0], 0.03, false), // bevel course
-        P(boxG(1.1, 0.35, 1.1), SOLID, 0x9a978e, [0, 0.67, 0]),
-        P(boxG(1.16, 0.07, 1.16), SOLID_S, 0xb0ada4, [0, 0.86, 0], 1, [0, 0, 0], 0.03, false), // pale cap lip
-        P(coneG(0.64, 0.75, 7), SOLID_S, 0x7e7b74, [0, 1.22, 0]),      // robe hem (darker under-tone)
-        P(coneG(0.55, 1.9, 7), SOLID_S, 0x9a978e, [0, 1.8, 0]),        // robed body
-        P(coneG(0.42, 1.05, 7), SOLID_S, 0xa8a49a, [0, 2.38, 0]),      // chest fold (lighter over-tone)
-        P(boxG(0.12, 1.45, 0.5), SOLID_S, 0x84817a, [0, 1.85, 0.16], 1, [0.06, 0, 0], 0.03, false), // front sash
-        P(sphereG(0.3, 7, 6), SOLID_S, 0xa8a49a, [0, 2.95, 0]),        // head
-        P(coneG(0.34, 0.5, 6), SOLID_S, 0x8b887f, [0, 3.15, -0.08], 1, [0.4, 0, 0]), // hood (darker than the face)
-        P(cylG(0.1, 0.12, 1.0, 6), SOLID_S, 0x9a978e, [0.55, 2.2, 0.25], 1, [0.5, 0, -0.5]), // offering arm
-        P(cylG(0.14, 0.13, 0.2, 6), SOLID_S, 0x84817a, [0.72, 2.5, 0.44], 1, [0.5, 0, -0.5], 0.03, false), // sleeve cuff
-        P(sphereG(0.2, 7, 6), GLOW_RUNE, 0xffe9b0, [0.8, 2.7, 0.55], 1, [0, 0, 0], 0, false), // held shard
-        P(blobG(1, 545, 0.2), FOLIAGE2, 0x5c8a4a, [-0.55, 0.56, 0.5], [0.32, 0.12, 0.26], [0, 0.6, 0], 0.1, false), // moss on the plinth
-      ],
+      // Carved-stone warden: weathered (jittered) robes with a dark hem ->
+      // pale shoulder gradient, stepped plinth, moss, and the held shard glow.
+      make: (rng) => {
+        const vs = Math.floor(rng() * 1e6);
+        const g = merged(`stwM${vs}`, () => {
+          const r2 = seededRandom(vs + 1);
+          const pieces = [];
+          const steps = [
+            [1.56, 0.34, 0x6b6862, 0x8a8780, 0],
+            [1.24, 0.32, 0x7d7a72, 0x9c9990, 0.32],
+            [0.96, 0.28, 0x8d8a82, 0xaaa79c, 0.6],
+          ];
+          for (const [sw, sh, cLo, cHi, sy] of steps) {
+            const st = piece(boxG(sw, sh, sw), { t: [0, sy + sh / 2, 0], r: [0, (r2() - 0.5) * 0.06, 0], jit: 0.02, jseed: vs + sy * 9 });
+            ramp(st, cLo, cHi, sy, sy + sh, { noise: 0.05, seed: vs + sy * 7 });
+            pieces.push(st);
+          }
+          const hem = piece(coneG(0.62, 0.8, 7), { t: [0, 1.2, 0], jit: 0.035, jseed: vs + 1 });
+          const body = piece(coneG(0.54, 1.9, 7), { t: [0, 1.82, 0], jit: 0.03, jseed: vs + 2 });
+          const chest = piece(coneG(0.4, 1.05, 7), { t: [0, 2.4, 0], jit: 0.025, jseed: vs + 3 });
+          for (const b of [hem, body, chest]) ramp(b, 0x6e6b64, 0xb2afa2, 0.8, 3.0, { noise: 0.05, seed: vs + 2, exp: 1.1 });
+          pieces.push(hem, body, chest);
+          const sash = piece(boxG(0.12, 1.45, 0.46), { t: [0, 1.86, 0.17], r: [0.06, 0, 0] });
+          ramp(sash, 0x6b685f, 0x8d8a80, 1.1, 2.6, { seed: vs + 4 });
+          pieces.push(sash);
+          const head = piece(sphereG(0.3, 8, 6), { t: [0, 2.97, 0], jit: 0.02, jseed: vs + 5 });
+          ramp(head, 0x969386, 0xb8b5a8, 2.7, 3.25, { seed: vs + 5 });
+          pieces.push(head);
+          const hood = piece(coneG(0.35, 0.55, 6), { t: [0, 3.17, -0.08], r: [0.4, 0, 0], jit: 0.025, jseed: vs + 6 });
+          ramp(hood, 0x74716a, 0x94918a, 2.95, 3.45, { seed: vs + 6 });
+          pieces.push(hood);
+          const arm = piece(cylG(0.1, 0.13, 1.0, 6), { t: [0.55, 2.22, 0.25], r: [0.5, 0, -0.5], jit: 0.02, jseed: vs + 7 });
+          ramp(arm, 0x817e75, 0xa5a296, 1.8, 2.7, { seed: vs + 7 });
+          pieces.push(arm);
+          const cuff = piece(cylG(0.145, 0.13, 0.2, 6), { t: [0.72, 2.52, 0.44], r: [0.5, 0, -0.5] });
+          tintG(cuff, 0x84817a, 0.04, vs + 8);
+          pieces.push(cuff);
+          const moss = piece(icoG(1, 1), { t: [-0.55, 0.36, 0.5], s: [0.3, 0.11, 0.24], jit: 0.14, jseed: vs + 9 });
+          ramp(moss, 0x3f6b34, 0x74a854, 0.28, 0.48, { seed: vs + 9 });
+          pieces.push(moss);
+          const moss2 = piece(icoG(1, 1), { t: [0.5, 0.68, -0.4], s: [0.2, 0.08, 0.18], jit: 0.14, jseed: vs + 10 });
+          ramp(moss2, 0x466e38, 0x78a856, 0.62, 0.78, { seed: vs + 10 });
+          pieces.push(moss2);
+          pieces.push(...tuftPieces(r2, { n: 5, R: 1.05, seed: vs + 11 }));
+          return pieces;
+        });
+        return [
+          V(g, SOLID_V, [0.04, 0.02]), shadowP(1.35),
+          P(sphereG(0.2, 7, 6), GLOW_RUNE, 0xffe9b0, [0.8, 2.72, 0.55], 1, [0, 0, 0], 0, false),
+        ];
+      },
     },
     // ------------------------------------------------------------- mountain / cold / fire
     ice_spike: {
@@ -1199,13 +2205,23 @@ export function buildProps(zone, heightAt) {
         const part = parts[pi];
         const im = new THREE.InstancedMesh(part.g, part.m, bucket.length);
         im.castShadow = part.shadow !== false;
-        im.receiveShadow = true;
+        im.receiveShadow = !part.ro;
+        if (part.ro) im.renderOrder = part.ro;
         for (let i = 0; i < bucket.length; i++) {
           const pl = bucket[i]; // {x, z, y, yaw, s, rng}
           _eul.set(0, pl.yaw, 0);
           _m4.compose(_pos.set(pl.x, pl.y, pl.z), _quat.setFromEuler(_eul), _scl.set(pl.s, pl.sy ?? pl.s, pl.s));
           _m4b.multiplyMatrices(_m4, locals[pi]);
           im.setMatrixAt(i, _m4b);
+          if (part.vjit) {
+            // Vertex-colored part: instance color is a multiplier — brightness
+            // band + warm/cool RGB tilt (hue jitter that survives white tints).
+            const lum = 1 + pl.lumJ * part.vjit[0];
+            const w = pl.hueJ * (part.vjit[1] ?? 0);
+            _col.setRGB(lum * (1 + w), lum, lum * (1 - w));
+            im.setColorAt(i, _col);
+            continue;
+          }
           // Per-instance hue/light jitter around the part tint (jitH, when
           // present, decouples the hue band from the lightness band).
           _col.set(part.tint);

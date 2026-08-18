@@ -20,13 +20,19 @@ export function build_motling(kit = kitDefault) {
 
   const root = new THREE.Group();
 
+  // Two-tone dust-fuzz: a warm-lavender under-tuft beneath the grey puffs so
+  // the mothy fluff has depth instead of one flat grey.
   const body = kit.fluffTuft(0.06, fuzz, { count: 6, seed: 80 });
+  const underFuzz = kit.fluffTuft(0.045, kit.mat(0xa89ab0, { rough: 0.85 }), { count: 4, seed: 81 });
+  underFuzz.position.y = -0.02;
+  body.add(underFuzz);
   root.add(body);
   body.position.y = 0.09;
 
-  const head = kit.at(body, kit.orb(0.032, fuzz, { sy: 0.9 }), 0, 0.035, 0.035);
-  const eyeL = kit.at(head, kit.eye(0.014, { irisColor: 0x14100c, skinColor: 0x8a8a94, glintSize: 0.006 }), 0.022, 0.005, 0.024, { ry: 0.4 });
-  const eyeR = kit.at(head, kit.eye(0.014, { irisColor: 0x14100c, skinColor: 0x8a8a94, glintSize: 0.006 }), -0.022, 0.005, 0.024, { ry: -0.4 });
+  const head = kit.at(body, kit.orb(0.034, fuzz, { sy: 0.9 }), 0, 0.035, 0.04);
+  kit.paint(head, { from: 0x7a7684, to: 0xb0aab8, noise: 0.05, seed: 82 });
+  const eyeL = kit.at(head, kit.eye(0.016, { irisColor: 0x14100c, skinColor: 0x8a8a94, glintSize: 0.007 }), 0.022, 0.005, 0.026, { ry: 0.25 });
+  const eyeR = kit.at(head, kit.eye(0.016, { irisColor: 0x14100c, skinColor: 0x8a8a94, glintSize: 0.007 }), -0.022, 0.005, 0.026, { ry: -0.25 });
 
   // Mote-glow antennae: thin curved horns, each tipped with a tiny warm
   // light — "drawn to light" made literal.

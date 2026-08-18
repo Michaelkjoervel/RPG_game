@@ -24,14 +24,18 @@ export function build_duskit(kit = kitDefault) {
   const root = new THREE.Group();
 
   const body = kit.blob(0.1, skin, { seed: 160, noise: 0.08, squash: { x: 1.05, y: 1.1, z: 1 } });
+  kit.paint(body, { from: 0x453c66, to: 0x746796, noise: 0.05, seed: 160 });
   root.add(body);
   body.position.y = 0.14;
 
   const head = kit.at(body, kit.orb(0.09, skin, { sy: 1.02 }), 0, 0.09, 0.01);
+  kit.paint(head, { from: 0x4f4573, to: 0x7d70a2, noise: 0.05, seed: 161 });
 
   // The mask-like face disc — flattened and pale, the model's one loud
-  // contrast against the otherwise dark plumage.
+  // contrast against the otherwise dark plumage. Gradient warms it faintly
+  // toward the brow like moonlight caught top-down.
   const disc = kit.at(head, kit.orb(0.08, discMat, { sy: 1.05, sz: 0.35 }), 0, 0, 0.04);
+  kit.paint(disc, { from: 0x968aa8, to: 0xcfc8da, noise: 0.03, seed: 162 });
 
   const eyeL = kit.at(disc, kit.eye(0.032, { irisColor: pal.primary, scleraColor: 0x18141c, skinColor: 0xb8b0c4, glintSize: 0.012 }), 0.035, 0.005, 0.11, { ry: 0.15 });
   const eyeR = kit.at(disc, kit.eye(0.032, { irisColor: pal.primary, scleraColor: 0x18141c, skinColor: 0xb8b0c4, glintSize: 0.012 }), -0.035, 0.005, 0.11, { ry: -0.15 });
@@ -56,6 +60,8 @@ export function build_duskit(kit = kitDefault) {
 
   const spark = kit.heartspark(0.024, pal.eye, { seed: 161 });
   kit.at(body, spark, 0, 0, 0.06);
+
+  root.add(kit.shadowDisc(0.13, 0.34));
 
   return {
     group: kit.groundPlant(root),

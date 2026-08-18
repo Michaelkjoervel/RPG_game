@@ -32,13 +32,25 @@
 
 import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
+import { applyVertexGradient, jitterGeometry } from '../../gfx/materials.js';
 
 export function build_aurios(kit = kitDefault) {
   // Three coat tones, not one: warm ivory body, pale belly/ruff, tan legs.
   // A single near-white value over the whole animal is what made the earlier
   // passes read as moulded plastic rather than a creature of morning light.
+  // Visual-overhaul pass: the main coat masses are vertex-gradient painted
+  // (warm tan under-body -> ivory top, faint mottle) so the barrel shades as
+  // a lit volume instead of one flat swatch; a touch of seeded jitter takes
+  // the CNC-perfect curve off the big orbs.
   const coatHex = 0xefe0bd;
   const coat = kit.mat(coatHex, { rough: 0.45, metal: 0.04 });
+  const coatV = kit.mat(0xffffff, { vertexColors: true, rough: 0.45, metal: 0.04 });
+  const COAT_LO = 0xcfae7e, COAT_HI = 0xfff6e2;
+  const paintCoat = (mesh, seed, jit = 0) => {
+    if (jit) jitterGeometry(mesh.geometry, jit, seed);
+    applyVertexGradient(mesh.geometry, { from: COAT_LO, to: COAT_HI, noise: 0.035, seed });
+    return mesh;
+  };
   const coatWarm = kit.mat(0xdcc396, { rough: 0.55 });        // legs / shaded tone
   const coatPale = kit.mat(0xfffaf0, { rough: 0.32 });        // ruff, belly, tail flash
   // Antler beams are SOLID (they must read as a black shape in a silhouette
@@ -68,8 +80,9 @@ export function build_aurios(kit = kitDefault) {
   // would swing it onto the X axis and lay the Dawnhart sideways across the
   // view). Bake it into the GEOMETRY, not body.rotation — `body` is the
   // attachment frame for every part below.
-  const body = kit.capsule(0.21, 0.58, coat, { capSeg: 5, radSeg: 11 });
+  const body = kit.capsule(0.21, 0.58, coatV, { capSeg: 5, radSeg: 11 });
   body.geometry.rotateX(Math.PI / 2);
+  paintCoat(body, 61, 0.006);
   root.add(body);
 
   // Hooves float; the light pool underneath is what touches the ground.
@@ -83,8 +96,8 @@ export function build_aurios(kit = kitDefault) {
   // Deep chest and tucked flanks: a stag is not a sausage. The chest orb is
   // wider than the barrel and sits under the shoulder; the haunch orb behind
   // it is high and round, and the waist between them stays narrow.
-  const chest = kit.at(body, kit.orb(0.235, coat, { sy: 1.06, sz: 0.9 }), 0, -0.04, 0.28);
-  const haunch = kit.at(body, kit.orb(0.215, coat, { sy: 1.08, sz: 0.95 }), 0, -0.02, -0.3);
+  const chest = kit.at(body, paintCoat(kit.orb(0.235, coatV, { sy: 1.06, sz: 0.9 }), 62, 0.008), 0, -0.04, 0.28);
+  const haunch = kit.at(body, paintCoat(kit.orb(0.215, coatV, { sy: 1.08, sz: 0.95 }), 63, 0.008), 0, -0.02, -0.3);
   // Radiant underside — lit from within, brightest along the belly.
   const bellyGlow = kit.capsule(0.12, 0.52, coatPale, { capSeg: 4, radSeg: 8 });
   bellyGlow.geometry.rotateX(Math.PI / 2);
@@ -107,7 +120,8 @@ export function build_aurios(kit = kitDefault) {
   const neckHalf = NECK_LEN * 0.5 + NECK_R;                       // 0.285
   const nDirY = Math.cos(NECK_TILT), nDirZ = Math.sin(NECK_TILT);
   const neckBaseY = 0.12, neckBaseZ = 0.4;
-  const neck = kit.capsule(NECK_R, NECK_LEN, coat, { capSeg: 4, radSeg: 9 });
+  const neck = kit.capsule(NECK_R, NECK_LEN, coatV, { capSeg: 4, radSeg: 9 });
+  paintCoat(neck, 65);
   kit.at(body, neck, 0, neckBaseY + neckHalf * nDirY, neckBaseZ + neckHalf * nDirZ, { rx: NECK_TILT });
   // A mane of dawn light along the crest of the neck: thin emissive strands
   // rising and sweeping back. It breaks the neck's tube, and it carries a
@@ -136,7 +150,7 @@ export function build_aurios(kit = kitDefault) {
 
   const headY = neckBaseY + 2 * neckHalf * nDirY - 0.02;
   const headZ = neckBaseZ + 2 * neckHalf * nDirZ + 0.02;
-  const head = kit.at(body, kit.blob(0.155, coat, { seed: 170, squash: { x: 0.82, y: 0.88, z: 1.42 } }), 0, headY, headZ, { rx: -0.18 });
+  const head = kit.at(body, paintCoat(kit.blob(0.155, coatV, { seed: 170, squash: { x: 0.82, y: 0.88, z: 1.42 } }), 64), 0, headY, headZ, { rx: -0.18 });
   // Long stag muzzle, tapering to a soft pale nose.
   const muzzle = kit.at(head, kit.capsule(0.062, 0.1, coat, { capSeg: 3, radSeg: 8 }), 0, -0.05, 0.17, { rx: Math.PI / 2 });
   const nose = kit.at(head, kit.orb(0.055, coatPale, { sy: 0.8, sz: 0.9 }), 0, -0.06, 0.25);

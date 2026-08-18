@@ -42,25 +42,32 @@ export function build_charvane(kit = kitDefault) {
   // out from under them too.
   const body = kit.capsule(0.13, 0.34, skin, { capSeg: 4, radSeg: 9 });
   body.geometry.rotateX(Math.PI / 2);
+  // Belly-to-back gradient: cool charcoal underside warming toward the
+  // magma-lit spine — the coat reads as fur catching its own seam-glow.
+  kit.paint(body, { from: 0x4a3d38, to: 0x8a7264, noise: 0.06, seed: 21 });
   root.add(body);
   body.position.y = 0.44;
 
   const chest = kit.at(body, kit.orb(0.15, skin, { sx: 0.95, sy: 1.05 }), 0, -0.02, 0.15);
+  kit.paint(chest, { from: 0x4a3d38, to: 0x836d60, noise: 0.05, seed: 22 });
 
   const head = kit.at(body, kit.orb(0.11, skin, { sz: 1.15, sy: 0.92 }), 0, 0.09, 0.28);
-  const snout = kit.at(head, kit.capsule(0.045, 0.07, skin), 0, -0.03, 0.09, { rx: Math.PI / 2 });
+  kit.paint(head, { from: 0x55463f, to: 0x8a7264, noise: 0.05, seed: 23 });
+  // Proper tapered muzzle instead of a capsule stub.
+  const snout = kit.at(head, kit.snout(0.12, skin, { r: 0.05, taper: 0.42, up: 0.1 }), 0, -0.035, 0.06);
 
-  const eyeL = kit.at(head, kit.eye(0.038, { irisColor: 0x2a1810, skinColor: skinHex, glintSize: 0.014 }), 0.06, 0.02, 0.08, { ry: 0.3 });
-  const eyeR = kit.at(head, kit.eye(0.038, { irisColor: 0x2a1810, skinColor: skinHex, glintSize: 0.014 }), -0.06, 0.02, 0.08, { ry: -0.3 });
+  const eyeL = kit.at(head, kit.eye(0.042, { irisColor: 0x2a1810, skinColor: skinHex, glintSize: 0.015 }), 0.062, 0.025, 0.082, { ry: 0.22 });
+  const eyeR = kit.at(head, kit.eye(0.042, { irisColor: 0x2a1810, skinColor: skinHex, glintSize: 0.015 }), -0.062, 0.025, 0.082, { ry: -0.22 });
 
   // Perky, alert canine ears — pride and loyalty read through an alert
   // upright posture more than any single part.
   const earL = kit.at(head, kit.ear(0.09, skin), 0.075, 0.09, -0.01, { rz: 0.2, ry: -0.15 });
   const earR = kit.at(head, kit.ear(0.09, skin), -0.075, 0.09, -0.01, { rz: -0.2, ry: 0.15 });
 
-  // A pair of small fangs, just visible — a proud hound bares them subtly.
-  kit.at(head, kit.fang(0.035, kit.mat(0xe8e2d8, { rough: 0.4 })), 0.03, -0.05, 0.115, { rz: -0.1 });
-  kit.at(head, kit.fang(0.035, kit.mat(0xe8e2d8, { rough: 0.4 })), -0.03, -0.05, 0.115, { rz: 0.1 });
+  // A pair of small fangs peeking from under the new muzzle — a proud hound
+  // bares them subtly.
+  kit.at(head, kit.fang(0.035, kit.mat(0xe8e2d8, { rough: 0.4 })), 0.028, -0.062, 0.14, { rz: -0.1 });
+  kit.at(head, kit.fang(0.035, kit.mat(0xe8e2d8, { rough: 0.4 })), -0.028, -0.062, 0.14, { rz: 0.1 });
 
   // --- Magma cracks along the spine: thin, permanently glowing seams. ---
   // They must sit PROUD of the fur: the torso capsule's surface directly above
@@ -113,6 +120,9 @@ export function build_charvane(kit = kitDefault) {
   // any deeper and the unlit core is simply occluded by the fur around it.
   const spark = kit.heartspark(0.036, pal.eye, { seed: 12 });
   kit.at(body, spark, 0, -0.03, 0.29);
+
+  // Planted on the ground — a proud hound casts a presence.
+  root.add(kit.shadowDisc(0.36, 0.38));
 
   return {
     group: kit.groundPlant(root),

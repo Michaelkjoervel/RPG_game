@@ -22,6 +22,7 @@ export function build_vellit(kit = kitDefault) {
   const root = new THREE.Group();
 
   const body = kit.blob(0.14, skin, { seed: 60, noise: 0.1, squash: { x: 0.95, y: 0.92, z: 1.2 } });
+  kit.paint(body, { from: 0xa2865e, to: 0xe2d0aa, noise: 0.05, seed: 60 });
   root.add(body);
   body.position.y = 0.22;
 
@@ -29,8 +30,12 @@ export function build_vellit(kit = kitDefault) {
   kit.at(body, kit.orb(0.075, cream, { sy: 0.65, sx: 0.8 }), 0, -0.05, 0.09);
 
   const head = kit.at(body, kit.orb(0.09, skin, { sz: 1.08, sy: 0.92 }), 0, 0.09, 0.16);
-  const eyeL = kit.at(head, kit.eye(0.038, { irisColor: 0x2a2016, skinColor: 0xcdb28a, glintSize: 0.014 }), 0.065, 0.015, 0.075, { ry: 0.35 });
-  const eyeR = kit.at(head, kit.eye(0.038, { irisColor: 0x2a2016, skinColor: 0xcdb28a, glintSize: 0.014 }), -0.065, 0.015, 0.075, { ry: -0.35 });
+  kit.paint(head, { from: 0xb89a70, to: 0xe0cda6, noise: 0.04, seed: 61 });
+  const eyeL = kit.at(head, kit.eye(0.043, { irisColor: 0x2a2016, skinColor: 0xcdb28a, glintSize: 0.016 }), 0.065, 0.017, 0.076, { ry: 0.25 });
+  const eyeR = kit.at(head, kit.eye(0.043, { irisColor: 0x2a2016, skinColor: 0xcdb28a, glintSize: 0.016 }), -0.065, 0.017, 0.076, { ry: -0.25 });
+  // Tiny cream muzzle-dot nose.
+  kit.at(head, kit.orb(0.028, cream.clone(), { sz: 0.8 }), 0, -0.03, 0.088);
+  kit.at(head, kit.orb(0.012, darkTip.clone()), 0, -0.014, 0.104);
 
   // Tiny fawn-nub horns — the "-deer" half of the mix, kept small so the
   // ears stay the dominant silhouette read.
@@ -38,11 +43,15 @@ export function build_vellit(kit = kitDefault) {
   const hornR = kit.at(head, kit.horn(0.035, skin, { bend: 0.2, baseR: 0.009 }), -0.035, 0.09, 0, { rz: -0.15 });
 
   // Oversized ears — the bible's explicit callout: tall, upright, dark-
-  // tipped, roughly twice the head's own diameter.
-  const earL = kit.at(head, kit.ear(0.16, skin), 0.045, 0.08, -0.02, { rz: 0.14 });
-  const earR = kit.at(head, kit.ear(0.16, skin), -0.045, 0.08, -0.02, { rz: -0.14 });
+  // tipped, roughly twice the head's own diameter. One ear pricked bolt
+  // upright, the other kinked half-out: a skittish hopper mid-listen.
+  const earInner = kit.mat(0xe9c9b8, { rough: 0.6 });
+  const earL = kit.at(head, kit.ear(0.16, skin), 0.045, 0.08, -0.02, { rz: 0.1 });
+  const earR = kit.at(head, kit.ear(0.17, skin), -0.045, 0.075, -0.02, { rz: -0.42, rx: -0.12 });
+  kit.at(earL, kit.ear(0.115, earInner), 0, 0.02, 0.012, { sx: 0.55 });
+  kit.at(earR, kit.ear(0.12, earInner.clone()), 0, 0.02, 0.012, { sx: 0.55 });
   kit.at(earL, kit.orb(0.028, darkTip, { sy: 0.5 }), 0, 0.15, 0.006);
-  kit.at(earR, kit.orb(0.028, darkTip, { sy: 0.5 }), 0, 0.15, 0.006);
+  kit.at(earR, kit.orb(0.028, darkTip, { sy: 0.5 }), 0, 0.16, 0.006);
 
   // Hind legs longer and heavier than the front pair — the silhouette of a
   // hopper, not a runner.
@@ -57,6 +66,8 @@ export function build_vellit(kit = kitDefault) {
 
   const spark = kit.heartspark(0.03, pal.eye, { seed: 62 });
   kit.at(body, spark, 0, 0.03, 0.13);
+
+  root.add(kit.shadowDisc(0.2, 0.36));
 
   return {
     group: kit.groundPlant(root),

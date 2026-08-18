@@ -33,6 +33,7 @@
 import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
 import { seededRandom } from '../../core/rng.js';
+import { applyVertexGradient, jitterGeometry } from '../../gfx/materials.js';
 
 // --- The membrane ------------------------------------------------------------
 // These wings are built from a hand-written outline rather than kit.wing()'s
@@ -119,9 +120,26 @@ export function build_nyxmara(kit = kitDefault) {
   const fur = kit.mat(furHex, { rough: 0.4, emissive: 0x241e46, emissiveIntensity: 0.5 });
   const furLight = kit.mat(0x655a92, { rough: 0.45 });
   const furDark = kit.mat(0x3c355e, { rough: 0.5 });
+  // Visual-overhaul pass: the big pelt masses are vertex-gradient painted
+  // (near-black violet under-body -> dusk lavender along the spine, faint
+  // mottle) so the cat shades as a lit volume instead of one flat purple.
+  const furV = kit.mat(0xffffff, { vertexColors: true, rough: 0.4, emissive: 0x241e46, emissiveIntensity: 0.5 });
+  const FUR_LO = 0x342c54, FUR_HI = 0x776b9e;
+  const paintFur = (mesh, seed, jit = 0) => {
+    if (jit) jitterGeometry(mesh.geometry, jit, seed);
+    applyVertexGradient(mesh.geometry, { from: FUR_LO, to: FUR_HI, noise: 0.03, seed });
+    return mesh;
+  };
   const wingMat = kit.mat(0x201f42, {
     rough: 0.45, transparent: true, opacity: 0.96, side: THREE.DoubleSide,
     emissive: 0x14132c, emissiveIntensity: 0.5,
+  });
+  // Membrane panels get their own vertex-gradient: dusk-lavender along the
+  // spar fading to near-black at the trailing edge, with a fine mottle — the
+  // dusty texture of a real moth wing, no shader needed.
+  const wingV = kit.mat(0xffffff, {
+    vertexColors: true, rough: 0.45, transparent: true, opacity: 0.96,
+    side: THREE.DoubleSide, emissive: 0x14132c, emissiveIntensity: 0.5,
   });
   const wingInner = kit.mat(0x322f5e, { rough: 0.5, side: THREE.DoubleSide, emissive: 0x1c1940, emissiveIntensity: 0.45 });
   const sparMat = kit.mat(0x50497e, { rough: 0.45 });
@@ -131,8 +149,9 @@ export function build_nyxmara(kit = kitDefault) {
   const root = new THREE.Group();
 
   // --- Panther barrel: long, low, muscular --------------------------------
-  const body = kit.capsule(0.19, 0.78, fur, { capSeg: 5, radSeg: 11 });
+  const body = kit.capsule(0.19, 0.78, furV, { capSeg: 5, radSeg: 11 });
   body.geometry.rotateX(Math.PI / 2);
+  paintFur(body, 71, 0.005);
   root.add(body);
 
   const LEG = 0.5, THIGH_R = 0.088, SHIN_R = 0.062;
@@ -141,9 +160,9 @@ export function build_nyxmara(kit = kitDefault) {
   body.position.y = legDrop - hipY;                               // paws exactly on y=0
 
   // Chest and haunches: a cat's mass is at the ends, the waist is narrow.
-  const chest = kit.at(body, kit.orb(0.235, fur, { sy: 1.0, sz: 0.95 }), 0, -0.01, 0.34);
-  const haunchL = kit.at(body, kit.orb(0.17, fur, { sy: 1.15, sz: 1.0 }), 0.11, 0.02, -0.32);
-  const haunchR = kit.at(body, kit.orb(0.17, fur, { sy: 1.15, sz: 1.0 }), -0.11, 0.02, -0.32);
+  const chest = kit.at(body, paintFur(kit.orb(0.235, furV, { sy: 1.0, sz: 0.95 }), 72, 0.007), 0, -0.01, 0.34);
+  const haunchL = kit.at(body, paintFur(kit.orb(0.17, furV, { sy: 1.15, sz: 1.0 }), 73, 0.006), 0.11, 0.02, -0.32);
+  const haunchR = kit.at(body, paintFur(kit.orb(0.17, furV, { sy: 1.15, sz: 1.0 }), 74, 0.006), -0.11, 0.02, -0.32);
   // Standing scapulae — the shoulder blades of a stalking cat break the back
   // line. Small, but they are the difference between "cat" and "barrel".
   const scapL = kit.at(body, kit.orb(0.1, furLight, { sy: 1.25, sz: 0.75 }), 0.115, 0.15, 0.27, { rz: -0.35 });
@@ -160,7 +179,7 @@ export function build_nyxmara(kit = kitDefault) {
   kit.at(body, kit.fluffTuft(0.1, furLight, { count: 5, seed: 18 }), 0, 0.2, -0.2);
 
   // --- Head: broad panther skull, moth antennae ---------------------------
-  const head = kit.at(body, kit.blob(0.2, fur, { seed: 180, squash: { x: 1.0, y: 0.88, z: 1.05 } }), 0, 0.1, 0.55);
+  const head = kit.at(body, paintFur(kit.blob(0.2, furV, { seed: 180, squash: { x: 1.0, y: 0.88, z: 1.05 } }), 75), 0, 0.1, 0.55);
   const brow = kit.at(head, kit.orb(0.17, furDark, { sy: 0.55, sz: 0.7 }), 0, 0.1, 0.04);
   const eyeL = kit.at(head, kit.eye(0.062, { irisColor: 0xd8c8ff, scleraColor: 0x120d1e, pupil: true, skinColor: furHex, glintSize: 0.023 }), 0.1, 0.025, 0.155, { ry: 0.35 });
   const eyeR = kit.at(head, kit.eye(0.062, { irisColor: 0xd8c8ff, scleraColor: 0x120d1e, pupil: true, skinColor: furHex, glintSize: 0.023 }), -0.1, 0.025, 0.155, { ry: -0.35 });
@@ -229,7 +248,9 @@ export function build_nyxmara(kit = kitDefault) {
 
     const panels = [];
     [[inner, 0, 0.5], [outer, 0.5, 1]].forEach(([bone, t0, t1], i) => {
-      const panel = new THREE.Mesh(membraneGeo(span, chord, t0, t1, UP, DOWN), wingMat);
+      const panelGeo = membraneGeo(span, chord, t0, t1, UP, DOWN);
+      applyVertexGradient(panelGeo, { from: 0x171531, to: 0x2f2c5c, axis: 'y', noise: 0.035, seed: seed + i * 3 });
+      const panel = new THREE.Mesh(panelGeo, wingV);
       panel.name = 'wingMembrane';
       bone.add(panel);
       panels.push(panel);

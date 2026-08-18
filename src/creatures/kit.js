@@ -76,6 +76,13 @@
 //     at(parent, child, x, y, z, opts) -> child                 attach + position sugar
 //     groundPlant(root) -> root                                 shift so feet sit exactly at y=0
 //     palette(aspectIds) -> { primary, secondary, accent, eye, emissive }  (hex ints)
+//   Visual-overhaul additions (ADDITIVE — nothing above changed signature)
+//     paint(mesh, {from,to,axis,noise,seed,exp,rough,flat}) -> mesh   bake 2-tone vertex gradient
+//     shadowDisc(radius, opacity) -> Mesh                        soft AO disc, attach to root
+//     lobedMass(opts) -> Group                                   gfx/materials re-export
+//     snout(len, mat, opts) -> Mesh                               tapered muzzle, base origin, +Z
+//     furFan(count, len, mat, opts) -> Group                      fanned fur/feather blades, +Y
+//     eye() new opts: pupilColor, irisScale, lidBias, microGlint  (old calls upgrade for free)
 //   Variants
 //     hollowify(group, parts?) -> group                         gray, cracked, dim (mutates)
 //     gleamify(group, parts?) -> group                          hue-shift + sparkle (mutates)
@@ -106,6 +113,11 @@ import * as THREE from 'three';
 import { clamp, clamp01 } from '../core/math.js';
 import { hashStr, seededRandom } from '../core/rng.js';
 import { ASPECTS } from '../data/aspects.js';
+import {
+  applyVertexGradient,
+  contactShadow as _contactShadow,
+  lobedMass as _lobedMass,
+} from '../gfx/materials.js';
 
 // ------------------------------------------------------------------ Materials
 
@@ -311,6 +323,122 @@ export function blob(r, m, opts = {}) {
   return mesh;
 }
 
+// ------------------------------------------------- Gradient & grounding sugar
+// (Additive vocabulary — new in the visual overhaul. Everything above/below
+// keeps its exact pre-overhaul signature.)
+
+/**
+ * Paints a 2-tone vertical (or any-axis) color gradient into a mesh's
+ * geometry and swaps its material for a vertex-color one, preserving the old
+ * material's transparency/side/emissive. THE core "flat-colored -> art" fix:
+ * call it on any body/torso/head right after creating it.
+ *   paint(body, { from: 0x5a3d2c, to: 0x9a7a52 });          // belly -> back
+ * @param {THREE.Mesh} mesh
+ * @param {object} [opts] {from, to, axis='y', noise=0.05, seed=1, exp=1, rough, flat}
+ * @returns {THREE.Mesh} mesh (same object, material replaced)
+ */
+export function paint(mesh, opts = {}) {
+  const { from = 0x55504a, to = 0xcac2b4, axis = 'y', noise = 0.05, seed = 1, exp = 1 } = opts;
+  applyVertexGradient(mesh.geometry, { from, to, axis, noise, seed, exp });
+  const src = mesh.material;
+  const m = mat(0xffffff, {
+    vertexColors: true,
+    rough: opts.rough ?? (src && src.roughness != null ? src.roughness : 0.75),
+    flat: opts.flat ?? true,
+    transparent: !!(src && src.transparent),
+    opacity: src ? src.opacity : 1,
+    side: src ? src.side : THREE.FrontSide,
+  });
+  if (src && src.emissive && (src.emissive.r || src.emissive.g || src.emissive.b)) {
+    m.emissive = src.emissive.clone();
+    m.emissiveIntensity = src.emissiveIntensity ?? 1;
+  }
+  mesh.material = m;
+  return mesh;
+}
+
+/**
+ * Soft dark AO disc that visually plants a creature on the ground. Attach to
+ * the model ROOT (not the breathing body) as the last child before
+ * groundPlant. castShadow/receiveShadow are hard-pinned false so registry's
+ * blanket `castShadow = true` traverse can't turn the disc into a floating
+ * square shadow-caster.
+ * @param {number} radius - world-ish units, match the creature's stance width
+ * @param {number} [opacity=0.38]
+ * @returns {THREE.Mesh}
+ */
+export function shadowDisc(radius = 0.25, opacity = 0.38) {
+  const m = _contactShadow(radius, opacity);
+  m.name = 'contactShadow';
+  m.position.y = 0.02;
+  Object.defineProperty(m, 'castShadow', { get: () => false, set: () => {} });
+  Object.defineProperty(m, 'receiveShadow', { get: () => false, set: () => {} });
+  return m;
+}
+
+/**
+ * Multi-lobed organic mass (see gfx/materials.js lobedMass) — re-exported so
+ * creature builders can use gradient-painted lobe clusters (shaggy bodies,
+ * cloud-sheep, canopy-backs) without a second import.
+ */
+export const lobedMass = _lobedMass;
+
+/**
+ * A rounded, tapered muzzle/snout. Base at the origin, extends along +Z
+ * (out of a +Z-facing head), narrowing toward the nose with a slight
+ * upward tip — instantly less "capsule stuck on a sphere".
+ * @param {number} len - total length
+ * @param {THREE.Material} m
+ * @param {object} [opts] {r=len*0.42, taper=0.45, up=0.14, segments=8}
+ * @returns {THREE.Mesh}
+ */
+export function snout(len, m, opts = {}) {
+  const { r = len * 0.42, taper = 0.45, up = 0.14, segments = 8 } = opts;
+  const geo = new THREE.CapsuleGeometry(r, Math.max(len - 2 * r, 0.005), 3, segments);
+  geo.rotateX(Math.PI / 2); // axis onto Z
+  geo.computeBoundingBox();
+  const bb = geo.boundingBox;
+  const span = Math.max(1e-5, bb.max.z - bb.min.z);
+  const pos = geo.attributes.position;
+  const v = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i);
+    const t = clamp01((v.z - bb.min.z) / span);
+    const s = 1 - taper * t;
+    v.x *= s;
+    v.y = v.y * s + up * len * t * t;
+    pos.setXYZ(i, v.x, v.y, v.z);
+  }
+  geo.translate(0, 0, -bb.min.z);
+  geo.computeVertexNormals();
+  return new THREE.Mesh(geo, m);
+}
+
+/**
+ * A fan of overlapping fur/feather blades — crests, cheek fluff, chest
+ * ruffs, tail fans. Blades point +Y from the origin, fanned around Z.
+ * Rotate the group via at() to aim it. DoubleSide material recommended.
+ * @param {number} count
+ * @param {number} len - blade length
+ * @param {THREE.Material} m
+ * @param {object} [opts] {width=len*0.3, spread=1.0 (radians), curl=-0.3, jitter=0.15, seed=1}
+ * @returns {THREE.Group}
+ */
+export function furFan(count, len, m, opts = {}) {
+  const { width = len * 0.3, spread = 1.0, curl = -0.3, jitter = 0.15, seed = 1 } = opts;
+  const group = new THREE.Group(); group.name = 'furFan';
+  const rng = seededRandom(seed * 3571 + count * 17);
+  for (let i = 0; i < count; i++) {
+    const t = count > 1 ? i / (count - 1) : 0.5;
+    const blade = leafBlade(len * (0.78 + rng() * 0.44), m, { width: width * (0.8 + rng() * 0.4), segments: 4 });
+    blade.rotation.z = Math.PI / 2 + (t - 0.5) * spread + (rng() - 0.5) * jitter;
+    blade.rotation.y = (rng() - 0.5) * jitter * 2;
+    blade.rotation.x = curl * (0.75 + rng() * 0.5);
+    group.add(blade);
+  }
+  return group;
+}
+
 // ---------------------------------------------------------------- Face parts
 
 /**
@@ -336,25 +464,77 @@ export function eye(r = 0.05, opts = {}) {
   const {
     irisColor = 0x1c1c22, scleraColor = 0xffffff, pupil = true,
     glintSize = r * 0.32, skinColor = 0x33323a,
+    // --- additive opts (older models simply never pass these) ---
+    pupilColor = null,   // hex; default derived from irisColor (see below)
+    irisScale = 1,       // multiplier on the iris disc's size
+    lidBias = 0,         // 0 = fully open, 1 = fully closed rest pose (0.45 ≈ sleepy half-lid)
+    microGlint = true,   // tiny secondary catchlight opposite the main one
   } = opts;
   const group = new THREE.Group(); group.name = 'eye';
-  const sclera = new THREE.Mesh(new THREE.SphereGeometry(r, 10, 8), mat(scleraColor, { rough: 0.3 }));
+  const sclera = new THREE.Mesh(new THREE.SphereGeometry(r, 9, 7), mat(scleraColor, { rough: 0.25 }));
   sclera.name = 'eyeSclera';
   group.add(sclera);
   if (pupil) {
-    const iris = new THREE.Mesh(new THREE.SphereGeometry(r * 0.62, 8, 6), mat(irisColor, { unlit: true }));
+    // AUTO-ENLIVEN: most pre-overhaul models pass a near-black irisColor and
+    // expect a "dot" — that read as dead. If the requested iris is dark, keep
+    // that color for the PUPIL and derive a livelier, saturated iris ring
+    // around it, so every old call site upgrades to a colored iris for free.
+    const reqIris = new THREE.Color(irisColor);
+    const lum = 0.2126 * reqIris.r + 0.7152 * reqIris.g + 0.0722 * reqIris.b;
+    let irisC, pupilC;
+    if (lum < 0.16) {
+      const hsl = { h: 0, s: 0, l: 0 };
+      reqIris.getHSL(hsl);
+      irisC = new THREE.Color().setHSL(hsl.h, Math.min(1, hsl.s * 1.5 + 0.3), 0.4);
+      pupilC = reqIris;
+    } else {
+      irisC = reqIris;
+      pupilC = pupilColor != null ? new THREE.Color(pupilColor) : reqIris.clone().multiplyScalar(0.16);
+    }
+    if (pupilColor != null) pupilC = new THREE.Color(pupilColor);
+    // Iris coverage is deliberately LARGE (most of the visible front) — a
+    // wide white ring around a small iris reads "googly/wall-eyed" the
+    // moment the head turns 3/4; a big iris stays a stylized eye from every
+    // angle.
+    const iR = r * 0.78 * irisScale;
+    // Dark outline ring behind the iris — defines the iris edge against the
+    // sclera the way stylized 2D eyes are inked.
+    const rim = new THREE.Mesh(new THREE.SphereGeometry(iR * 1.14, 8, 5), mat(pupilC.getHex(), { unlit: true }));
+    rim.name = 'eyeIrisRim';
+    rim.position.z = r * 0.34;
+    rim.scale.z = 0.42;
+    group.add(rim);
+    const iris = new THREE.Mesh(new THREE.SphereGeometry(iR, 8, 5), mat(irisC.getHex(), { unlit: true }));
     iris.name = 'eyeIris';
-    iris.position.z = r * 0.6;
+    iris.position.z = r * 0.42;
+    iris.scale.z = 0.48;
     group.add(iris);
+    const pup = new THREE.Mesh(new THREE.SphereGeometry(iR * 0.58, 7, 4), mat(pupilC.getHex(), { unlit: true }));
+    pup.name = 'eyePupil';
+    pup.position.z = r * 0.58;
+    pup.scale.z = 0.5;
+    group.add(pup);
   }
-  const glint = new THREE.Mesh(new THREE.SphereGeometry(glintSize, 6, 5), mat(0xffffff, { unlit: true }));
+  // Main catchlight: floored so no model ends up with an invisible speck —
+  // the always-on specular highlight is what makes an eye read as ALIVE.
+  const gR = Math.max(glintSize, r * 0.26);
+  const glint = new THREE.Mesh(new THREE.SphereGeometry(gR, 6, 4), mat(0xffffff, { unlit: true }));
   glint.name = 'eyeGlint';
-  glint.position.set(r * 0.28, r * 0.32, r * 0.84);
+  glint.position.set(r * 0.3, r * 0.34, r * 0.8);
   group.add(glint);
-  const lid = new THREE.Mesh(new THREE.SphereGeometry(r * 1.08, 10, 8), mat(skinColor, { rough: 0.85 }));
+  if (microGlint) {
+    const g2 = new THREE.Mesh(new THREE.SphereGeometry(gR * 0.45, 5, 3), mat(0xffffff, { unlit: true, transparent: true, opacity: 0.85 }));
+    g2.name = 'eyeGlint2';
+    g2.position.set(-r * 0.26, -r * 0.2, r * 0.82);
+    group.add(g2);
+  }
+  // Eyelid: slightly darker than the skin so a blink reads as a lid, not a
+  // glitch. Y-scale = openness (0.06 open sliver .. ~1 closed).
+  const lidC = new THREE.Color(skinColor).multiplyScalar(0.82);
+  const lid = new THREE.Mesh(new THREE.SphereGeometry(r * 1.08, 9, 7), mat(lidC.getHex(), { rough: 0.85 }));
   lid.name = 'eyelid';
   lid.position.z = r * 0.12;
-  lid.scale.set(1, 0.06, 0.7); // open by default (thin sliver, effectively hidden)
+  lid.scale.set(1, 0.06 + 0.9 * clamp01(lidBias), 0.7);
   group.add(lid);
   return group;
 }
@@ -592,8 +772,12 @@ export function leg(len, m, opts = {}) {
   const shin = capsule(shinR, shinLen, m);
   shin.position.y = -shinLen / 2 - shinR * 0.2;
   knee.add(shin);
-  const foot = box(shinR * 1.7, shinR * 0.85, footLen, footMat);
-  foot.position.set(0, -shinLen - shinR * 0.5, footLen * 0.3);
+  // Rounded paw instead of the old box — a squashed orb with a slight toe
+  // stretch. Same anchor/`foot` contract, drastically less "klodset".
+  const fr = shinR * 1.25;
+  const footSz = clamp(footLen / (2 * fr), 0.9, 2.2);
+  const foot = orb(fr, footMat, { sy: 0.6, sz: footSz, wSeg: 8, hSeg: 6 });
+  foot.position.set(0, -shinLen - shinR * 0.925 + fr * 0.6, footLen * 0.3);
   knee.add(foot);
   return { group: hip, hip, knee, foot };
 }
@@ -865,7 +1049,7 @@ export function palette(aspectIds = ['neutral']) {
 export function hollowify(group, parts) {
   group.traverse((node) => {
     if (!node.isMesh || !node.material || !node.material.color) return;
-    if (node.name === 'eyeGlint') { node.scale.multiplyScalar(0.45); node.material.opacity = 0.5; node.material.transparent = true; return; }
+    if (node.name === 'eyeGlint' || node.name === 'eyeGlint2') { node.scale.multiplyScalar(0.45); node.material.opacity = 0.5; node.material.transparent = true; return; }
     const hsl = { h: 0, s: 0, l: 0 };
     node.material.color.getHSL(hsl);
     node.material.color.setHSL(hsl.h, hsl.s * 0.12, clamp(hsl.l * 0.7 + 0.12, 0.18, 0.55));

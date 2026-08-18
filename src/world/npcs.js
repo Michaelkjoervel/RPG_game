@@ -28,7 +28,7 @@ import { bus } from '../core/events.js';
 import { G, hasFlag } from '../core/state.js';
 import { clamp, damp, dampAngle, lerp, TAU } from '../core/math.js';
 import { hashStr, seededRandom } from '../core/rng.js';
-import { windSway, disposeGroup } from '../gfx/materials.js';
+import { windSway, disposeGroup, applyVertexGradient, jitterGeometry, contactShadow } from '../gfx/materials.js';
 
 const INTERACT_RADIUS = 2.3;
 const INTERACT_CONE = Math.cos((50 * Math.PI) / 180); // half-angle cutoff -> ~100deg total talk cone
@@ -50,11 +50,55 @@ function stdMat(color, opts = {}) {
     color, flatShading: opts.flat !== false, roughness: opts.rough ?? 0.8, metalness: opts.metal ?? 0,
     emissive: new THREE.Color(opts.emissive ?? 0x000000), emissiveIntensity: opts.ei ?? 1,
     transparent: !!opts.transparent, opacity: opts.opacity ?? 1, side: opts.side ?? THREE.FrontSide,
+    vertexColors: !!opts.vertexColors,
   });
   if (opts.sway) { try { windSway(m, { strength: opts.sway }); } catch (e) { warnOnce('windSway unavailable: ' + e.message); } }
   return m;
 }
 function mesh(g, m, shadow = true) { const me = new THREE.Mesh(g, m); me.castShadow = shadow; me.receiveShadow = false; return me; }
+
+// Build-time color helper (never called per frame).
+const _shadeC = new THREE.Color();
+function shade(hex, dl, ds = 0) { _shadeC.setHex(hex).offsetHSL(0, ds, dl); return _shadeC.getHex(); }
+
+// Neutral brightness ramp baked into CACHED geometry as vertex colors: dark
+// warm hem -> white crown. It multiplies the material color, so one cached
+// geometry serves every NPC palette. Pair with stdMat(color,{vertexColors:true}).
+function vgrad(g, opts = {}) {
+  applyVertexGradient(g, {
+    from: opts.from ?? 0xb4a89c, to: opts.to ?? 0xffffff,
+    noise: opts.noise ?? 0.04, seed: opts.seed ?? 5, exp: opts.exp ?? 1, axis: opts.axis ?? 'y',
+  });
+  return g;
+}
+
+// Trapezoid cloth panel (capes, aprons, scarf tails): topW at y=0 -> bottomW at y=-len.
+function panelGeo(topW, bottomW, len, thick = 0.024, wSegs = 3, hSegs = 3) {
+  const g = new THREE.BoxGeometry(1, len, thick, wSegs, hSegs, 1);
+  const pos = g.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const u = 0.5 - pos.getY(i) / len;
+    pos.setX(i, pos.getX(i) * lerp(topW, bottomW, u));
+  }
+  g.translate(0, -len / 2, 0);
+  g.computeVertexNormals();
+  return g;
+}
+
+// Shared soft AO disc under every NPC — geometry+material live for the module
+// lifetime (flagged shared so disposeGroup leaves them alone).
+let _shadowTpl = null;
+function shadowDisc(radius) {
+  if (!_shadowTpl) {
+    _shadowTpl = contactShadow(1, 0.72);
+    _shadowTpl.geometry.userData.shared = true;
+    _shadowTpl.material.userData.shared = true;
+  }
+  const s = _shadowTpl.clone();
+  s.scale.setScalar(radius);
+  s.position.y = 0.02;
+  return s;
+}
 
 // ---------------------------------------------------------------- deterministic per-id palette
 const HAIR_POOL = [0x3a2a20, 0x6b4a33, 0x2a2422, 0xb06a3c, 0x8a7050, 0xd8c8a0, 0x4a3830];

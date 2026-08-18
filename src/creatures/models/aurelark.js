@@ -29,6 +29,10 @@ export function build_aurelark(kit = kitDefault) {
   // about Z would put the long axis on X, i.e. wingtip-to-wingtip.
   const body = kit.capsule(0.085, 0.26, dusk, { capSeg: 4, radSeg: 9 });
   body.geometry.rotateX(Math.PI / 2);
+  // THE dawn gradient, literal: dusk-purple tail sweeping through rose into
+  // warm gold at the head — one continuous ramp along the body axis instead
+  // of the old hard color zones.
+  kit.paint(body, { from: 0x5d4680, to: 0xffc98a, axis: 'z', noise: 0.04, seed: 72, exp: 1.25 });
   root.add(body);
   body.position.y = 0.28;
 
@@ -36,15 +40,17 @@ export function build_aurelark(kit = kitDefault) {
   const chest = kit.capsule(0.055, 0.16, peach, { capSeg: 3, radSeg: 7 });
   chest.geometry.rotateX(Math.PI / 2);
   chest.scale.set(0.7, 0.65, 1);
+  kit.paint(chest, { from: 0xc98aa8, to: 0xffc4a4, axis: 'z', noise: 0.04, seed: 73 });
   kit.at(body, chest, 0, -0.05, 0.05); // flush with the belly, not buried in it
 
   const head = kit.at(body, kit.orb(0.06, gold, { sz: 1.15 }), 0, 0.06, 0.23);
-  const eyeL = kit.at(head, kit.eye(0.026, { irisColor: 0x241810, skinColor: 0xffcf7a, glintSize: 0.01 }), 0.045, 0.008, 0.05, { ry: 0.4 });
-  const eyeR = kit.at(head, kit.eye(0.026, { irisColor: 0x241810, skinColor: 0xffcf7a, glintSize: 0.01 }), -0.045, 0.008, 0.05, { ry: -0.4 });
+  kit.paint(head, { from: 0xffb87a, to: 0xffe2a8, noise: 0.03, seed: 74 });
+  const eyeL = kit.at(head, kit.eye(0.029, { irisColor: 0x241810, skinColor: 0xffcf7a, glintSize: 0.011 }), 0.045, 0.01, 0.052, { ry: 0.28 });
+  const eyeR = kit.at(head, kit.eye(0.029, { irisColor: 0x241810, skinColor: 0xffcf7a, glintSize: 0.011 }), -0.045, 0.01, 0.052, { ry: -0.28 });
   const beak = kit.at(head, kit.cone(0.018, 0.04, beakMat, { segments: 6 }), 0, -0.008, 0.065, { rx: Math.PI / 2 });
 
-  // A single upswept crest plume — vanity given shape.
-  const crest = kit.at(head, kit.leafBlade(0.055, gold.clone(), { width: 0.015 }), 0, 0.055, -0.01, { rx: -1.2, rz: 0.1 });
+  // The crest: a swept-back golden three-plume fan — vanity given shape.
+  const crest = kit.at(head, kit.furFan(3, 0.075, kit.mat(0xffcf7a, { rough: 0.4, side: THREE.DoubleSide }), { width: 0.018, spread: 0.55, curl: 0.5, seed: 75 }), 0, 0.052, -0.015, { rx: -0.55 });
 
   // Elegant feathered wings, larger and more refined than Pipwing's stubs.
   const wingDefs = [[0.075, 0.05, -0.01, 1], [-0.075, 0.05, -0.01, -1]];
@@ -72,6 +78,8 @@ export function build_aurelark(kit = kitDefault) {
 
   const spark = kit.heartspark(0.025, pal.eye, { seed: 73 });
   kit.at(body, spark, 0, -0.03, 0.19);
+
+  root.add(kit.shadowDisc(0.18, 0.32));
 
   return {
     group: kit.groundPlant(root),
