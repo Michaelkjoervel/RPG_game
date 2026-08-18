@@ -169,6 +169,8 @@ class Game {
       out += `player  ${f(p.pos.x)}, ${f(p.pos.y)}, ${f(p.pos.z)}   ground ${f(gy)}\n`;
       out += `frozen  ${p.isFrozen?.() ?? '?'}   input ${f(input.axes.x)}, ${f(input.axes.y)}\n`;
     } else out += 'player  — (none)\n';
+    const errs = w?._subErrors;
+    if (errs && Object.keys(errs).length) out += `errors  ${Object.entries(errs).map(([k, v]) => k + ': ' + v).join(' | ').slice(0, 110)}\n`;
     if (cam) {
       const cgy = w.heightAt ? w.heightAt(cam.position.x, cam.position.z) : NaN;
       out += `camera  ${f(cam.position.x)}, ${f(cam.position.y)}, ${f(cam.position.z)}   ground ${f(cgy)}`;

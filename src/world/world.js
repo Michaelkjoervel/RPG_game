@@ -296,23 +296,35 @@ export class World {
     this._time += dt;
     tickWind(dt);
 
-    if (this.player) this.player.update(dt);
-    if (this.cameraRig) this.cameraRig.update(dt);
-    if (this.sky) this.sky.update(dt, G.calendar.dayTime);
-    if (this.water) this.water.update(dt);
+    // Every subsystem is isolated: the exact failure that motivated this was a
+    // throwing camera update (blocked gamepad API) that silently stopped the
+    // view from following the player while everything else kept working. One
+    // subsystem's bad frame must never take the rest of the world with it —
+    // and it must warn (once) rather than fail invisibly.
+    this._sub('player', () => this.player?.update(dt));
+    this._sub('camera', () => this.cameraRig?.update(dt));
+    this._sub('sky', () => this.sky?.update(dt, G.calendar.dayTime));
+    this._sub('water', () => this.water?.update(dt));
 
     const updaters = this.props?.updaters;
     if (updaters) for (let i = 0; i < updaters.length; i++) {
       try { updaters[i](dt, this._time); } catch (e) { warnOnce('props updater', e?.message ?? e); }
     }
 
-    if (this.weather) this.weather.update(dt);
-    if (this.wildlife) this.wildlife.update(dt);
-    if (this.encounters) this.encounters.update(dt);
-    if (this.npcs) this.npcs.update(dt);
-    if (this.interactables) this.interactables.update(dt);
+    this._sub('weather', () => this.weather?.update(dt));
+    this._sub('wildlife', () => this.wildlife?.update(dt));
+    this._sub('encounters', () => this.encounters?.update(dt));
+    this._sub('npcs', () => this.npcs?.update(dt));
+    this._sub('interactables', () => this.interactables?.update(dt));
 
-    this._updateShadowFollow();
+    this._sub('shadow', () => this._updateShadowFollow());
+  }
+
+  _sub(name, fn) {
+    try { fn(); } catch (e) {
+      warnOnce(`update:${name}`, `world subsystem "${name}" failed: ${e?.message ?? e}`);
+      (this._subErrors ??= {})[name] = String(e?.message ?? e); // surfaced by the F1 overlay
+    }
   }
 
   _updateShadowFollow() {

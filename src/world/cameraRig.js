@@ -109,6 +109,7 @@ export function createCameraRig(world) {
   let time = 0;
   let yawInitialized = false;
   let badCamT = 0;            // seconds the eye has been in an invalid pose
+  let gamepadBlocked = false; // permissions policy forbids gamepads here — stop asking
 
   const shakes = []; // { t, dur, mag, fx,fy,fz, px,py,pz }
 
@@ -194,9 +195,16 @@ export function createCameraRig(world) {
     }
     if (dragging) manualActive = true;
 
-    /* --- manual orbit: gamepad right stick (input.js only tracks the left stick) --- */
-    const gpList = (typeof navigator !== 'undefined' && navigator.getGamepads) ? navigator.getGamepads() : null;
-    const gp = gpList ? gpList[0] : null;
+    /* --- manual orbit: gamepad right stick (input.js only tracks the left stick) ---
+       Embedded frames can forbid the gamepad feature by permissions policy, in
+       which case getGamepads() THROWS. One refusal is permanent — remember it,
+       or this throw kills the camera update every frame and the view stops
+       following the player entirely (while walking and menus still work). */
+    let gp = null;
+    if (!gamepadBlocked && typeof navigator !== 'undefined' && navigator.getGamepads) {
+      try { gp = navigator.getGamepads()[0] ?? null; }
+      catch (e) { gamepadBlocked = true; gp = null; }
+    }
     if (gp && gp.axes && gp.axes.length >= 4) {
       const rawX = gp.axes[2], rawY = gp.axes[3];
       const gx = Math.abs(rawX) > PAD_DEADZONE ? rawX : 0;
