@@ -165,3 +165,154 @@ const PALETTES = {
 export function groundPalette(biome) {
   return PALETTES[biome] ?? PALETTES.meadow;
 }
+
+/* ============================================================================
+   Stylized-art foundation — the difference between "programmer shapes" and
+   art-directed low-poly is mostly three things, shared here so every builder
+   (props, creatures, characters, terrain) speaks the same visual language:
+     1. vertex-color GRADIENTS inside a single mesh (dark base -> lit crown),
+     2. organic IRREGULARITY (seeded vertex jitter — no perfect primitives),
+     3. grounding (soft contact-shadow discs under everything that stands).
+   ========================================================================== */
+
+const _c1 = new THREE.Color(), _c2 = new THREE.Color();
+
+/** Seeded hash noise in [-1,1] from a vertex position — stable across reloads. */
+function hashNoise(x, y, z, seed = 0) {
+  const s = Math.sin(x * 127.1 + y * 311.7 + z * 74.7 + seed * 53.13) * 43758.5453;
+  return (s - Math.floor(s)) * 2 - 1;
+}
+
+/**
+ * Paints a vertical color ramp into geometry vertex colors, with optional hue
+ * mottling so large surfaces never read as one flat swatch.
+ * Pair with a material created via mat(0xffffff, {vertexColors:true}).
+ */
+export function applyVertexGradient(geometry, {
+  from = 0x4f7a3a, to = 0x8fce5c, axis = 'y', noise = 0.06, seed = 1, exp = 1,
+} = {}) {
+  const pos = geometry.attributes.position;
+  const bb = geometry.boundingBox ?? (geometry.computeBoundingBox(), geometry.boundingBox);
+  const ai = axis === 'x' ? 0 : axis === 'z' ? 2 : 1;
+  const lo = bb.min.getComponent(ai), hi = bb.max.getComponent(ai);
+  const span = Math.max(1e-5, hi - lo);
+  _c1.setHex(from); _c2.setHex(to);
+  const colors = new Float32Array(pos.count * 3);
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    let t = ((ai === 0 ? x : ai === 2 ? z : y) - lo) / span;
+    t = Math.pow(Math.min(1, Math.max(0, t)), exp);
+    const n = noise ? hashNoise(x, y, z, seed) * noise : 0;
+    colors[i * 3 + 0] = _c1.r + (_c2.r - _c1.r) * t + n;
+    colors[i * 3 + 1] = _c1.g + (_c2.g - _c1.g) * t + n;
+    colors[i * 3 + 2] = _c1.b + (_c2.b - _c1.b) * t + n * 0.7;
+  }
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  return geometry;
+}
+
+/**
+ * Seeded organic jitter: displaces vertices along their normals (plus a little
+ * tangentially) so spheres stop being spheres. amp is in local units.
+ * Recomputes normals. Safe on indexed and non-indexed geometry.
+ */
+export function jitterGeometry(geometry, amp = 0.06, seed = 1) {
+  const pos = geometry.attributes.position;
+  geometry.computeVertexNormals();
+  const nrm = geometry.attributes.normal;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    const n = hashNoise(x, y, z, seed);
+    const n2 = hashNoise(z, x, y, seed + 7);
+    pos.setXYZ(i,
+      x + nrm.getX(i) * n * amp + n2 * amp * 0.35,
+      y + nrm.getY(i) * n * amp,
+      z + nrm.getZ(i) * n * amp - n2 * amp * 0.35,
+    );
+  }
+  pos.needsUpdate = true;
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+let _aoTex = null;
+/** Soft radial contact-shadow texture (shared, generated once). */
+function aoTexture() {
+  if (_aoTex) return _aoTex;
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d');
+  const grad = g.createRadialGradient(64, 64, 6, 64, 64, 62);
+  grad.addColorStop(0, 'rgba(0,0,0,0.42)');
+  grad.addColorStop(0.65, 'rgba(0,0,0,0.18)');
+  grad.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 128, 128);
+  _aoTex = new THREE.CanvasTexture(c);
+  return _aoTex;
+}
+
+/**
+ * A soft dark disc that visually plants an object on the ground — the cheapest
+ * convincing ambient-occlusion stand-in there is. Place at the object's base
+ * (y ≈ 0.02 above terrain). radius in world units.
+ */
+export function contactShadow(radius = 0.8, opacity = 1) {
+  const m = new THREE.Mesh(
+    new THREE.PlaneGeometry(radius * 2, radius * 2),
+    new THREE.MeshBasicMaterial({
+      map: aoTexture(), transparent: true, opacity, depthWrite: false,
+      polygonOffset: true, polygonOffsetFactor: -1,
+    }),
+  );
+  m.rotation.x = -Math.PI / 2;
+  m.renderOrder = 1;
+  return m;
+}
+
+/**
+ * Multi-lobed organic canopy/bush/cloud mass: several jittered, gradient-
+ * painted icosphere lobes merged around a center. THE workhorse for trees and
+ * bushes — one lobe reads as a placeholder, four read as art.
+ */
+export function lobedMass({
+  lobes = 4, radius = 1, spread = 0.75, squash = 0.82,
+  from = 0x3e6b34, to = 0x8fce5c, seed = 1, jitter = 0.14, detail = 1,
+} = {}) {
+  const group = new THREE.Group();
+  const material = mat(0xffffff, { vertexColors: true, flat: true });
+  for (let i = 0; i < lobes; i++) {
+    const a = (i / lobes) * Math.PI * 2 + hashNoise(i, seed, 0, seed) * 0.8;
+    const r = radius * (0.55 + 0.45 * Math.abs(hashNoise(seed, i, 1, i)));
+    const geo = new THREE.IcosahedronGeometry(r, detail);
+    jitterGeometry(geo, r * jitter, seed * 13 + i);
+    geo.translate(
+      Math.cos(a) * spread * radius * (i === 0 ? 0 : 1),
+      (hashNoise(i, i, seed, 3) * 0.3 + (i === 0 ? 0.15 : 0)) * radius,
+      Math.sin(a) * spread * radius * (i === 0 ? 0 : 1),
+    );
+    geo.scale(1, squash, 1);
+    const mesh = new THREE.Mesh(geo, material);
+    group.add(mesh);
+  }
+  // Paint the gradient across the whole assembled mass so lobes shade as one.
+  const box = new THREE.Box3().setFromObject(group);
+  for (const child of group.children) {
+    child.geometry.computeBoundingBox();
+    const bb = child.geometry.boundingBox;
+    const pos = child.geometry.attributes.position;
+    _c1.setHex(from); _c2.setHex(to);
+    const colors = new Float32Array(pos.count * 3);
+    const span = Math.max(1e-5, box.max.y - box.min.y);
+    for (let i = 0; i < pos.count; i++) {
+      const t = Math.min(1, Math.max(0, (pos.getY(i) - box.min.y) / span));
+      const n = hashNoise(pos.getX(i), pos.getY(i), pos.getZ(i), seed) * 0.05;
+      colors[i * 3 + 0] = _c1.r + (_c2.r - _c1.r) * t + n;
+      colors[i * 3 + 1] = _c1.g + (_c2.g - _c1.g) * t + n;
+      colors[i * 3 + 2] = _c1.b + (_c2.b - _c1.b) * t + n * 0.7;
+    }
+    child.geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    child.castShadow = true;
+  }
+  return group;
+}
