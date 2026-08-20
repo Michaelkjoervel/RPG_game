@@ -59,7 +59,10 @@ const MOODS = {
   sunkenruins:   { name: 'murky cyan',           key: 0xe8eecc, keyI: 0.95, fillI: 0.85, shadow: 0x5a8a86, bounce: 0x8ca894, warmth: 0.2,  fogTint: 0x76a49c, fogTintAmt: 0.5,  fogMul: 1.1 },
   starfallglade: { name: 'violet night sparkle', key: 0xffcf9c, keyI: 1.0,  fillI: 0.95, shadow: 0x6c58a8, bounce: 0x8868a0, warmth: 0.3,  starFloor: 0.75, fogTint: 0x5c4884, fogTintAmt: 0.45, fogMul: 1.0 },
   gloamcavern:   { name: 'teal dark, glow accents', fogTint: 0x102b28, fogTintAmt: 0.55, fogMul: 1.0,
-    indoor: { domeTop: 0x0e1a1c, domeBottom: 0x091012, domeHorizon: 0x143230, hemiSky: 0x58a8a0, hemiGround: 0x1e3c3a, fill: 0x5ee0cc, key: 0x9fd8d0, keyI: 0.85, keyDir: [0.45, 0.8, 0.3] } },
+    // Raking teal-white key (low elevation, real intensity) sculpts the cave
+    // floor; hemi pulled down in trade so the net luminance holds but forms
+    // shade instead of reading as one flat teal wash.
+    indoor: { domeTop: 0x0e1a1c, domeBottom: 0x091012, domeHorizon: 0x143230, hemiSky: 0x58a8a0, hemiGround: 0x1e3c3a, fill: 0x5ee0cc, key: 0x9fd8d0, keyI: 2.2, keyDir: [0.6, 0.5, 0.38], hemiScale: 0.78 } },
   hollowspire:   { name: 'oppressive violet',    fogTint: 0x1c1428, fogTintAmt: 0.55, fogMul: 1.0,
     indoor: { domeTop: 0x141020, domeBottom: 0x0c0a14, domeHorizon: 0x241a34, hemiSky: 0x9282ba, hemiGround: 0x352c4a, fill: 0xb8a2ff, key: 0xa88fd8, keyI: 1.0, keyDir: [-0.4, 0.85, 0.25] } },
 };
@@ -205,7 +208,11 @@ function makeColorSet(zone, mood) {
     bottom: bottom.clone().lerp(top, 0.22),
     // Noon horizon is warm-WHITE haze, not orange — authored skyBottom values
     // are warm enough that un-desaturated they read as permanent sunset.
-    horizon: bottom.clone().lerp(WHITE, 0.35).lerp(keyC, (mood.warmth ?? 0.3) * 0.18),
+    // Permanent-twilight zones (starFloor) skip the haze: their horizon must
+    // stay saturated violet, not wash to gray.
+    horizon: mood.starFloor
+      ? bottom.clone().lerp(keyC, (mood.warmth ?? 0.3) * 0.2)
+      : bottom.clone().lerp(WHITE, 0.35).lerp(keyC, (mood.warmth ?? 0.3) * 0.18),
   };
   const night = {
     top: top.clone().lerp(new THREE.Color(0x05070f), 0.9),
@@ -409,7 +416,7 @@ export function createSky(zone, scene) {
   // mood. The spire's fortress-black walls swallow far more light, so it gets
   // a stronger fill just to hold silhouette readability. Hue now comes from
   // the zone mood (gloamcavern teal, hollowspire violet).
-  const indoorHemiI = biome === 'spire' ? 7.0 : 4.0;
+  const indoorHemiI = (biome === 'spire' ? 7.0 : 4.0) * (ind?.hemiScale ?? 1);
   const indoorFillI = biome === 'spire' ? 9.0 : 7.5;
   const hemi = new THREE.HemisphereLight(
     indoor ? ind.hemiSky : colors.day.top.getHex(),

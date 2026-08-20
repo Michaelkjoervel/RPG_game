@@ -15,6 +15,9 @@ export async function run(page, h) {
   await page.evaluate(() => {
     document.getElementById('ui-root').style.display = 'none';
     document.getElementById('boot-screen')?.remove();
+    // Pin midday — the game's sky/postfx keys off the calendar even under a
+    // custom scene, and a title-screen night otherwise tints the first batch.
+    try { window.LF.G.calendar.dayTime = 0.5; } catch {}
   });
   const rows = [HERO, ...Array.from({ length: Math.ceil(REST.length / 5) }, (_, i) => REST.slice(i * 5, i * 5 + 5))];
   for (let b = 0; b < rows.length; b++) {
@@ -54,7 +57,7 @@ export async function run(page, h) {
       window.__showcase = { update: () => { const dt = Math.min(clock.getDelta(), 0.05); animators.forEach(a => a.update(dt)); }, scene, camera: cam };
       window.LF.game.setScene(window.__showcase);
     }, { ids: rows[b], hero: b === 0 });
-    await h.sleep(2200);
+    await h.sleep(b === 0 ? 4200 : 2200);
     await h.shot(b === 0 ? 'alpha-heroes' : `alpha-row-${b}`);
   }
 }

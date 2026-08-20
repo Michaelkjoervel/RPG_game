@@ -16,52 +16,85 @@ import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
 import { seededRandom } from '../../core/rng.js';
 import { clamp01 } from '../../core/math.js';
+import { applyVertexGradient, jitterGeometry } from '../../gfx/materials.js';
 
 export function build_glyphant(kit = kitDefault) {
   const pal = kit.palette(['terra', 'lumen']);
-  const stone = kit.mat(0x8c8268, { rough: 0.68 });
+  // Carved sandstone: shadowed ochre under-body up to sun-bleached crown.
+  const stone = kit.mat(0xffffff, { vertexColors: true, rough: 0.68 });
+  const STONE_LO = 0x5e5138, STONE_HI = 0xb0a67e;
+  const paint = (mesh, seed, lo = STONE_LO, hi = STONE_HI, jit = 0) => {
+    if (jit) jitterGeometry(mesh.geometry, jit, seed);
+    applyVertexGradient(mesh.geometry, { from: lo, to: hi, noise: 0.05, seed });
+    return mesh;
+  };
   const stoneLight = kit.mat(0xa8a084, { rough: 0.62 });
   const glyphMat = kit.mat(0xffe9b0, { unlit: true, transparent: true, opacity: 0 });
+  const bandMat = kit.mat(0x776640, { rough: 0.7 });
 
   const root = new THREE.Group();
 
-  const body = kit.blob(0.24, stone, { seed: 140, noise: 0.1, squash: { x: 1.15, y: 1, z: 1.3 } });
+  const body = paint(kit.blob(0.24, stone, { seed: 140, noise: 0.1, squash: { x: 1.15, y: 1, z: 1.3 } }), 140);
   root.add(body);
-  body.position.y = 0.36;
+  body.position.y = 0.38;
 
-  const head = kit.at(body, kit.blob(0.15, stone, { seed: 141, squash: { x: 0.95, y: 0.95, z: 1.05 } }), 0, 0.06, 0.28);
-  const eyeL = kit.at(head, kit.eye(0.042, { irisColor: 0xffe9b0, scleraColor: 0x2a2620, skinColor: 0x8c8268, glintSize: 0.016 }), 0.1, 0.01, 0.11, { ry: 0.3 });
-  const eyeR = kit.at(head, kit.eye(0.042, { irisColor: 0xffe9b0, scleraColor: 0x2a2620, skinColor: 0x8c8268, glintSize: 0.016 }), -0.1, 0.01, 0.11, { ry: -0.3 });
+  // A carved masonry band around the barrel — this guardian was BUILT.
+  const band = kit.orb(0.245, bandMat, { sx: 1.16, sy: 0.16, sz: 1.31 });
+  kit.at(body, band, 0, 0.05, 0);
 
-  // Big fan ears.
-  const earL = kit.at(head, kit.petal(0.16, stoneLight, { width: 0.15 }), 0.13, 0.03, -0.02, { rx: -0.1, ry: -0.7, rz: 0.2 });
-  const earR = kit.at(head, kit.petal(0.16, stoneLight, { width: 0.15 }), -0.13, 0.03, -0.02, { rx: -0.1, ry: 0.7, rz: -0.2 });
+  const head = kit.at(body, paint(kit.blob(0.16, stone, { seed: 141, squash: { x: 0.95, y: 0.95, z: 1.05 } }), 141), 0, 0.1, 0.3);
+  const eyeL = kit.at(head, kit.eye(0.045, { irisColor: 0xffe9b0, scleraColor: 0x2a2620, skinColor: 0x8c8268, glintSize: 0.017 }), 0.1, 0.01, 0.12, { ry: 0.3 });
+  const eyeR = kit.at(head, kit.eye(0.045, { irisColor: 0xffe9b0, scleraColor: 0x2a2620, skinColor: 0x8c8268, glintSize: 0.017 }), -0.1, 0.01, 0.12, { ry: -0.3 });
 
-  // Small stone tusks.
-  const tuskMat = kit.mat(0xe8e0c8, { rough: 0.3 });
-  kit.at(head, kit.fang(0.07, tuskMat, { r: 0.018 }), 0.06, -0.08, 0.13, { rx: Math.PI * 0.78, rz: -0.15 });
-  kit.at(head, kit.fang(0.07, tuskMat, { r: 0.018 }), -0.06, -0.08, 0.13, { rx: Math.PI * 0.78, rz: 0.15 });
+  // Big fan ears — carved slabs with a lit inner face.
+  const earL = kit.at(head, paint(kit.petal(0.2, stone, { width: 0.18 }), 143), 0.13, 0.04, -0.02, { rx: -0.1, ry: -0.75, rz: 0.25 });
+  kit.at(earL, kit.petal(0.14, stoneLight, { width: 0.12 }), 0.01, 0, 0.005);
+  const earR = kit.at(head, paint(kit.petal(0.2, stone, { width: 0.18 }), 144), -0.13, 0.04, -0.02, { rx: -0.1, ry: 0.75, rz: -0.25 });
+  kit.at(earR, kit.petal(0.14, stoneLight, { width: 0.12 }), -0.01, 0, 0.005);
+
+  // Proper guardian tusks, gold-capped.
+  const tuskMat = kit.mat(0xeee4c8, { rough: 0.3 });
+  for (const side of [1, -1]) {
+    const tusk = kit.at(head, kit.horn(0.13, tuskMat, { baseR: 0.024, tipR: 0.006, bend: side * -0.4 }), side * 0.07, -0.1, 0.12, { rx: 0.85, rz: side * -0.1 });
+    kit.at(tusk, kit.orb(0.018, kit.mat(0xd8b46a, { rough: 0.4, emissive: 0x8a6420, emissiveIntensity: 0.4 }), { sy: 0.6 }), side * -0.4 * 0.13 * 0.3, 0.05, 0);
+  }
 
   // Trunk — a tailChain hung from the front of the head, pointing down/forward.
-  const trunk = kit.at(head, kit.tailChain(5, stone, { segLen: 0.045, startR: 0.032, endR: 0.012 }), 0, -0.06, 0.13, { rx: -2.5 });
+  const trunk = kit.at(head, kit.tailChain(5, stone, { segLen: 0.05, startR: 0.036, endR: 0.014 }), 0, -0.06, 0.14, { rx: -2.5 });
+  trunk.pivots.forEach((p, i) => {
+    for (const c of p.children) if (c.isMesh && c.geometry && c.geometry.attributes) paint(c, 145 + i);
+  });
 
   const legDefs = [
     [0.16, 0.24, 0.16], [-0.16, 0.24, 0.16],
     [0.17, 0.24, -0.15], [-0.17, 0.24, -0.15],
   ];
-  const legs = legDefs.map(([x, y, z]) => kit.at(body, kit.leg(0.34, stone, { thighR: 0.09, shinR: 0.065, footLen: 0.11 }), x, y, z));
+  const legs = legDefs.map(([x, y, z], i) => {
+    const l = kit.at(body, kit.leg(0.36, stone, { thighR: 0.095, shinR: 0.07, footLen: 0.11, footMat: kit.mat(0x6e6244, { rough: 0.7 }) }), x, y, z);
+    for (const c of l.hip.children) if (c.isMesh && c.geometry) paint(c, 150 + i);
+    for (const c of l.knee.children) if (c.isMesh && c.geometry && c !== l.foot) paint(c, 154 + i);
+    return l;
+  });
 
   const tail = kit.at(body, kit.tailChain(3, stone, { segLen: 0.05, startR: 0.03, endR: 0.012 }), 0, 0.14, -0.3);
+  tail.pivots.forEach((p, i) => {
+    for (const c of p.children) if (c.isMesh && c.geometry && c.geometry.attributes) paint(c, 158 + i);
+  });
 
-  // Glowing glyph planes across the hide, scattered deterministically.
+  // Glowing glyph planes across the hide, scattered deterministically —
+  // bigger, so the "remembering" pulse reads at battle distance.
   const rng = seededRandom(142);
   const glyphs = [];
-  for (let i = 0; i < 6; i++) {
-    const g = kit.box(0.05, 0.05, 0.004, glyphMat);
+  for (let i = 0; i < 7; i++) {
+    const g = kit.box(0.07, 0.07, 0.005, glyphMat);
     const side = i % 2 === 0 ? 1 : -1;
-    kit.at(body, g, side * (0.16 + rng() * 0.04), (rng() - 0.3) * 0.2, (rng() - 0.5) * 0.3, { ry: side * (Math.PI / 2 - 0.3), rz: rng() * 0.6 - 0.3 });
+    kit.at(body, g, side * (0.2 + rng() * 0.05), (rng() - 0.3) * 0.24, (rng() - 0.5) * 0.34, { ry: side * (Math.PI / 2 - 0.3), rz: rng() * 0.6 - 0.3 });
     glyphs.push(g);
   }
+  // One glyph on the forehead — the keeper's seal.
+  const seal = kit.box(0.06, 0.06, 0.005, glyphMat);
+  kit.at(head, seal, 0, 0.09, 0.14, { rx: -0.5, rz: Math.PI / 4 });
+  glyphs.push(seal);
   let rememberT = rng() * 5;
   const remembering = {
     update(dt) {

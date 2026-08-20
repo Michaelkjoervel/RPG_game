@@ -13,42 +13,73 @@
 import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
 import { seededRandom } from '../../core/rng.js';
+import { applyVertexGradient, jitterGeometry } from '../../gfx/materials.js';
 
 export function build_rimehorn(kit = kitDefault) {
   const pal = kit.palette(['frost']);
-  const coat = kit.mat(0xd8dce4, { rough: 0.75 });
-  const coatDark = kit.mat(0xaab0bc, { rough: 0.75 });
-  const iceMat = kit.mat(0xcdeeff, { rough: 0.1, metal: 0.05, transparent: true, opacity: 0.75 });
+  // Shaggy mountain coat: slate-shadowed under-wool up to lit snow along the
+  // spine — never one flat sheep-white.
+  const coat = kit.mat(0xffffff, { vertexColors: true, rough: 0.8 });
+  const COAT_LO = 0x8a92a4, COAT_HI = 0xf4f8fc;
+  const paint = (mesh, seed, lo = COAT_LO, hi = COAT_HI, jit = 0) => {
+    if (jit) jitterGeometry(mesh.geometry, jit, seed);
+    applyVertexGradient(mesh.geometry, { from: lo, to: hi, noise: 0.04, seed });
+    return mesh;
+  };
+  const coatDark = kit.mat(0x9aa2b4, { rough: 0.75 });
+  // Clear ice: translucent with a cold inner light so the horns READ.
+  const iceMat = kit.mat(0xbfe6ff, { rough: 0.08, metal: 0.05, transparent: true, opacity: 0.85, emissive: 0x4f9cd8, emissiveIntensity: 0.5 });
 
   const root = new THREE.Group();
 
-  const body = kit.blob(0.19, coat, { seed: 120, noise: 0.1, squash: { x: 1.05, y: 0.95, z: 1.5 } });
+  const body = paint(kit.blob(0.19, coat, { seed: 120, noise: 0.1, squash: { x: 1.05, y: 0.95, z: 1.5 } }), 120);
   root.add(body);
-  body.position.y = 0.34;
+  body.position.y = 0.36;
 
-  // Shaggy coat: clustered fluff tufts along the back and flanks.
-  const tuftSpots = [[0, 0.16, 0.15], [0, 0.18, -0.02], [0, 0.16, -0.18], [0.12, 0.02, -0.1], [-0.12, 0.02, -0.1]];
-  const tufts = tuftSpots.map(([x, y, z]) => kit.at(body, kit.fluffTuft(0.1, coat, { count: 6, seed: 121 + x * 10 }), x, y, z));
+  // Shaggy coat: clustered fluff tufts along the back and flanks, painted so
+  // the fleece shades with the body.
+  const tuftSpots = [[0, 0.16, 0.15], [0, 0.18, -0.02], [0, 0.16, -0.18], [0.13, 0.02, -0.1], [-0.13, 0.02, -0.1], [0.11, 0.05, 0.14], [-0.11, 0.05, 0.14]];
+  const tufts = tuftSpots.map(([x, y, z], i) => {
+    const t = kit.fluffTuft(0.105, coat, { count: 6, seed: 121 + i });
+    for (const c of t.children) if (c.isMesh && c.geometry) paint(c, 130 + i);
+    return kit.at(body, t, x, y, z);
+  });
 
-  const head = kit.at(body, kit.blob(0.13, coat, { seed: 122, squash: { x: 0.9, y: 0.85, z: 1.1 } }), 0, 0.14, 0.26);
+  const head = kit.at(body, paint(kit.blob(0.13, coat, { seed: 122, squash: { x: 0.9, y: 0.85, z: 1.1 } }), 122), 0, 0.16, 0.28);
   const eyeL = kit.at(head, kit.eye(0.038, { irisColor: 0x3a2c1c, skinColor: 0xd8dce4, glintSize: 0.014 }), 0.08, 0.02, 0.09, { ry: 0.3 });
   const eyeR = kit.at(head, kit.eye(0.038, { irisColor: 0x3a2c1c, skinColor: 0xd8dce4, glintSize: 0.014 }), -0.08, 0.02, 0.09, { ry: -0.3 });
   const earL = kit.at(head, kit.ear(0.07, coatDark, { floppy: true }), 0.1, 0.07, -0.03, { rz: 0.4, ry: -0.2 });
   const earR = kit.at(head, kit.ear(0.07, coatDark, { floppy: true }), -0.1, 0.07, -0.03, { rz: -0.4, ry: 0.2 });
 
-  // A pair of curved clear-ice horns, sweeping back.
-  const hornL = kit.at(head, kit.horn(0.24, iceMat, { baseR: 0.03, tipR: 0.006, bend: 0.75 }), 0.06, 0.1, 0.02, { rz: -Math.PI / 2 + 0.3, ry: -0.15 });
-  const hornR = kit.at(head, kit.horn(0.24, iceMat, { baseR: 0.03, tipR: 0.006, bend: 0.75 }), -0.06, 0.1, 0.02, { rz: Math.PI / 2 - 0.3, ry: 0.15 });
+  // THE ICE HORNS — big back-sweeping ibex crescents of lit glacier glass,
+  // with a short second pair of brow spikes. The signature; sized to be the
+  // first thing the eye lands on.
+  const hornL = kit.at(head, kit.horn(0.42, iceMat, { baseR: 0.052, tipR: 0.009, bend: 1.0 }), 0.07, 0.09, 0.0, { rz: -0.3, rx: -2.25 });
+  const hornR = kit.at(head, kit.horn(0.42, iceMat, { baseR: 0.052, tipR: 0.009, bend: 1.0 }), -0.07, 0.09, 0.0, { rz: 0.3, rx: -2.25 });
+  kit.at(head, kit.horn(0.09, iceMat, { baseR: 0.02, tipR: 0.005, bend: 0.3 }), 0.05, 0.11, 0.05, { rz: -0.5 });
+  kit.at(head, kit.horn(0.09, iceMat, { baseR: 0.02, tipR: 0.005, bend: -0.3 }), -0.05, 0.11, 0.05, { rz: 0.5 });
 
   const muzzle = kit.at(head, kit.orb(0.05, coatDark, { sz: 1.2, sy: 0.7 }), 0, -0.06, 0.11);
+  // The elder's icicle beard.
+  const beard = kit.at(head, kit.fluffTuft(0.045, coatDark, { count: 4, seed: 125 }), 0, -0.1, 0.07);
+  kit.at(head, kit.cone(0.012, 0.05, iceMat, { segments: 5, flip: true }), 0.015, -0.12, 0.07);
+  kit.at(head, kit.cone(0.009, 0.035, iceMat, { segments: 5, flip: true }), -0.02, -0.115, 0.06);
 
   const legDefs = [
     [0.11, 0.19, 0.16], [-0.11, 0.19, 0.16],
     [0.11, 0.19, -0.14], [-0.11, 0.19, -0.14],
   ];
-  const legs = legDefs.map(([x, y, z]) => kit.at(body, kit.leg(0.28, coat, { thighR: 0.07, shinR: 0.05, footLen: 0.1 }), x, y, z));
+  const legs = legDefs.map(([x, y, z], i) => {
+    const l = kit.at(body, kit.leg(0.28, coat, { thighR: 0.07, shinR: 0.05, footLen: 0.1, footMat: kit.mat(0x6e7688, { rough: 0.6 }) }), x, y, z);
+    for (const c of l.hip.children) if (c.isMesh && c.geometry) paint(c, 140 + i);
+    for (const c of l.knee.children) if (c.isMesh && c.geometry && c !== l.foot) paint(c, 144 + i);
+    return l;
+  });
 
-  const tail = kit.at(body, kit.tailChain(2, coat, { segLen: 0.045, startR: 0.035, endR: 0.018 }), 0, 0.12, -0.24);
+  const tail = kit.at(body, kit.tailChain(2, coat, { segLen: 0.045, startR: 0.035, endR: 0.018 }), 0, 0.12, -0.27);
+  tail.pivots.forEach((p, i) => {
+    for (const c of p.children) if (c.isMesh && c.geometry && c.geometry.attributes) paint(c, 148 + i);
+  });
 
   // Steady frost-breath mist from the muzzle.
   const breath = kit.mote(6, { color: 0xeaf6ff, size: 0.018, radius: 0.05, height: 0.08, speed: 0.6, seed: 123 });
