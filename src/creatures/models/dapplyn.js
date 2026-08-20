@@ -59,29 +59,34 @@ export function build_dapplyn(kit = kitDefault) {
   // leg length so the slim legs actually reach the ground.
   const body = kit.capsule(0.125, 0.34, skin, { capSeg: 4, radSeg: 9 });
   body.geometry.rotateX(Math.PI / 2);
+  // Honey-brown belly deepening to a russet back — dappled-light fawn fur.
+  kit.paint(body, { from: 0x7a5432 , to: 0xc79a68, noise: 0.06, seed: 140 });
   root.add(body);
-  body.position.y = 0.48;
+  body.position.y = 0.42;
 
   const bellyPatch = kit.capsule(0.08, 0.26, cream, { capSeg: 3, radSeg: 7 });
   bellyPatch.geometry.rotateX(Math.PI / 2);
   bellyPatch.scale.set(0.6, 0.55, 1);
   kit.at(body, bellyPatch, 0, -0.08, 0);
 
-  const head = kit.at(body, kit.orb(0.1, skin, { sz: 1.1, sy: 0.88 }), 0, 0.1, 0.2);
-  const eyeL = kit.at(head, kit.eye(0.042, { irisColor: 0x2a1a10, skinColor: 0x9a6f45, glintSize: 0.016 }), 0.075, 0.01, 0.08, { ry: 0.35 });
-  const eyeR = kit.at(head, kit.eye(0.042, { irisColor: 0x2a1a10, skinColor: 0x9a6f45, glintSize: 0.016 }), -0.075, 0.01, 0.08, { ry: -0.35 });
-  const earL = kit.at(head, kit.ear(0.08, skin, { floppy: true }), 0.08, 0.06, -0.02, { rz: 0.4 });
-  const earR = kit.at(head, kit.ear(0.08, skin, { floppy: true }), -0.08, 0.06, -0.02, { rz: -0.4 });
+  const head = kit.at(body, kit.orb(0.095, skin, { sz: 1.05, sy: 0.92 }), 0, 0.12, 0.19, { rx: 0.06 });
+  kit.paint(head, { from: 0x8a6038, to: 0xc79a68, noise: 0.05, seed: 141 });
+  // A soft fawn muzzle with a dark nose-dot.
+  kit.at(head, kit.snout(0.085, cream.clone(), { r: 0.04, taper: 0.4, up: 0.12 }), 0, -0.035, 0.055);
+  kit.at(head, kit.orb(0.014, kit.mat(0x3a2a1c, { rough: 0.4 })), 0, -0.012, 0.135);
+  const eyeL = kit.at(head, kit.eye(0.045, { irisColor: 0x2a1a10, skinColor: 0x9a6f45, glintSize: 0.017 }), 0.068, 0.02, 0.072, { ry: 0.25 });
+  const eyeR = kit.at(head, kit.eye(0.045, { irisColor: 0x2a1a10, skinColor: 0x9a6f45, glintSize: 0.017 }), -0.068, 0.02, 0.072, { ry: -0.25 });
+  const earL = kit.at(head, kit.ear(0.09, skin, { floppy: true }), 0.08, 0.06, -0.02, { rz: 0.5 });
+  const earR = kit.at(head, kit.ear(0.09, skin, { floppy: true }), -0.08, 0.055, -0.02, { rz: -0.62 });
 
-  // --- Legs: four long, slim, graceful legs. ---
-  // Hips hang just under the belly (local Y is measured from the torso centre);
-  // kit.leg(0.36) drops 0.367 from there, planting the hooves on y=0. Fore/hind
-  // pairs sit at ~2/3 of the 0.27 torso half-length, not bunched at the middle.
+  // --- Legs: four slim but REAL legs (the old 0.36 stilts read as a wooden
+  // toy). Hips hang just under the belly; kit.leg(0.3) drops ~0.319 from
+  // there, planting the hooves on y=0 with the body at 0.42. ---
   const legDefs = [
-    [0.09, -0.108, 0.21], [-0.09, -0.108, 0.21],
-    [0.09, -0.108, -0.21], [-0.09, -0.108, -0.21],
+    [0.085, -0.101, 0.19], [-0.085, -0.101, 0.19],
+    [0.085, -0.101, -0.19], [-0.085, -0.101, -0.19],
   ];
-  const legs = legDefs.map(([x, y, z]) => kit.at(body, kit.leg(0.36, skin, { thighR: 0.04, shinR: 0.028, footLen: 0.075 }), x, y, z));
+  const legs = legDefs.map(([x, y, z]) => kit.at(body, kit.leg(0.3, skin, { thighR: 0.048, shinR: 0.032, footLen: 0.07 }), x, y, z));
 
   const tail = kit.at(body, kit.tailChain(2, skin, { segLen: 0.04, startR: 0.028, endR: 0.014 }), 0, 0.07, -0.27);
 
@@ -101,6 +106,8 @@ export function build_dapplyn(kit = kitDefault) {
 
   const spark = kit.heartspark(0.036, pal.eye, { seed: 141 });
   kit.at(body, spark, 0, 0.02, 0.1);
+
+  root.add(kit.shadowDisc(0.3, 0.36));
 
   return {
     group: kit.groundPlant(root),

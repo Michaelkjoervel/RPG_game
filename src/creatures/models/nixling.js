@@ -21,21 +21,27 @@ export function build_nixling(kit = kitDefault) {
 
   const root = new THREE.Group();
 
-  // Small, round, buoyant body.
+  // Small, round, buoyant body — deep-water teal shading up to a pale aqua
+  // back, so the "glassy" read comes from the color ramp, not just opacity.
   const body = kit.blob(0.15, skin, { seed: 15, noise: 0.1, squash: { x: 1, y: 0.92, z: 1.1 } });
+  kit.paint(body, { from: 0x2a6e94, to: 0x86d4e4, noise: 0.05, seed: 15 });
   root.add(body);
   body.position.y = 0.16;
 
   // Wide, flat axolotl head merged into the body.
   const head = kit.at(body, kit.orb(0.13, skin, { sy: 0.78, sz: 1.1 }), 0, 0.06, 0.1);
+  kit.paint(head, { from: 0x3a80a8, to: 0x8fd8e8, noise: 0.04, seed: 16 });
 
   // The droplet-shaped crest — a direct, literal use of teardrop().
   const crest = kit.at(head, kit.teardrop(crestMat, { height: 0.09, width: 0.045 }), 0, 0.1, -0.01, { rx: 0.15 });
 
   // BIG glassy eyes — the bible calls this out explicitly, so they're
-  // oversized relative to the head and sit high and forward.
-  const eyeL = kit.at(head, kit.eye(0.06, { irisColor: 0x0f2a33, skinColor: pal.primary, glintSize: 0.024 }), 0.095, 0.035, 0.09, { ry: 0.4 });
-  const eyeR = kit.at(head, kit.eye(0.06, { irisColor: 0x0f2a33, skinColor: pal.primary, glintSize: 0.024 }), -0.095, 0.035, 0.09, { ry: -0.4 });
+  // oversized relative to the head; seated INTO the head's front corners
+  // (not perched on top) and facing forward so the glassiness reads.
+  const eyeL = kit.at(head, kit.eye(0.058, { irisColor: 0x0f2a33, skinColor: pal.primary, glintSize: 0.024 }), 0.088, 0.022, 0.092, { ry: 0.26 });
+  const eyeR = kit.at(head, kit.eye(0.058, { irisColor: 0x0f2a33, skinColor: pal.primary, glintSize: 0.024 }), -0.088, 0.022, 0.092, { ry: -0.26 });
+  // A tiny contented smile-dimple line under the eyes.
+  kit.at(head, kit.orb(0.012, kit.mat(0x1e4a5c, { rough: 0.5 }), { sy: 0.4, sx: 1.6 }), 0, -0.035, 0.135);
 
   // Feathery external gills — three fronds per side, using petal() for a
   // soft, translucent look; each gets its own accent entry so they sway
@@ -67,6 +73,8 @@ export function build_nixling(kit = kitDefault) {
 
   const spark = kit.heartspark(0.026, pal.eye, { seed: 5 });
   kit.at(body, spark, 0, 0.02, 0.12);
+
+  root.add(kit.shadowDisc(0.19, 0.34));
 
   return {
     group: kit.groundPlant(root),

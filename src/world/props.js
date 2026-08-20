@@ -398,26 +398,6 @@ export function buildProps(zone, heightAt) {
   const P = (g, m, tint, off = [0, 0, 0], scl = 1, rot = [0, 0, 0], jit = 0.06, shadow = true) =>
     ({ g, m, tint, off, scl, rot, jit, shadow });
 
-  // Canopy hue variation: ~±12° per instance (0.034 turns) so neighbouring
-  // trees never read as copy-paste, while lightness keeps a wider ±0.09 band.
-  // (part.jitH — when set — overrides part.jit for the HUE axis only.)
-  const CANOPY_HUE_JIT = 0.034;
-
-  function canopyStack(rng, mat, tints, n, r0, y0, spread) {
-    const parts = [];
-    for (let i = 0; i < n; i++) {
-      const t = n === 1 ? 0 : i / (n - 1);
-      const r = r0 * lerp(1, 0.55, t) * (0.85 + rng() * 0.3);
-      const a = rng() * TAU, rad = spread * (1 - t) * rng();
-      const p = P(blobG(1, 100 + i * 17, 0.3), mat, tints[i % tints.length],
-        [Math.cos(a) * rad, y0 + t * r0 * 1.6 + r * 0.4, Math.sin(a) * rad], [r, r * 0.85, r], [0, rng() * TAU, 0], 0.09);
-      p.jitH = CANOPY_HUE_JIT;
-      parts.push(p);
-    }
-    return parts;
-  }
-  const asCanopy = (p) => { p.jitH = CANOPY_HUE_JIT; return p; };
-
   // Vertex-colored merged part: white tint, per-instance brightness/warmth jitter.
   const V = (g, m, vjit = [0.07, 0.05]) => {
     const p = P(g, m, 0xffffff, [0, 0, 0], 1, [0, 0, 0], 0);
@@ -1758,18 +1738,42 @@ export function buildProps(zone, heightAt) {
     },
     snow_pile: {
       variants: 3, collider: 0, noPathAvoid: true,
-      make: (rng) => [
-        P(blobG(1, 580, 0.18), SOLID_S, 0xf2f6fa, [0, 0.18, 0], [0.9, 0.32, 0.9], [0, rng() * TAU, 0], 0.02, false),
-        P(blobG(1, 581, 0.18), SOLID_S, 0xe8eef6, [0.5, 0.12, 0.3], [0.5, 0.2, 0.5], [0, rng() * TAU, 0], 0.02, false),
-      ],
+      make: (rng) => {
+        const vs = Math.floor(rng() * 1e6);
+        const g = merged(`snowM${vs}`, () => {
+          const r2 = seededRandom(vs + 1);
+          const pieces = [];
+          for (let i = 0; i < 3; i++) {
+            const main = i === 0;
+            const a = r2() * TAU;
+            const s = main ? 0.9 : 0.35 + r2() * 0.3;
+            const b = piece(icoG(1, 1), {
+              t: [main ? 0 : Math.cos(a) * 0.7, s * 0.28, main ? 0 : Math.sin(a) * 0.7],
+              s: [s, s * 0.34, s * (0.85 + r2() * 0.3)], r: [0, r2() * TAU, 0], jit: 0.1, jseed: vs + i,
+            });
+            ramp(b, 0xcdd8e6, 0xfafdff, 0, s * 0.55, { noise: 0.02, seed: vs + i });
+            pieces.push(b);
+          }
+          return pieces;
+        });
+        return [V(g, SOLID_V, [0.03, 0.015])];
+      },
     },
     lava_rock: {
       variants: 2, collider: 0.6,
-      make: (rng) => [
-        P(icoG(0.62, 0), SOLID, 0x3a3236, [0, 0.34, 0], [1, 0.75, 1], [rng() * 0.4, rng() * TAU, rng() * 0.4], 0.04),
-        P(boxG(0.7, 0.05, 0.06), GLOW_LAVA, 0xff8a3c, [0, 0.5, 0.2], 1, [0.3, rng() * TAU, 0.5], 0, false),
-        P(boxG(0.5, 0.05, 0.05), GLOW_LAVA, 0xffb85c, [0.1, 0.35, -0.2], 1, [-0.4, rng() * TAU, 0.3], 0, false),
-      ],
+      make: (rng) => {
+        const vs = Math.floor(rng() * 1e6);
+        const g = merged(`lavaM${vs}`, () => {
+          const r2 = seededRandom(vs + 1);
+          return stonePieces(r2, { k: 3, R: 0.6, seed: vs, dark: 0x241c20, light: 0x4c3e42 });
+        });
+        return [
+          V(g, SOLID_V, [0.06, 0.03]), shadowP(0.95),
+          P(boxG(0.7, 0.05, 0.06), GLOW_LAVA, 0xff8a3c, [0, 0.5, 0.2], 1, [0.3, rng() * TAU, 0.5], 0, false),
+          P(boxG(0.5, 0.05, 0.05), GLOW_LAVA, 0xffb85c, [0.1, 0.35, -0.2], 1, [-0.4, rng() * TAU, 0.3], 0, false),
+          P(boxG(0.4, 0.04, 0.05), GLOW_LAVA, 0xff6a2c, [-0.3, 0.28, 0.15], 1, [0.5, rng() * TAU, -0.3], 0, false),
+        ];
+      },
     },
     ember_vent: {
       variants: 2, collider: 0.55,
@@ -1783,15 +1787,29 @@ export function buildProps(zone, heightAt) {
     // ------------------------------------------------------------- spire
     spire_wall: {
       variants: 2, collider: 2.2, sinkY: 0.2,
-      make: (rng) => [
-        P(boxG(4.2, 5.5, 0.8), SOLID_S, 0x2b2e3c, [0, 2.75, 0]),
-        P(boxG(0.5, 6.4, 0.9), SOLID_S, 0x333748, [-2.1, 3.2, 0]),
-        P(boxG(0.5, 6.4, 0.9), SOLID_S, 0x333748, [2.1, 3.2, 0]),
-        P(coneG(0.36, 0.9, 4), SOLID_S, 0x3a3f52, [-2.1, 6.85, 0]),
-        P(coneG(0.36, 0.9, 4), SOLID_S, 0x3a3f52, [2.1, 6.85, 0]),
-        P(boxG(0.06, 4.6, 0.06), SPIRE_SEAM, 0xcfd4e8, [-1.0, 2.8, 0.42], 1, [0, 0, 0], 0, false),
-        P(boxG(0.06, 3.8, 0.06), SPIRE_SEAM, 0xcfd4e8, [1.2, 2.5, 0.42], 1, [0, 0, 0.1], 0, false),
-      ],
+      make: (rng) => {
+        const vs = Math.floor(rng() * 1e6);
+        const g = merged(`spwM${vs}`, () => {
+          const pieces = [];
+          const wall = piece(boxG(4.2, 5.5, 0.8), { t: [0, 2.75, 0], jit: 0.04, jseed: vs });
+          ramp(wall, 0x20232f, 0x3d4256, 0, 5.6, { noise: 0.04, seed: vs });
+          pieces.push(wall);
+          for (const s of [-1, 1]) {
+            const pil = piece(boxG(0.52, 6.4, 0.92), { t: [s * 2.1, 3.2, 0], jit: 0.03, jseed: vs + s });
+            ramp(pil, 0x262a38, 0x454b62, 0, 6.5, { noise: 0.04, seed: vs + s });
+            pieces.push(pil);
+            const cap = piece(coneG(0.38, 0.95, 4), { t: [s * 2.1, 6.9, 0], jit: 0.02, jseed: vs + s * 3 });
+            ramp(cap, 0x333748, 0x4e5570, 6.4, 7.4, { seed: vs + s * 3 });
+            pieces.push(cap);
+          }
+          return pieces;
+        });
+        return [
+          V(g, SOLID_V, [0.04, 0.02]),
+          P(boxG(0.06, 4.6, 0.06), SPIRE_SEAM, 0xcfd4e8, [-1.0, 2.8, 0.42], 1, [0, 0, 0], 0, false),
+          P(boxG(0.06, 3.8, 0.06), SPIRE_SEAM, 0xcfd4e8, [1.2, 2.5, 0.42], 1, [0, 0, 0.1], 0, false),
+        ];
+      },
     },
     banner: {
       variants: 1, collider: 0.25,
@@ -1806,17 +1824,56 @@ export function buildProps(zone, heightAt) {
     // ------------------------------------------------------------- cave growth
     stalagmite: {
       variants: 3, collider: 0.45, cluster: true,
-      make: (rng) => [
-        P(coneG(0.42, 1.6 + rng() * 1.4, 6), SOLID, 0x6d6a72, [0, 0.8 + rng() * 0.6, 0], 1, [(rng() - 0.5) * 0.12, rng() * TAU, (rng() - 0.5) * 0.12], 0.05),
-        P(coneG(0.24, 0.9, 5), SOLID, 0x767380, [0.42, 0.42, 0.2], 1, [(rng() - 0.5) * 0.3, rng() * TAU, (rng() - 0.5) * 0.3], 0.05),
-      ],
+      make: (rng) => {
+        const vs = Math.floor(rng() * 1e6);
+        const g = merged(`stalgM${vs}`, () => {
+          const r2 = seededRandom(vs + 1);
+          const pieces = [];
+          const n = 3;
+          for (let i = 0; i < n; i++) {
+            const main = i === 0;
+            const a = r2() * TAU;
+            const h = main ? 1.7 + r2() * 1.4 : 0.6 + r2() * 0.7;
+            const rr = main ? 0.42 : 0.2 + r2() * 0.1;
+            const px = main ? 0 : Math.cos(a) * (0.4 + r2() * 0.25);
+            const pz = main ? 0 : Math.sin(a) * (0.4 + r2() * 0.25);
+            const c = piece(coneG(rr, h, 6), {
+              t: [px, h * 0.42, pz],
+              r: [(r2() - 0.5) * 0.16, r2() * TAU, (r2() - 0.5) * 0.16], jit: rr * 0.22, jseed: vs + i,
+            });
+            ramp(c, 0x4c4954, 0x8a8794, 0, h, { noise: 0.05, seed: vs + i, exp: 0.8 });
+            pieces.push(c);
+          }
+          return pieces;
+        });
+        return [V(g, SOLID_V, [0.06, 0.03]), shadowP(0.85)];
+      },
     },
     stalactite: {
       variants: 3, collider: 0, ground: 'hang', hangH: [5, 8.5],
-      make: (rng) => [
-        P(coneG(0.36, 1.8 + rng() * 1.4, 6), SOLID, 0x64616c, [0, -0.9, 0], 1, [Math.PI, 0, rng() * 0.1], 0.05, false),
-        P(coneG(0.18, 0.9, 5), SOLID, 0x6d6a72, [0.35, -0.45, 0.15], 1, [Math.PI, 0, 0.15], 0.05, false),
-      ],
+      make: (rng) => {
+        const vs = Math.floor(rng() * 1e6);
+        const g = merged(`stalcM${vs}`, () => {
+          const r2 = seededRandom(vs + 1);
+          const pieces = [];
+          for (let i = 0; i < 3; i++) {
+            const main = i === 0;
+            const h = main ? 1.9 + r2() * 1.3 : 0.7 + r2() * 0.6;
+            const rr = main ? 0.36 : 0.15 + r2() * 0.08;
+            const a = r2() * TAU;
+            const px = main ? 0 : Math.cos(a) * 0.4, pz = main ? 0 : Math.sin(a) * 0.4;
+            const c = piece(coneG(rr, h, 6), {
+              t: [px, -h * 0.45, pz], r: [Math.PI, 0, (r2() - 0.5) * 0.14], jit: rr * 0.22, jseed: vs + i,
+            });
+            ramp(c, 0x74717c, 0x4a4750, -h, 0, { noise: 0.05, seed: vs + i });
+            pieces.push(c);
+          }
+          return pieces;
+        });
+        const p = V(g, SOLID_V, [0.06, 0.03]);
+        p.shadow = false;
+        return [p];
+      },
     },
     hangmoss: {
       variants: 3, collider: 0, ground: 'hang', hangH: [4.5, 7], noPathAvoid: true,

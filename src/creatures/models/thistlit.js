@@ -77,6 +77,8 @@ export function build_thistlit(kit = kitDefault) {
   const spark = kit.heartspark(0.024, pal.eye, { seed: 31 });
   kit.at(body, spark, 0, -0.02, 0.115);
 
+  root.add(kit.shadowDisc(0.18, 0.36));
+
   return {
     group: kit.groundPlant(root),
     parts: {

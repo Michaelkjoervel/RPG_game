@@ -22,12 +22,14 @@ export function build_sonark(kit = kitDefault) {
   const root = new THREE.Group();
 
   const body = kit.blob(0.085, fur, { seed: 51, noise: 0.14, squash: { x: 1, y: 1.05, z: 0.92 } });
+  kit.paint(body, { from: 0x38334a, to: 0x6a6284, noise: 0.06, seed: 51 });
   root.add(body);
   body.position.y = 0.1;
 
   const head = kit.at(body, kit.orb(0.068, fur, { sz: 1.05, sy: 0.95 }), 0, 0.1, 0.05);
-  const eyeL = kit.at(head, kit.eye(0.019, { irisColor: 0x1c1c22, skinColor: 0x4a4459, glintSize: 0.008 }), 0.04, 0.005, 0.055, { ry: 0.35 });
-  const eyeR = kit.at(head, kit.eye(0.019, { irisColor: 0x1c1c22, skinColor: 0x4a4459, glintSize: 0.008 }), -0.04, 0.005, 0.055, { ry: -0.35 });
+  kit.paint(head, { from: 0x423c56, to: 0x6f6789, noise: 0.05, seed: 52 });
+  const eyeL = kit.at(head, kit.eye(0.023, { irisColor: 0x1c1c22, skinColor: 0x4a4459, glintSize: 0.01 }), 0.038, 0.008, 0.058, { ry: 0.24 });
+  const eyeR = kit.at(head, kit.eye(0.023, { irisColor: 0x1c1c22, skinColor: 0x4a4459, glintSize: 0.01 }), -0.038, 0.008, 0.058, { ry: -0.24 });
 
   // Small snub muzzle with two tiny fangs — the only "face" detail besides
   // the enormous ears that dominate the silhouette.

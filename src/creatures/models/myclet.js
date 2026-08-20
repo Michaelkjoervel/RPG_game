@@ -15,36 +15,44 @@ import * as kitDefault from '../kit.js';
 export function build_myclet(kit = kitDefault) {
   const pal = kit.palette(['bloom', 'venom']);
   const skin = kit.mat(0x5a6e3a, { rough: 0.6 });          // mossy imp-green skin
-  const capMat = kit.mat(0x6a3a5c, { rough: 0.55 });       // plum mushroom cap
-  const spotMat = kit.mat(0xe8d8c8, { rough: 0.4 });       // pale cap spots
+  const capMat = kit.mat(0x9a4468, { rough: 0.55 });       // raspberry-plum cap — READS as a mushroom now
+  const spotMat = kit.mat(0xf2e6d4, { rough: 0.4 });       // pale cap spots
   const pouchMat = kit.mat(pal.secondary, { rough: 0.45, transparent: true, opacity: 0.9 });
 
   const root = new THREE.Group();
 
   const body = kit.blob(0.13, skin, { seed: 120, noise: 0.13, squash: { x: 1, y: 0.95, z: 1.08 } });
+  kit.paint(body, { from: 0x3f5228, to: 0x7e9450, noise: 0.06, seed: 120 });
   root.add(body);
   body.position.y = 0.15;
 
   const head = kit.at(body, kit.orb(0.1, skin, { sz: 1.02 }), 0, 0.1, 0.02);
+  kit.paint(head, { from: 0x4c6130, to: 0x84994f, noise: 0.05, seed: 121 });
 
   // Spore-pouch cheeks — bulging and mischievous.
-  const pouchL = kit.at(head, kit.orb(0.045, pouchMat, { sx: 1.1 }), 0.09, -0.02, 0.03);
-  const pouchR = kit.at(head, kit.orb(0.045, pouchMat, { sx: 1.1 }), -0.09, -0.02, 0.03);
+  const pouchL = kit.at(head, kit.orb(0.045, pouchMat, { sx: 1.1 }), 0.09, -0.025, 0.03);
+  const pouchR = kit.at(head, kit.orb(0.045, pouchMat, { sx: 1.1 }), -0.09, -0.025, 0.03);
 
-  const eyeL = kit.at(head, kit.eye(0.036, { irisColor: 0x2a1a2a, skinColor: 0x5a6e3a, glintSize: 0.013 }), 0.05, 0.02, 0.085, { ry: 0.3 });
-  const eyeR = kit.at(head, kit.eye(0.032, { irisColor: 0x2a1a2a, skinColor: 0x5a6e3a, glintSize: 0.012 }), -0.052, 0.014, 0.08, { ry: -0.35 }); // slightly asymmetric — a lopsided, mischievous look
+  const eyeL = kit.at(head, kit.eye(0.04, { irisColor: 0x2a1a2a, skinColor: 0x5a6e3a, glintSize: 0.015 }), 0.048, 0.018, 0.086, { ry: 0.22 });
+  const eyeR = kit.at(head, kit.eye(0.035, { irisColor: 0x2a1a2a, skinColor: 0x5a6e3a, glintSize: 0.013 }), -0.05, 0.012, 0.084, { ry: -0.28 }); // slightly asymmetric — a lopsided, mischievous look
 
-  // Mushroom cap-hat: a flattened, spotted dome worn slightly askew.
-  const cap = kit.at(head, kit.orb(0.11, capMat, { sy: 0.5, sx: 1.25, sz: 1.2 }), 0, 0.075, -0.01, { rz: 0.12 });
+  // Mushroom cap-hat: a flattened, spotted dome worn clearly askew, painted
+  // deep-plum underside to bright raspberry crown so it pops off the green.
+  const cap = kit.at(head, kit.orb(0.115, capMat, { sy: 0.55, sx: 1.25, sz: 1.2 }), 0, 0.08, -0.01, { rz: 0.16 });
+  kit.paint(cap, { from: 0x5c2848, to: 0xc4577a, noise: 0.05, seed: 122 });
   const rng = seededRandom(21);
   const spots = [];
   for (let i = 0; i < 6; i++) {
-    const a = rng() * Math.PI * 2, r = 0.05 + rng() * 0.05;
-    const s = kit.at(cap, kit.orb(0.014 + rng() * 0.008, spotMat.clone()), Math.cos(a) * r, 0.045 + rng() * 0.01, Math.sin(a) * r * 0.9);
+    const a = rng() * Math.PI * 2, r = 0.045 + rng() * 0.05;
+    const sx = Math.cos(a) * r, sz = Math.sin(a) * r * 0.9;
+    // Sit each spot ON the cap dome (cap-local sphere of r=0.115) rather
+    // than at a fixed height — rim spots no longer float or submerge.
+    const sy = Math.sqrt(Math.max(0.115 * 0.115 - (sx * sx + sz * sz), 0.0004)) * 0.95;
+    const s = kit.at(cap, kit.orb(0.016 + rng() * 0.009, spotMat.clone(), { sy: 0.6 }), sx, sy, sz);
     spots.push(s);
   }
   // Cap rim edge for a proper mushroom silhouette.
-  kit.at(head, kit.cone(0.115, 0.02, capMat, { segments: 10, flip: true }), 0, 0.045, -0.01, { rz: 0.12 });
+  kit.at(head, kit.cone(0.12, 0.024, kit.mat(0x6e2f52, { rough: 0.55 }), { segments: 10, flip: true }), 0, 0.052, -0.01, { rz: 0.16 });
 
   // Two short, stubby imp legs.
   const legDefs = [[0.06, 0.05, 0.03], [-0.06, 0.05, 0.03]];
@@ -59,6 +67,8 @@ export function build_myclet(kit = kitDefault) {
 
   const spark = kit.heartspark(0.026, pal.eye, { seed: 122 });
   kit.at(body, spark, 0, 0.02, 0.1);
+
+  root.add(kit.shadowDisc(0.17, 0.36));
 
   return {
     group: kit.groundPlant(root),

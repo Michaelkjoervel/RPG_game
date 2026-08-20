@@ -1,18 +1,27 @@
 // ============================================================================
-// world/sky.js — the big gradient sky dome, sun, day/night cycle, stars and
-// drifting clouds; the tuned shadow-casting sun light; cave/spire dark-dome +
-// player-following fill light.
+// world/sky.js — the big gradient sky dome, sun/moon, day/night cycle, stars
+// and drifting clouds; the tuned shadow-casting key light; cave/spire dark-
+// dome + player-following fill light; per-zone light MOODS.
 //
 // Contract (docs/CONTRACTS_ADDENDUM.md):
 //   createSky(zone, scene) -> { update(dt, dayTime), sunLight, dispose() }
 //
-// Fog note: `scene.fog` is set ONCE here (from zone.ambient) and never
+// Light design (docs/DESIGN_BIBLE.md §8): one clearly dominant warm key
+// (sun by day, cool moon by night), a dropped cool fill so forms model,
+// warm-light/cool-shadow contrast, and a nameable per-zone mood (MOODS
+// table below) — brighthollow's warm afternoon amber, whisperwood's
+// green-gold, gloamcavern's teal dark, mirrorlake's rose dusk, etc.
+//
+// Fog note: `scene.fog` is set ONCE here (from zone.ambient, harmonized with
+// the sky palette at the *current* time of day and the zone mood) and never
 // touched again by this module. world/weather.js (a sibling area's module)
 // snapshots `scene.fog.density`/`.color` at creation time as its restore
 // baseline and multiplies/lerps from there each frame — if sky.js also wrote
-// scene.fog every frame the two would fight over authority every tick. Time-
-// of-day mood instead comes from the dome gradient + sun/hemisphere light,
-// which is the dominant visual driver anyway.
+// scene.fog every frame the two would fight over authority every tick. The
+// one-time write happens inside createSky (before weather.js is created —
+// world.js builds sky first), so weather's snapshot sees the harmonized
+// values. Crossing day/night INSIDE one zone therefore keeps the entry-time
+// fog color; the dome + lights carry the time-of-day mood, which dominates.
 //
 // The dome & stars use the standard "push to the far clip plane" trick
 // (gl_Position = clip.xyww) so they always render behind everything
@@ -23,10 +32,39 @@
 import * as THREE from 'three';
 import { clamp, clamp01, lerp, TAU } from '../core/math.js';
 import { seededRandom, hashStr } from '../core/rng.js';
+import { G } from '../core/state.js';
 
 const INDOOR_BIOMES = new Set(['cave', 'spire']);
 const WHITE = new THREE.Color(0xffffff); // lerp target only — never mutated
 const CLOUD_DAY = new THREE.Color(0xf2e9d8); // warm off-white daylight cloud body
+
+// ---------------------------------------------------------------- zone light moods
+// Every zone gets a NAMEABLE light identity. Values are authored against the
+// game's ACESFilmic/1.05-exposure pipeline (game.js). Fields:
+//   key      key-light tint the zone sun leans toward (warm identity)
+//   keyI     key intensity multiplier    fillI  hemisphere multiplier
+//   shadow   cool daylight shadow tint (hemisphere sky side)
+//   bounce   warm ground-bounce tint (hemisphere ground side)
+//   warmth   how hard the day horizon leans toward the key color
+//   duskBias optional hue the dusk palette leans toward (mirrorlake rose)
+//   starFloor optional minimum star visibility (starfall's identity)
+//   fogTint / fogTintAmt / fogMul — one-time fog harmonization at zone entry
+//   indoor   cave/spire palette override (dome, hemi, fill, slanted key)
+const MOODS = {
+  brighthollow:  { name: 'warm afternoon amber', key: 0xffc37a, keyI: 1.12, fillI: 0.85, shadow: 0x8090d8, bounce: 0xd8b48c, warmth: 0.5,  fogTint: 0xead9b4, fogTintAmt: 0.4,  fogMul: 1.05 },
+  dawnmeadow:    { name: 'fresh spring gold',    key: 0xffd79a, keyI: 1.05, fillI: 1.0,  shadow: 0x84a0d4, bounce: 0xbcc88c, warmth: 0.35, fogTint: 0xd2e8c4, fogTintAmt: 0.35, fogMul: 0.95 },
+  whisperwood:   { name: 'green-gold shafts',    key: 0xefdc8e, keyI: 1.12, fillI: 0.78, shadow: 0x54766a, bounce: 0x84a068, warmth: 0.55, fogTint: 0x7fa07c, fogTintAmt: 0.5,  fogMul: 1.1 },
+  mirrorlake:    { name: 'dusk rose',            key: 0xffd8b4, keyI: 1.0,  fillI: 0.95, shadow: 0x8a8cc8, bounce: 0xc4aca4, warmth: 0.3,  duskBias: 0xe87e96, fogTint: 0xdcc0c0, fogTintAmt: 0.4, fogMul: 1.0 },
+  skyreach:      { name: 'cold thin blue',       key: 0xd4e4ff, keyI: 0.92, fillI: 0.85, shadow: 0x46536e, bounce: 0x66718a, warmth: 0.05, fogTint: 0x59688a, fogTintAmt: 0.45, fogMul: 1.0 },
+  sunkenruins:   { name: 'murky cyan',           key: 0xe8eecc, keyI: 0.95, fillI: 0.85, shadow: 0x5a8a86, bounce: 0x8ca894, warmth: 0.2,  fogTint: 0x76a49c, fogTintAmt: 0.5,  fogMul: 1.1 },
+  starfallglade: { name: 'violet night sparkle', key: 0xffcf9c, keyI: 1.0,  fillI: 0.95, shadow: 0x6c58a8, bounce: 0x8868a0, warmth: 0.3,  starFloor: 0.75, fogTint: 0x5c4884, fogTintAmt: 0.45, fogMul: 1.0 },
+  gloamcavern:   { name: 'teal dark, glow accents', fogTint: 0x102b28, fogTintAmt: 0.55, fogMul: 1.0,
+    indoor: { domeTop: 0x0e1a1c, domeBottom: 0x091012, domeHorizon: 0x143230, hemiSky: 0x58a8a0, hemiGround: 0x1e3c3a, fill: 0x5ee0cc, key: 0x9fd8d0, keyI: 0.85, keyDir: [0.45, 0.8, 0.3] } },
+  hollowspire:   { name: 'oppressive violet',    fogTint: 0x1c1428, fogTintAmt: 0.55, fogMul: 1.0,
+    indoor: { domeTop: 0x141020, domeBottom: 0x0c0a14, domeHorizon: 0x241a34, hemiSky: 0x9282ba, hemiGround: 0x352c4a, fill: 0xb8a2ff, key: 0xa88fd8, keyI: 1.0, keyDir: [-0.4, 0.85, 0.25] } },
+};
+const MOOD_DEFAULT = { name: 'default', key: 0xffd9a0, keyI: 1.0, fillI: 1.0, shadow: 0x8098d0, bounce: 0xb8ac90, warmth: 0.3, fogTintAmt: 0, fogMul: 1.0 };
+const INDOOR_DEFAULT = { domeTop: 0x151726, domeBottom: 0x0c0d16, domeHorizon: 0x1c1e2c, hemiSky: 0x8a96ad, hemiGround: 0x4a4f62, fill: 0x8fb8ff, key: 0x9aa8d0, keyI: 0.8, keyDir: [0.45, 0.8, 0.3] };
 
 // ---------------------------------------------------------------- day/night curve
 // dayTime: 0 = midnight, 0.5 = noon (per docs/ARCHITECTURE.md G.calendar.dayTime).
@@ -43,6 +81,10 @@ function dawnDuskWeight(t) {
   return clamp01(1 - Math.abs(e) / 0.42);
 }
 function duskSide(t) { return t > 0.5 && t < 1.0; } // rough half used to bias warm-dusk vs warm-dawn hue
+function nightWeight(t) {
+  // 0 by day, 1 deep night; leaks into the dusk band so the moon rises early
+  return clamp01(1 - dayWeight(t) * 1.4 - dawnDuskWeight(t) * 0.75);
+}
 
 // ---------------------------------------------------------------- dome shader
 const DOME_VERT = /* glsl */ `
@@ -54,20 +96,38 @@ void main() {
 }`;
 const DOME_FRAG = /* glsl */ `
 varying vec3 vDir;
-uniform vec3 uTop, uBottom, uHorizon;
-uniform vec3 uSunDir, uSunColor;
-uniform float uSunAmt;
+uniform vec3 uTop, uMid, uBottom, uHorizon;
+uniform vec3 uSunDir, uSunColor, uGlowColor;
+uniform vec3 uMoonDir, uMoonDir2, uMoonColor;
+uniform float uSunAmt, uMoonAmt, uGlowAmt;
 void main() {
   float h = clamp(vDir.y, -1.0, 1.0);
-  // Horizon haze hands over to the zenith color quickly (fully by ~13 deg
-  // elevation) so midday skies keep their blue in the band gameplay cameras
-  // actually see, instead of washing to white.
-  vec3 col = mix(uHorizon, uTop, smoothstep(0.0, 0.22, h));
-  col = mix(uBottom, col, smoothstep(-0.12, 0.05, h));
+  // Three-stop gradient: horizon band -> mid (by ~14 deg) -> zenith (by ~45
+  // deg). The mid stop is what keeps dawn/dusk skies from being a flat lerp —
+  // pink-gold or coral lives there while the zenith stays deep.
+  vec3 col = mix(uMid, uTop, smoothstep(0.24, 0.7, h));
+  col = mix(uHorizon, col, smoothstep(0.0, 0.24, h));
+  col = mix(uBottom, col, smoothstep(-0.12, 0.04, h));
+  // Azimuthal horizon glow — sunrise/sunset fire concentrated around the
+  // sun's compass bearing, fading with elevation. This is what gives dusk a
+  // direction instead of a uniform orange wash.
+  vec2 fwd = normalize(vDir.xz + vec2(1e-5, 0.0));
+  vec2 sunFwd = normalize(uSunDir.xz + vec2(1e-5, 0.0));
+  float az = max(dot(fwd, sunFwd), 0.0);
+  float band = exp(-abs(h - 0.02) * 5.0);
+  col += uGlowColor * (pow(az, 3.0) * band * uGlowAmt);
+  // sun disc + bloom
   float sunDot = max(dot(vDir, uSunDir), 0.0);
   float disc = smoothstep(0.9985, 0.9997, sunDot);
   float glow = pow(sunDot, 26.0) * 0.6 + pow(sunDot, 5.0) * 0.06;
   col += uSunColor * (disc * 2.4 + glow) * uSunAmt;
+  // moon: crescent disc (a second, offset disc bites the shadow side) + halo
+  float moonDot = max(dot(vDir, uMoonDir), 0.0);
+  float mdisc = smoothstep(0.99935, 0.9998, moonDot);
+  float bite = smoothstep(0.99915, 0.9997, max(dot(vDir, uMoonDir2), 0.0));
+  float crescent = clamp(mdisc - bite * 0.85, 0.0, 1.0);
+  float mhalo = pow(moonDot, 90.0) * 0.3 + pow(moonDot, 14.0) * 0.05;
+  col += uMoonColor * (crescent * 1.7 + mhalo) * uMoonAmt;
   gl_FragColor = vec4(col, 1.0);
 }`;
 
@@ -122,53 +182,112 @@ void main() {
   gl_FragColor = vec4(uColor * shade, a * uAlpha);
 }`;
 
-function makeColorSet(zone) {
+function makeColorSet(zone, mood) {
   const top = new THREE.Color(zone.ambient?.skyTop ?? 0x8ecbff);
   // Deepen the daylight zenith: zone skyTop values are authored bright, and
   // an un-deepened top washes out entirely at noon. A saturation push plus a
-  // modest lightness cut keeps a real blue overhead (haze stays at the
-  // horizon via uBottom/uHorizon) while preserving each zone's hue identity.
+  // lightness cut keeps a real blue overhead (haze stays at the horizon)
+  // while preserving each zone's hue identity.
   const topHSL = { h: 0, s: 0, l: 0 };
   top.getHSL(topHSL);
-  top.setHSL(topHSL.h, Math.min(1, topHSL.s * 1.15 + 0.05), topHSL.l * 0.82);
+  top.setHSL(topHSL.h, Math.min(1, topHSL.s * 1.18 + 0.06), topHSL.l * 0.78);
   const bottom = new THREE.Color(zone.ambient?.skyBottom ?? 0xdff2e0);
-  const sun = new THREE.Color(zone.ambient?.sun ?? 0xfff2d0);
-  const night = { top: top.clone().lerp(new THREE.Color(0x060814), 0.86), bottom: bottom.clone().lerp(new THREE.Color(0x141c30), 0.8) };
-  const dawn = { top: top.clone().lerp(new THREE.Color(0x87a6d8), 0.35), bottom: bottom.clone().lerp(new THREE.Color(0xffb98a), 0.55) };
-  const dusk = { top: top.clone().lerp(new THREE.Color(0x5b4a8a), 0.4), bottom: bottom.clone().lerp(new THREE.Color(0xff9a5c), 0.5) };
+  const keyC = new THREE.Color(mood.key);
+  // The zone key light leans hard toward the mood color — this is the single
+  // strongest per-zone identity lever.
+  const sun = new THREE.Color(zone.ambient?.sun ?? 0xfff2d0).lerp(keyC, 0.55);
+  const duskBias = mood.duskBias != null ? new THREE.Color(mood.duskBias) : null;
+
+  const day = {
+    top,
+    mid: top.clone().lerp(bottom, 0.52),
+    bottom: bottom.clone().lerp(top, 0.22),
+    horizon: bottom.clone().lerp(keyC, (mood.warmth ?? 0.3) * 0.3),
+  };
+  const night = {
+    top: top.clone().lerp(new THREE.Color(0x05070f), 0.9),
+    mid: top.clone().lerp(new THREE.Color(0x0d1226), 0.85),
+    bottom: bottom.clone().lerp(new THREE.Color(0x162038), 0.85),
+    horizon: bottom.clone().lerp(new THREE.Color(0x1f2c50), 0.82),
+    glow: new THREE.Color(0x2c3c6e),
+  };
+  const dawn = {
+    top: top.clone().lerp(new THREE.Color(0x7186c8), 0.45),
+    mid: top.clone().lerp(new THREE.Color(0xe09aa8), 0.55), // the pink-gold band
+    bottom: bottom.clone().lerp(new THREE.Color(0xffc188), 0.62),
+    horizon: bottom.clone().lerp(new THREE.Color(0xffcf96), 0.7),
+    glow: new THREE.Color(0xffb26e),
+  };
+  const dusk = {
+    top: top.clone().lerp(new THREE.Color(0x453a78), 0.55), // deep violet zenith
+    mid: top.clone().lerp(new THREE.Color(0xc86a70), 0.5),  // coral band
+    bottom: bottom.clone().lerp(new THREE.Color(0xff9448), 0.58),
+    horizon: bottom.clone().lerp(new THREE.Color(0xff8e56), 0.66),
+    glow: new THREE.Color(0xff7a38),
+  };
+  if (duskBias) { // e.g. mirrorlake's rose dusk
+    dusk.mid.lerp(duskBias, 0.45);
+    dusk.bottom.lerp(duskBias, 0.32);
+    dusk.horizon.lerp(duskBias, 0.4);
+    dusk.glow.lerp(duskBias, 0.5);
+  }
   return {
-    // Daylight horizon keeps haze but tinted toward the sky hue, never raw
-    // white — dawn/dusk/night derive from the zone's authored bottom.
-    day: { top, bottom: bottom.clone().lerp(top, 0.28) },
-    night,
-    dawn,
-    dusk,
+    day, night, dawn, dusk,
     sunNoon: sun,
-    sunDawn: sun.clone().lerp(new THREE.Color(0xff9a5c), 0.55),
-    sunDusk: sun.clone().lerp(new THREE.Color(0xff7a4c), 0.6),
-    sunNight: new THREE.Color(0x9fb0e8),
+    sunDawn: sun.clone().lerp(new THREE.Color(0xff9a5c), 0.6),
+    sunDusk: (duskBias ? sun.clone().lerp(duskBias, 0.3) : sun.clone()).lerp(new THREE.Color(0xff6e3c), 0.6),
+    moon: new THREE.Color(0xbfd2ff),
+    shadow: new THREE.Color(mood.shadow ?? MOOD_DEFAULT.shadow),
+    bounce: new THREE.Color(mood.bounce ?? MOOD_DEFAULT.bounce),
+    duskGround: new THREE.Color(0x5b4a8a), // design-bible dusk purple (shadow side)
   };
 }
 
 export function createSky(zone, scene) {
   const biome = zone.biome ?? zone.terrain?.kind ?? 'meadow';
   const indoor = INDOOR_BIOMES.has(biome);
-  const colors = makeColorSet(zone);
+  const mood = MOODS[zone.id] ?? MOOD_DEFAULT;
+  const ind = indoor ? { ...INDOOR_DEFAULT, ...(mood.indoor ?? {}) } : null;
+  const colors = makeColorSet(zone, mood);
+  const keyI = mood.keyI ?? 1.0;
+  const fillI = mood.fillI ?? 1.0;
   const domeR = Math.max((zone.size ?? 200) * 0.9, 180);
   const disposables = [];
 
+  // The actual time of day right now — used ONLY for the one-time fog
+  // harmonization and the first-frame seed. Falls back safely when state
+  // isn't initialized (unit tests construct sky without a running game).
+  const tNow = (G?.calendar?.dayTime ?? zone.ambient?.startDayTime ?? 0.35);
+
   // ---------------------------------------------------------- fog (set once — see file header)
+  // Harmonized: authored zone fog -> leaned toward the sky horizon color at
+  // the CURRENT time of day -> tinted toward the mood. Entering mirrorlake at
+  // dusk gets rose fog, whisperwood gets mossy green — never neutral gray.
   const fogColor = new THREE.Color(zone.ambient?.fogColor ?? 0xcfe0d8);
-  scene.fog = new THREE.FogExp2(fogColor.getHex(), zone.ambient?.fogDensity ?? 0.008);
+  if (!indoor) {
+    const dw0 = dayWeight(tNow), ddw0 = dawnDuskWeight(tNow);
+    const band0 = duskSide(tNow) ? colors.dusk : colors.dawn;
+    const horizon0 = colors.night.horizon.clone().lerp(band0.horizon, ddw0).lerp(colors.day.horizon, dw0);
+    fogColor.lerp(horizon0, 0.55);
+  }
+  if (mood.fogTint != null) fogColor.lerp(new THREE.Color(mood.fogTint), mood.fogTintAmt ?? 0.4);
+  scene.fog = new THREE.FogExp2(fogColor.getHex(), (zone.ambient?.fogDensity ?? 0.008) * (mood.fogMul ?? 1));
 
   // ---------------------------------------------------------- gradient dome
   const domeUniforms = {
-    uTop: { value: new THREE.Color(indoor ? 0x151726 : colors.day.top) },
-    uBottom: { value: new THREE.Color(indoor ? 0x0c0d16 : colors.day.bottom) },
-    uHorizon: { value: new THREE.Color(indoor ? 0x1c1e2c : colors.day.bottom).lerp(new THREE.Color(0xffffff), indoor ? 0 : 0.08) },
+    uTop: { value: new THREE.Color(indoor ? ind.domeTop : colors.day.top) },
+    uMid: { value: new THREE.Color(indoor ? ind.domeHorizon : colors.day.mid) },
+    uBottom: { value: new THREE.Color(indoor ? ind.domeBottom : colors.day.bottom) },
+    uHorizon: { value: new THREE.Color(indoor ? ind.domeHorizon : colors.day.horizon) },
     uSunDir: { value: new THREE.Vector3(0, 1, 0) },
     uSunColor: { value: new THREE.Color(colors.sunNoon) },
     uSunAmt: { value: indoor ? 0 : 1 },
+    uGlowColor: { value: new THREE.Color(colors.dusk.glow) },
+    uGlowAmt: { value: 0 },
+    uMoonDir: { value: new THREE.Vector3(0, -1, 0) },
+    uMoonDir2: { value: new THREE.Vector3(0, -1, 0) },
+    uMoonColor: { value: new THREE.Color(colors.moon) },
+    uMoonAmt: { value: 0 },
   };
   const domeGeo = new THREE.SphereGeometry(domeR, 24, 16);
   const domeMat = new THREE.ShaderMaterial({
@@ -259,7 +378,10 @@ export function createSky(zone, scene) {
   }
 
   // ---------------------------------------------------------- lights
-  const sunLight = new THREE.DirectionalLight(colors.sunNoon.getHex(), indoor ? 0 : 2.4);
+  // One dominant key: the warm sun by day, the cool moon by night (same
+  // DirectionalLight — color/intensity/direction cross-fade through dusk).
+  // Indoors it becomes a dim slanted mood key (no shadow) so forms still model.
+  const sunLight = new THREE.DirectionalLight(indoor ? ind.key : colors.sunNoon.getHex(), indoor ? ind.keyI : 3.0 * keyI);
   sunLight.name = 'sunLight';
   sunLight.position.set(20, 32, 20); // sane default until world.js's shadow-follow takes over
   sunLight.target.name = 'sunLightTarget';
@@ -278,13 +400,14 @@ export function createSky(zone, scene) {
   // These values are tuned empirically against a median-luminance target of
   // ~12% for caves (readable silhouettes) while the near-black dome keeps the
   // mood. The spire's fortress-black walls swallow far more light, so it gets
-  // a stronger fill just to hold silhouette readability.
+  // a stronger fill just to hold silhouette readability. Hue now comes from
+  // the zone mood (gloamcavern teal, hollowspire violet).
   const indoorHemiI = biome === 'spire' ? 7.0 : 4.0;
   const indoorFillI = biome === 'spire' ? 9.0 : 7.5;
   const hemi = new THREE.HemisphereLight(
-    indoor ? 0x8a96ad : colors.day.top.getHex(),
-    indoor ? 0x4a4f62 : colors.day.bottom.getHex(),
-    indoor ? indoorHemiI : 0.55,
+    indoor ? ind.hemiSky : colors.day.top.getHex(),
+    indoor ? ind.hemiGround : colors.day.bottom.getHex(),
+    indoor ? indoorHemiI : 0.44 * fillI,
   );
   hemi.name = 'skyHemi';
   scene.add(hemi);
@@ -296,8 +419,7 @@ export function createSky(zone, scene) {
   // Warden never dissolves into the dark (see update()).
   let fillLight = null;
   if (indoor) {
-    const fillColor = biome === 'cave' ? 0x8fb8ff : 0xb8b0ff;
-    fillLight = new THREE.PointLight(fillColor, indoorFillI, 30, 1.2);
+    fillLight = new THREE.PointLight(ind.fill, indoorFillI, 30, 1.2);
     fillLight.name = 'skyFill';
     scene.add(fillLight);
   } else {
@@ -306,9 +428,22 @@ export function createSky(zone, scene) {
     scene.add(fillLight);
   }
 
+  // The light direction world.js's shadow-follow reads (returned as `sunDir`).
+  // Outdoors it cross-fades sun -> moon through dusk; indoors it's the fixed
+  // slanted mood key.
+  const lightDir = new THREE.Vector3(0, 1, 0);
+  if (indoor) {
+    lightDir.set(ind.keyDir[0], ind.keyDir[1], ind.keyDir[2]).normalize();
+    domeUniforms.uSunDir.value.copy(lightDir);
+  }
+
   // ---------------------------------------------------------- scratch (no per-frame allocs)
   const _tc = new THREE.Color();
   const _tc2 = new THREE.Color();
+  const _tc3 = new THREE.Color();
+  const _tc4 = new THREE.Color();
+  const _v = new THREE.Vector3();
+  const _v2 = new THREE.Vector3();
   const azimuth = 0.9 + (hashStr(zone.id ?? 'zone') % 1000) / 1000 * 1.6;
   let time = zone.terrain?.seed != null ? (zone.terrain.seed % 17) * 0.31 : 0;
 
@@ -323,69 +458,96 @@ export function createSky(zone, scene) {
       const dirY = Math.sin(elevRad);
       const dirZ = Math.cos(elevRad) * Math.cos(azimuth);
       domeUniforms.uSunDir.value.set(dirX, dirY, dirZ).normalize();
+      // Moon opposes the sun — as the sun sinks the moon climbs the far side.
+      const moonDir = domeUniforms.uMoonDir.value.set(-dirX, -dirY, -dirZ).normalize();
+      // Crescent bite direction: nudge sideways (perp to up) for the shadow disc.
+      _v.crossVectors(moonDir, _v2.set(0, 1, 0));
+      if (_v.lengthSq() < 1e-4) _v.set(1, 0, 0);
+      _v.normalize();
+      domeUniforms.uMoonDir2.value.copy(moonDir).addScaledVector(_v, 0.011).normalize();
 
       const dw = dayWeight(t);
       const ddw = dawnDuskWeight(t);
+      const nw = nightWeight(t);
       const dusk = duskSide(t);
+      const band = dusk ? colors.dusk : colors.dawn;
 
-      // sky gradient: night <-> (dawn|dusk) <-> day, driven by elevation + side
-      _tc.copy(colors.night.top).lerp(dusk ? colors.dusk.top : colors.dawn.top, ddw).lerp(colors.day.top, dw);
-      domeUniforms.uTop.value.copy(_tc);
-      _tc2.copy(colors.night.bottom).lerp(dusk ? colors.dusk.bottom : colors.dawn.bottom, ddw).lerp(colors.day.bottom, dw);
-      domeUniforms.uBottom.value.copy(_tc2);
-      domeUniforms.uHorizon.value.copy(_tc2).lerp(WHITE, 0.05 + ddw * 0.1);
+      // sky gradient: night <-> (dawn|dusk) <-> day, three stops + horizon
+      domeUniforms.uTop.value.copy(colors.night.top).lerp(band.top, ddw).lerp(colors.day.top, dw);
+      domeUniforms.uMid.value.copy(colors.night.mid).lerp(band.mid, ddw).lerp(colors.day.mid, dw);
+      domeUniforms.uBottom.value.copy(colors.night.bottom).lerp(band.bottom, ddw).lerp(colors.day.bottom, dw);
+      domeUniforms.uHorizon.value.copy(colors.night.horizon).lerp(band.horizon, ddw).lerp(colors.day.horizon, dw);
+      // horizon fire around the sun's bearing — strongest mid-band, gone at noon
+      domeUniforms.uGlowColor.value.copy(colors.night.glow).lerp(band.glow, clamp01(ddw * 1.6));
+      let glowAmt = Math.pow(ddw, 1.15) * 1.5 * (1 - dw * 0.8) + nw * 0.12;
+      if (zone.ambient?.weather === 'storm') glowAmt *= 0.2;
+      domeUniforms.uGlowAmt.value = glowAmt;
 
       // Warm-weighted color: any presence in the dawn/dusk band commits the key
       // light to amber (ddw peaks at only ~0.26 by 0.8 dayTime — unweighted it
       // stayed a cold blue while the ground went black).
-      const sunCol = _tc.copy(colors.sunNight).lerp(dusk ? colors.sunDusk : colors.sunDawn, clamp01(ddw * 2.2)).lerp(colors.sunNoon, dw);
+      const sunCol = _tc.copy(colors.moon).lerp(dusk ? colors.sunDusk : colors.sunDawn, clamp01(ddw * 2.2)).lerp(colors.sunNoon, dw);
       domeUniforms.uSunColor.value.copy(sunCol);
       let sunAmt = clamp01(0.12 + dw * 0.88 + ddw * 0.25);
       // Storm zones (Skyreach): no cheerful sun-glow bleeding through the
       // storm dome — keep the mood cold.
       if (zone.ambient?.weather === 'storm') sunAmt = Math.min(sunAmt, 0.25);
       domeUniforms.uSunAmt.value = sunAmt;
+      domeUniforms.uMoonAmt.value = nw * (zone.ambient?.weather === 'storm' ? 0.3 : 1);
 
-      sunLight.color.copy(sunCol);
-      // dawn/dusk keeps a warm horizontal key (ddw term) instead of collapsing
-      // straight to unlit night the moment dayWeight hits zero. (1.45 tuned
-      // up from the reviewer's suggested 1.1 — at dayTime 0.8 ddw is only
-      // ~0.26, and 1.1 left the warm key too faint to read on the ground.)
-      sunLight.intensity = Math.pow(clamp01(dw), 0.75) * 2.6 + ddw * 1.45;
+      // ---- the ONE dominant key light: sun by day, moon by night ----------
+      // moonMix crossfades color/intensity/direction through the dusk band.
+      const moonMix = clamp01((nw - 0.35) / 0.5);
+      sunLight.color.copy(sunCol).lerp(colors.moon, moonMix);
+      const dayI = Math.pow(dw, 0.8) * 3.0 + ddw * 1.7;
+      sunLight.intensity = (dayI * (1 - moonMix) + 0.9 * moonMix) * keyI;
+      // Direction hand-off sun -> moon. The two are exact opposites, so the
+      // blend passes through zero-length at the midpoint — the y-lift keeps it
+      // finite (the key sweeps overhead during deep twilight, when it is at
+      // its dimmest, so the sweep never reads on screen).
+      lightDir.set(dirX, dirY, dirZ).multiplyScalar(1 - moonMix)
+        .addScaledVector(_v2.set(-dirX, -dirY, -dirZ), moonMix);
+      lightDir.y += moonMix * (1 - moonMix); // peak +0.25 at the midpoint
+      if (lightDir.lengthSq() < 1e-4) lightDir.set(0, 1, 0);
+      lightDir.normalize();
       // Position is NOT set here — world.js's per-frame "shadow-follow" step
       // keeps the light (and its tight shadow frustum) centered on the
-      // player using this same `sunDir`, so the two never fight.
+      // player using this same exported `sunDir` vector, so the two never fight.
 
-      // Dusk/dawn hemisphere: the WARM horizon color rides the sky side (it
-      // lights up-facing ground — that's where "amber ground light" comes
-      // from), the purple zenith rides the ground side. Warm-weighted like the
-      // sun so even the shoulder of the band (ddw ~0.26 at dayTime 0.8) reads
-      // clearly amber instead of collapsing to near-black night colors.
+      // ---- dropped cool fill: warm-light/cool-shadow modelling ------------
+      // Day: hemisphere sky side leans hard into the mood's cool shadow tint
+      // (that is the color shadows take), ground side into the warm bounce.
+      // Dusk: warm horizon light from the sky side, design-bible purple from
+      // the ground. Night: deep blue, barely there — the moon key dominates.
       const warmW = clamp01(ddw * 1.9);
-      hemi.color.copy(colors.night.top).lerp(dusk ? colors.dusk.bottom : colors.dawn.bottom, warmW).lerp(colors.day.top, dw);
-      hemi.groundColor.copy(colors.night.bottom).lerp(dusk ? colors.dusk.top : colors.dawn.top, warmW).lerp(colors.day.bottom, dw);
-      // Floor the ambience at ~0.35 through the dawn/dusk band (smoothly
-      // ramped so there's no pop when ddw crosses zero).
-      hemi.intensity = Math.max(lerp(0.22, 0.62, dw), 0.35 * clamp01(ddw * 5));
+      _tc3.copy(colors.day.top).lerp(colors.shadow, 0.6);
+      hemi.color.copy(colors.night.mid).lerp(band.horizon, warmW).lerp(_tc3, dw);
+      _tc4.copy(colors.day.bottom).lerp(colors.bounce, 0.5);
+      hemi.groundColor.copy(colors.night.bottom).lerp(colors.duskGround, warmW).lerp(_tc4, dw);
+      // Fill stays LOW relative to the key (~1:7 at noon) so forms model;
+      // floored through dusk so the band never collapses to black.
+      hemi.intensity = Math.max(lerp(0.17, 0.44, dw), 0.3 * clamp01(ddw * 5)) * fillI;
 
       if (stars) {
-        // zone.ambient.stars: permanent-twilight zones (Starfall Glade) keep
-        // their stars visible regardless of dayTime — it's their identity.
-        const starFloor = zone.ambient?.stars ? 0.6 : 0;
+        // zone.ambient.stars / mood.starFloor: permanent-twilight zones
+        // (Starfall Glade) keep their stars — it's their identity.
+        const starFloor = mood.starFloor ?? (zone.ambient?.stars ? 0.6 : 0);
         starUniforms.uAlpha.value = damp01(starUniforms.uAlpha.value, Math.max(clamp01(1 - dw * 1.4), starFloor), dt);
       }
       if (starUniforms) starUniforms.uTime.value = time;
 
-      // Warden lantern glow — wakes only in deep night (dayWeight < 0.25).
-      if (fillLight) fillLight.intensity = clamp01((0.25 - dw) / 0.25) * 1.9;
+      // Warden lantern glow — wakes through dusk into night so the player
+      // always carries a warm pool of light against the cool moonlight.
+      if (fillLight) fillLight.intensity = clamp01((0.3 - dw) / 0.3) * 2.2;
 
       if (clouds) {
         const data = clouds.userData.data, wrap = clouds.userData.wrap;
         const m4 = clouds.userData.m4, q = clouds.userData.q, s = clouds.userData.s;
         // Warm off-white by day (never pure white — clouds must separate from
-        // the sky tonally at noon), dim slate at night. Storm zones keep their
-        // clouds dark — a bright warm puff over Skyreach broke the cold mood.
-        const cloudTint = _tc2.copy(colors.night.top).lerp(WHITE, 0.3).lerp(CLOUD_DAY, dw);
+        // the sky tonally at noon), catching the dawn/dusk fire in the band,
+        // dim slate at night. Storm zones keep their clouds dark — a bright
+        // warm puff over Skyreach broke the cold mood.
+        const cloudTint = _tc2.copy(colors.night.top).lerp(WHITE, 0.3).lerp(CLOUD_DAY, dw).lerp(band.glow, ddw * 0.55);
         if (zone.ambient?.weather === 'storm') cloudTint.multiplyScalar(0.38);
         cloudMat.uniforms.uColor.value.copy(cloudTint);
         cloudMat.uniforms.uAlpha.value = lerp(0.18, zone.ambient?.weather === 'storm' ? 0.6 : 0.78, dw);
@@ -403,8 +565,10 @@ export function createSky(zone, scene) {
       // indoor: gentle flicker-free steady ambience; fillLight followed by world.js.
       // Tuned bright enough that cave/spire floors and silhouettes actually read
       // (median luminance target ≥12% in caves) while the dark dome keeps the mood.
+      // The slanted mood key breathes very slightly with the fill.
       hemi.intensity = indoorHemiI * (1 + Math.sin(time * 0.15) * 0.025);
       if (fillLight) fillLight.intensity = indoorFillI * (1 + Math.sin(time * 0.4) * 0.05);
+      sunLight.intensity = ind.keyI * (1 + Math.sin(time * 0.23) * 0.03);
     }
   }
 
@@ -425,7 +589,7 @@ export function createSky(zone, scene) {
 
   // seed the very first frame's uniforms/lights immediately (so a render before
   // the first update() tick — e.g. a stray frame during load — still looks right)
-  update(0, zone.ambient?.startDayTime ?? 0.35);
+  update(0, tNow);
 
-  return { update, sunLight, fillLight, sunDir: domeUniforms.uSunDir.value, dispose };
+  return { update, sunLight, fillLight, sunDir: lightDir, dispose };
 }

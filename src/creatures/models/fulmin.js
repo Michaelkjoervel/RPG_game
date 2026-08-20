@@ -56,14 +56,23 @@ export function build_fulmin(kit = kitDefault) {
   const root = new THREE.Group();
 
   const body = kit.blob(0.14, skin, { seed: 110, noise: 0.1, squash: { x: 0.95, y: 0.92, z: 1.2 } });
+  kit.paint(body, { from: 0xa8451c, to: 0xf08840, noise: 0.06, seed: 110 });
   root.add(body);
   body.position.y = 0.19;
 
   kit.at(body, kit.orb(0.075, cream, { sy: 0.65, sx: 0.8 }), 0, -0.05, 0.09);
 
   const head = kit.at(body, kit.orb(0.095, skin, { sz: 1.1, sy: 0.9 }), 0, 0.08, 0.14);
-  const eyeL = kit.at(head, kit.eye(0.04, { irisColor: 0x2a1c08, skinColor: 0xd8672c, glintSize: 0.015 }), 0.07, 0.015, 0.075, { ry: 0.35 });
-  const eyeR = kit.at(head, kit.eye(0.04, { irisColor: 0x2a1c08, skinColor: 0xd8672c, glintSize: 0.015 }), -0.07, 0.015, 0.075, { ry: -0.35 });
+  kit.paint(head, { from: 0xb54e20, to: 0xf08840, noise: 0.05, seed: 111 });
+  // Cream cheek-fluff fans — the fox-kit face shape without extra head geo.
+  const cheekMat = kit.mat(0xf3e6c8, { rough: 0.6, side: THREE.DoubleSide });
+  kit.at(head, kit.furFan(3, 0.045, cheekMat, { width: 0.015, spread: 0.8, curl: 0.1, seed: 110 }), 0.085, -0.02, 0.03, { rz: -1.25 });
+  kit.at(head, kit.furFan(3, 0.045, cheekMat, { width: 0.015, spread: 0.8, curl: 0.1, seed: 111 }), -0.085, -0.02, 0.03, { rz: 1.25 });
+  // Small cream muzzle + dark nose.
+  kit.at(head, kit.snout(0.06, cream.clone(), { r: 0.032, taper: 0.4, up: 0.15 }), 0, -0.028, 0.075);
+  kit.at(head, kit.orb(0.011, kit.mat(0x2a1c14, { rough: 0.4 })), 0, -0.008, 0.132);
+  const eyeL = kit.at(head, kit.eye(0.042, { irisColor: 0x2a1c08, skinColor: 0xd8672c, glintSize: 0.016 }), 0.062, 0.02, 0.078, { ry: 0.24 });
+  const eyeR = kit.at(head, kit.eye(0.042, { irisColor: 0x2a1c08, skinColor: 0xd8672c, glintSize: 0.016 }), -0.062, 0.02, 0.078, { ry: -0.24 });
 
   // Static-charged fur streaks — thin volt-yellow strips along the back,
   // echoing charvane's magma-crack technique with a livelier color.
@@ -93,6 +102,8 @@ export function build_fulmin(kit = kitDefault) {
 
   const zap = kit.heartspark(0.033, pal.eye, { seed: 111 });
   kit.at(body, zap, 0, 0, 0.15);
+
+  root.add(kit.shadowDisc(0.2, 0.36));
 
   return {
     group: kit.groundPlant(root),

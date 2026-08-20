@@ -134,26 +134,27 @@ export function build_tidelorn(kit = kitDefault) {
   const SEGMENTS = 11, SEG_LEN = 0.24, START_R = 0.21, END_R = 0.04;
   const tail = kit.at(body, kit.tailChain(SEGMENTS, skinV, { segLen: SEG_LEN, startR: START_R, endR: END_R }), 0, -0.04, -0.3);
   const YAW = [0, -0.16, -0.22, -0.22, -0.15, -0.02, 0.12, 0.2, 0.2, 0.15, 0.1];
-  const PITCH = [-0.1, -0.1, 0.02, 0.1, 0.12, 0.04, -0.06, -0.1, 0.06, 0.14, 0.1];
+  const PITCH = [-0.1, -0.1, 0.02, 0.1, 0.12, 0.04, -0.06, -0.1, 0.08, 0.18, 0.2];
   tail.pivots.forEach((p, i) => {
     p.rotation.y = YAW[i] ?? 0;
     p.rotation.x = PITCH[i] ?? 0;
     for (const child of p.children) if (child.geometry && child.geometry.attributes) paint(child, 40 + i);
-    // Pale belly plate under each segment + a small water-fin on top so the
-    // mane's rhythm continues down the whole animal.
+    // Pale belly plate under each segment + a water-fin on top so the mane's
+    // rhythm continues down the whole animal (all deep aqua — the pale foam
+    // layer lives on the neck; alternating pale fins here read as bones).
     const r = START_R + (END_R - START_R) * (i / SEGMENTS);
     kit.at(p, kit.orb(r * 0.82, belly, { sy: 0.4, sz: 1.15 }), 0, -r * 0.55, -SEG_LEN * 0.5);
     if (i < SEGMENTS - 2) {
-      const h = 0.3 * (1 - i / SEGMENTS) + 0.05;
-      const f = kit.fin(h, i % 2 ? maneFoam : maneDeep, { width: SEG_LEN * 1.5, curve: 0.3 });
+      const h = 0.32 * (1 - i / SEGMENTS) + 0.06;
+      const f = kit.fin(h, maneDeep, { width: SEG_LEN * 1.9, curve: 0.3 });
       maneAccents.push(kit.at(p, f, 0, r * 0.68, -SEG_LEN * 0.5, { rz: Math.PI / 2, rx: -0.35 }));
     }
   });
   // Whale fluke: two horizontal lobes + a small foam lobe above.
   const tip = tail.pivots[tail.pivots.length - 1];
-  const flukeL = kit.at(tip, kit.fin(0.34, maneDeep, { width: 0.4, curve: 0.15 }), 0, 0, -SEG_LEN * 0.8, { ry: Math.PI / 2, rz: 0.15 });
-  const flukeR = kit.at(tip, kit.fin(0.34, maneDeep, { width: 0.4, curve: 0.15 }), 0, 0, -SEG_LEN * 0.8, { ry: -Math.PI / 2, rz: -0.15 });
-  const flukeUp = kit.at(tip, kit.fin(0.18, maneFoam, { width: 0.2, curve: 0.25 }), 0, 0.02, -SEG_LEN * 0.65, { rz: Math.PI / 2 });
+  const flukeL = kit.at(tip, kit.fin(0.44, maneDeep, { width: 0.5, curve: 0.15 }), 0, 0, -SEG_LEN * 0.8, { ry: Math.PI / 2, rz: 0.2 });
+  const flukeR = kit.at(tip, kit.fin(0.44, maneDeep, { width: 0.5, curve: 0.15 }), 0, 0, -SEG_LEN * 0.8, { ry: -Math.PI / 2, rz: -0.2 });
+  const flukeUp = kit.at(tip, kit.fin(0.22, maneFoam, { width: 0.24, curve: 0.25 }), 0, 0.02, -SEG_LEN * 0.65, { rz: Math.PI / 2 });
 
   // --- Serene spray --------------------------------------------------------
   const mist = kit.mote(12, { color: 0xdff6ff, size: 0.024, radius: 0.8, height: 0.5, speed: 0.22, seed: 25 });

@@ -1,6 +1,8 @@
 // ============================================================================
-// gfx/postfx.js — a single, lightweight screen-space atmosphere pass: subtle
-// vignette + a small saturation/warmth lift on top of the normal render.
+// gfx/postfx.js — a single, lightweight screen-space grade pass: gentle pivot
+// contrast + saturation lift, warm-highlight/cool-shadow split tone, and a
+// soft vignette on top of the normal render. One fullscreen pass, no bloom
+// chains — cheap enough for software GL.
 //
 //   applyAtmosphere(renderer, scene, camera) -> {
 //     render(), setCamera(camera), setEnabled(bool), dispose()
@@ -9,12 +11,14 @@
 // Built on the vendored EffectComposer/RenderPass/ShaderPass/OutputPass so
 // tone mapping + color space still resolve exactly as a direct
 // `renderer.render()` would (OutputPass applies renderer.toneMapping /
-// outputColorSpace on the way to screen). Disabled entirely on
-// settings.quality 'low' (falls back to a plain render — zero overhead), and
-// if the composer ever fails to build or to render (odd GPU/driver), it
-// permanently falls back to plain rendering rather than risk the game loop.
-// World.render(renderer, dt) is the only caller — call `render()` once per
-// frame instead of `renderer.render(scene, camera)`.
+// outputColorSpace on the way to screen). The grade pass therefore runs in
+// LINEAR pre-tonemap space — its constants are tuned for that (pivot 0.18
+// linear gray, small additive tints that ACES then rolls off). Disabled
+// entirely on settings.quality 'low' (falls back to a plain render — zero
+// overhead), and if the composer ever fails to build or to render (odd
+// GPU/driver), it permanently falls back to plain rendering rather than risk
+// the game loop. World.render(renderer, dt) is the only caller — call
+// `render()` once per frame instead of `renderer.render(scene, camera)`.
 // ============================================================================
 import * as THREE from 'three';
 import { bus } from '../core/events.js';
@@ -39,7 +43,14 @@ function loadAddons() {
 }
 
 const ATMO_SHADER = {
-  uniforms: { tDiffuse: { value: null }, uVignette: { value: 0.32 }, uSat: { value: 1.05 }, uWarm: { value: 0.012 } },
+  uniforms: {
+    tDiffuse: { value: null },
+    uVignette: { value: 0.34 },  // corner falloff strength
+    uSat: { value: 1.13 },       // saturation lift
+    uContrast: { value: 1.06 },  // pivot contrast around linear mid-gray
+    uWarm: { value: 0.014 },     // warm push into the lights
+    uCool: { value: 0.012 },     // cool blue lift in the shadows
+  },
   vertexShader: /* glsl */ `
     varying vec2 vUv;
     void main() {
@@ -49,13 +60,19 @@ const ATMO_SHADER = {
   `,
   fragmentShader: /* glsl */ `
     uniform sampler2D tDiffuse;
-    uniform float uVignette, uSat, uWarm;
+    uniform float uVignette, uSat, uContrast, uWarm, uCool;
     varying vec2 vUv;
     void main() {
       vec4 c = texture2D(tDiffuse, vUv);
-      float g = dot(c.rgb, vec3(0.299, 0.587, 0.114));
-      c.rgb = mix(vec3(g), c.rgb, uSat);              // gentle saturation lift
-      c.rgb += vec3(uWarm, uWarm * 0.55, -uWarm * 0.5); // faint warm bias
+      float g = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
+      c.rgb = mix(vec3(g), c.rgb, uSat);                 // saturation lift
+      c.rgb = max((c.rgb - 0.18) * uContrast + 0.18, 0.0); // gentle pivot contrast (linear space)
+      // Split tone: warm the lights, cool the shadows — reinforces the
+      // warm-key/cool-shadow lighting story in every zone.
+      float lit = clamp(g * 2.4, 0.0, 1.0);
+      c.rgb += vec3(uWarm, uWarm * 0.5, -uWarm * 0.55) * lit;
+      c.rgb += vec3(-uCool * 0.55, -uCool * 0.1, uCool) * (1.0 - lit);
+      c.rgb = max(c.rgb, 0.0);
       vec2 uv = vUv - 0.5;
       float vig = 1.0 - dot(uv, uv) * uVignette;
       c.rgb *= clamp(vig, 0.0, 1.0);
