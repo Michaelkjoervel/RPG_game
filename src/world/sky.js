@@ -53,8 +53,8 @@ const CLOUD_DAY = new THREE.Color(0xf2e9d8); // warm off-white daylight cloud bo
 const MOODS = {
   brighthollow:  { name: 'warm afternoon amber', key: 0xffc37a, keyI: 1.12, fillI: 0.85, shadow: 0x8090d8, bounce: 0xd8b48c, warmth: 0.5,  fogTint: 0xead9b4, fogTintAmt: 0.4,  fogMul: 1.05 },
   dawnmeadow:    { name: 'fresh spring gold',    key: 0xffd79a, keyI: 1.05, fillI: 1.0,  shadow: 0x84a0d4, bounce: 0xbcc88c, warmth: 0.35, fogTint: 0xd2e8c4, fogTintAmt: 0.35, fogMul: 0.95 },
-  whisperwood:   { name: 'green-gold shafts',    key: 0xefdc8e, keyI: 1.12, fillI: 0.78, shadow: 0x54766a, bounce: 0x84a068, warmth: 0.55, fogTint: 0x7fa07c, fogTintAmt: 0.5,  fogMul: 1.1 },
-  mirrorlake:    { name: 'dusk rose',            key: 0xffd8b4, keyI: 1.0,  fillI: 0.95, shadow: 0x8a8cc8, bounce: 0xc4aca4, warmth: 0.3,  duskBias: 0xe87e96, fogTint: 0xdcc0c0, fogTintAmt: 0.4, fogMul: 1.0 },
+  whisperwood:   { name: 'green-gold shafts',    key: 0xf0d878, keyI: 1.15, fillI: 0.72, shadow: 0x4a6a58, bounce: 0x84a068, warmth: 0.6,  fogTint: 0x8aa46a, fogTintAmt: 0.6,  fogMul: 1.2 },
+  mirrorlake:    { name: 'dusk rose',            key: 0xffd8b4, keyI: 1.0,  fillI: 0.95, shadow: 0x8a8cc8, bounce: 0xc4aca4, warmth: 0.3,  duskBias: 0xe8907e, fogTint: 0xdcc0c0, fogTintAmt: 0.4, fogMul: 1.0 },
   skyreach:      { name: 'cold thin blue',       key: 0xd4e4ff, keyI: 0.92, fillI: 0.85, shadow: 0x46536e, bounce: 0x66718a, warmth: 0.05, fogTint: 0x59688a, fogTintAmt: 0.45, fogMul: 1.0 },
   sunkenruins:   { name: 'murky cyan',           key: 0xe8eecc, keyI: 0.95, fillI: 0.85, shadow: 0x5a8a86, bounce: 0x8ca894, warmth: 0.2,  fogTint: 0x76a49c, fogTintAmt: 0.5,  fogMul: 1.1 },
   starfallglade: { name: 'violet night sparkle', key: 0xffcf9c, keyI: 1.0,  fillI: 0.95, shadow: 0x6c58a8, bounce: 0x8868a0, warmth: 0.3,  starFloor: 0.75, fogTint: 0x5c4884, fogTintAmt: 0.45, fogMul: 1.0 },
@@ -102,11 +102,12 @@ uniform vec3 uMoonDir, uMoonDir2, uMoonColor;
 uniform float uSunAmt, uMoonAmt, uGlowAmt;
 void main() {
   float h = clamp(vDir.y, -1.0, 1.0);
-  // Three-stop gradient: horizon band -> mid (by ~14 deg) -> zenith (by ~45
-  // deg). The mid stop is what keeps dawn/dusk skies from being a flat lerp —
+  // Three-stop gradient: thin horizon band -> mid (fades out by ~9 deg) ->
+  // zenith (fully by ~30 deg — gameplay cameras see real sky color, not haze).
+  // The mid stop is what keeps dawn/dusk skies from being a flat lerp —
   // pink-gold or coral lives there while the zenith stays deep.
-  vec3 col = mix(uMid, uTop, smoothstep(0.24, 0.7, h));
-  col = mix(uHorizon, col, smoothstep(0.0, 0.24, h));
+  vec3 col = mix(uMid, uTop, smoothstep(0.15, 0.5, h));
+  col = mix(uHorizon, col, smoothstep(0.0, 0.16, h));
   col = mix(uBottom, col, smoothstep(-0.12, 0.04, h));
   // Azimuthal horizon glow — sunrise/sunset fire concentrated around the
   // sun's compass bearing, fading with elevation. This is what gives dusk a
@@ -200,9 +201,9 @@ function makeColorSet(zone, mood) {
 
   const day = {
     top,
-    mid: top.clone().lerp(bottom, 0.52),
+    mid: top.clone().lerp(bottom, 0.3), // mostly zenith hue — a hint of haze
     bottom: bottom.clone().lerp(top, 0.22),
-    horizon: bottom.clone().lerp(keyC, (mood.warmth ?? 0.3) * 0.3),
+    horizon: bottom.clone().lerp(keyC, (mood.warmth ?? 0.3) * 0.22),
   };
   const night = {
     top: top.clone().lerp(new THREE.Color(0x05070f), 0.9),
@@ -226,10 +227,10 @@ function makeColorSet(zone, mood) {
     glow: new THREE.Color(0xff7a38),
   };
   if (duskBias) { // e.g. mirrorlake's rose dusk
-    dusk.mid.lerp(duskBias, 0.45);
-    dusk.bottom.lerp(duskBias, 0.32);
-    dusk.horizon.lerp(duskBias, 0.4);
-    dusk.glow.lerp(duskBias, 0.5);
+    dusk.mid.lerp(duskBias, 0.32);
+    dusk.bottom.lerp(duskBias, 0.25);
+    dusk.horizon.lerp(duskBias, 0.3);
+    dusk.glow.lerp(duskBias, 0.4);
   }
   return {
     day, night, dawn, dusk,
@@ -497,9 +498,9 @@ export function createSky(zone, scene) {
 
       // ---- the ONE dominant key light: sun by day, moon by night ----------
       // moonMix crossfades color/intensity/direction through the dusk band.
-      const moonMix = clamp01((nw - 0.35) / 0.5);
+      const moonMix = clamp01((nw - 0.45) / 0.45);
       sunLight.color.copy(sunCol).lerp(colors.moon, moonMix);
-      const dayI = Math.pow(dw, 0.8) * 3.0 + ddw * 1.7;
+      const dayI = Math.pow(dw, 0.8) * 3.0 + ddw * 1.9;
       sunLight.intensity = (dayI * (1 - moonMix) + 0.9 * moonMix) * keyI;
       // Direction hand-off sun -> moon. The two are exact opposites, so the
       // blend passes through zero-length at the midpoint — the y-lift keeps it
@@ -526,7 +527,7 @@ export function createSky(zone, scene) {
       hemi.groundColor.copy(colors.night.bottom).lerp(colors.duskGround, warmW).lerp(_tc4, dw);
       // Fill stays LOW relative to the key (~1:7 at noon) so forms model;
       // floored through dusk so the band never collapses to black.
-      hemi.intensity = Math.max(lerp(0.17, 0.44, dw), 0.3 * clamp01(ddw * 5)) * fillI;
+      hemi.intensity = Math.max(lerp(0.17, 0.44, dw), 0.38 * clamp01(ddw * 5)) * fillI;
 
       if (stars) {
         // zone.ambient.stars / mood.starFloor: permanent-twilight zones

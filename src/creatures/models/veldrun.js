@@ -27,6 +27,8 @@ export function build_veldrun(kit = kitDefault) {
   // would put the long axis on X and lay the racer sideways across the view.
   const body = kit.capsule(0.115, 0.34, skin, { capSeg: 4, radSeg: 9 });
   body.geometry.rotateX(Math.PI / 2);
+  // Sleek racer two-tone: dust-shadow underside up to a sun-bleached back.
+  kit.paint(body, { from: 0x8a744f, to: 0xd8c8a2, noise: 0.05, seed: 63 });
   root.add(body);
   body.position.y = 0.5;
 
@@ -38,13 +40,19 @@ export function build_veldrun(kit = kitDefault) {
 
   // Long neck + slender head, held high — an aloof, racer's poise.
   const neck = kit.at(body, kit.capsule(0.058, 0.16, skin, { capSeg: 3, radSeg: 7 }), 0, 0.12, 0.2, { rx: -0.55 });
-  const head = kit.at(neck, kit.orb(0.075, skin, { sz: 1.2, sy: 0.85 }), 0, 0.1, 0.06);
-  const eyeL = kit.at(head, kit.eye(0.03, { irisColor: 0x241d14, skinColor: 0xb8a586, glintSize: 0.011 }), 0.055, 0.01, 0.065, { ry: 0.4 });
-  const eyeR = kit.at(head, kit.eye(0.03, { irisColor: 0x241d14, skinColor: 0xb8a586, glintSize: 0.011 }), -0.055, 0.01, 0.065, { ry: -0.4 });
+  kit.paint(neck, { from: 0x9a835c, to: 0xd8c8a2, noise: 0.04, seed: 64 });
+  const head = kit.at(neck, kit.orb(0.082, skin, { sz: 1.15, sy: 0.88 }), 0, 0.12, 0.055);
+  kit.paint(head, { from: 0xa08a62, to: 0xdccda8, noise: 0.04, seed: 65 });
+  // Slim cream muzzle with a dark nose.
+  kit.at(head, kit.snout(0.075, cream.clone(), { r: 0.034, taper: 0.42, up: 0.1 }), 0, -0.03, 0.055);
+  kit.at(head, kit.orb(0.011, darkTip.clone()), 0, -0.012, 0.125);
+  const eyeL = kit.at(head, kit.eye(0.034, { irisColor: 0x241d14, skinColor: 0xb8a586, glintSize: 0.013 }), 0.052, 0.014, 0.065, { ry: 0.26 });
+  const eyeR = kit.at(head, kit.eye(0.034, { irisColor: 0x241d14, skinColor: 0xb8a586, glintSize: 0.013 }), -0.052, 0.014, 0.065, { ry: -0.26 });
 
-  // Backswept antelope horns — grown up from Vellit's fawn nubs.
-  const hornL = kit.at(head, kit.horn(0.13, darkTip, { bend: -0.35, baseR: 0.014, tipR: 0.003 }), 0.03, 0.08, -0.01, { rz: 0.12, rx: -0.3 });
-  const hornR = kit.at(head, kit.horn(0.13, darkTip, { bend: -0.35, baseR: 0.014, tipR: 0.003 }), -0.03, 0.08, -0.01, { rz: -0.12, rx: -0.3 });
+  // Backswept antelope horns — grown up from Vellit's fawn nubs, long enough
+  // now to co-own the silhouette with the swept ears.
+  const hornL = kit.at(head, kit.horn(0.17, darkTip, { bend: -0.38, baseR: 0.017, tipR: 0.004 }), 0.032, 0.075, -0.01, { rz: 0.12, rx: -0.35 });
+  const hornR = kit.at(head, kit.horn(0.17, darkTip, { bend: -0.38, baseR: 0.017, tipR: 0.004 }), -0.032, 0.075, -0.01, { rz: -0.12, rx: -0.35 });
 
   // Ears, swept back for speed rather than upright.
   const earL = kit.at(head, kit.ear(0.1, skin), 0.05, 0.06, -0.03, { rz: 0.3, rx: -0.5 });
@@ -58,7 +66,7 @@ export function build_veldrun(kit = kitDefault) {
     [0.09, -0.107, 0.2], [-0.09, -0.107, 0.2],
     [0.09, -0.107, -0.2], [-0.09, -0.107, -0.2],
   ];
-  const legs = legDefs.map(([x, y, z]) => kit.at(body, kit.leg(0.38, skin, { thighR: 0.05, shinR: 0.033, footLen: 0.08 }), x, y, z));
+  const legs = legDefs.map(([x, y, z]) => kit.at(body, kit.leg(0.38, skin, { thighR: 0.058, shinR: 0.037, footLen: 0.08 }), x, y, z));
 
   // Ribbon tail: an energy-style wing() re-purposed as a flowing streamer
   // rather than a membrane, angled back and drooping like a banner caught
@@ -68,6 +76,8 @@ export function build_veldrun(kit = kitDefault) {
 
   const spark = kit.heartspark(0.035, pal.eye, { seed: 63 });
   kit.at(body, spark, 0, 0.03, 0.14);
+
+  root.add(kit.shadowDisc(0.3, 0.36));
 
   return {
     group: kit.groundPlant(root),

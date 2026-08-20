@@ -88,27 +88,27 @@ export function build_sylvathorn(kit = kitDefault) {
   // Deep-set glade-green eyes.
   const eyeL = kit.at(head, kit.eye(0.045, { irisColor: 0x9ce080, scleraColor: 0x1c180e, skinColor: skinHex, glintSize: 0.017 }), 0.085, 0.02, 0.1, { ry: 0.4 });
   const eyeR = kit.at(head, kit.eye(0.045, { irisColor: 0x9ce080, scleraColor: 0x1c180e, skinColor: skinHex, glintSize: 0.017 }), -0.085, 0.02, 0.1, { ry: -0.4 });
-  const earL = kit.at(head, kit.ear(0.11, hideV, { width: 0.06 }), 0.09, 0.08, -0.04, { rz: 0.55, rx: -0.25 });
-  const earR = kit.at(head, kit.ear(0.11, hideV, { width: 0.06 }), -0.09, 0.08, -0.04, { rz: -0.55, rx: -0.25 });
+  const earL = kit.at(head, paint(kit.ear(0.11, hideV, { width: 0.06 }), 56), 0.09, 0.08, -0.04, { rz: 0.55, rx: -0.25 });
+  const earR = kit.at(head, paint(kit.ear(0.11, hideV, { width: 0.06 }), 56.5), -0.09, 0.08, -0.04, { rz: -0.55, rx: -0.25 });
 
   // --- THE ANTLER CANOPY ---------------------------------------------------
   // Thick bark beams with branch tines; every terminal carries a glowing
   // leaf-bud, so the rack reads tree-crown, not weapon.
   const antlerAccents = [];
-  const BEAM_LEN = 0.52, BEAM_BEND = 0.5;
+  const BEAM_LEN = 0.56, BEAM_BEND = 0.5;
   for (const side of [1, -1]) {
-    const beam = kit.horn(BEAM_LEN, hideV, { bend: side * BEAM_BEND, baseR: 0.045, tipR: 0.012, segments: 7 });
+    const beam = kit.horn(BEAM_LEN, hideV, { bend: side * BEAM_BEND, baseR: 0.06, tipR: 0.016, segments: 7 });
     applyVertexGradient(beam.geometry, { from: BARK_LO, to: 0x6e5f42, noise: 0.04, seed: 58 });
     const beamAt = kit.at(head, beam, side * 0.07, 0.1, -0.03, { rz: -side * 0.5, rx: -0.3 });
     antlerAccents.push(beamAt);
-    const tines = [[0.3, 0.26, 0.95], [0.55, 0.22, 0.6], [0.8, 0.18, 0.3]];
+    const tines = [[0.3, 0.3, 0.95], [0.55, 0.26, 0.6], [0.8, 0.2, 0.3]];
     for (const [t, len, splay] of tines) {
-      const tine = kit.horn(len, hideV, { bend: side * 0.5, baseR: 0.02, tipR: 0.006 });
+      const tine = kit.horn(len, hideV, { bend: side * 0.5, baseR: 0.028, tipR: 0.008 });
       applyVertexGradient(tine.geometry, { from: BARK_LO, to: 0x6e5f42, noise: 0.04, seed: 59 + t * 10 });
       const tineAt = kit.at(beamAt, tine, BEAM_BEND * t * t * BEAM_LEN * side, t * BEAM_LEN, 0, { rz: -side * splay, ry: side * 0.2 });
-      kit.at(tineAt, kit.orb(0.02, glowMat.clone()), side * 0.5 * len * 0.4, len, 0);
+      kit.at(tineAt, kit.orb(0.028, glowMat.clone()), side * 0.5 * len * 0.4, len, 0);
     }
-    kit.at(beamAt, kit.orb(0.024, glowMat.clone()), BEAM_BEND * BEAM_LEN * side, BEAM_LEN, 0);
+    kit.at(beamAt, kit.orb(0.034, glowMat.clone()), BEAM_BEND * BEAM_LEN * side, BEAM_LEN, 0);
   }
 
   // --- Legs: long, fine, bark-shinned -------------------------------------
@@ -131,10 +131,10 @@ export function build_sylvathorn(kit = kitDefault) {
   // Rounded moss masses draped over the shoulders and rump; long strands
   // hang and sway beneath them.
   const mossAccents = [];
-  const shoulderMoss = lobedMass({ lobes: 4, radius: 0.16, spread: 0.7, squash: 0.6, from: 0x2c4a26, to: 0x7ab058, seed: 61, jitter: 0.18 });
+  const shoulderMoss = lobedMass({ lobes: 4, radius: 0.19, spread: 0.72, squash: 0.62, from: 0x2c4a26, to: 0x8ac862, seed: 61, jitter: 0.18 });
   kit.at(body, shoulderMoss, 0, 0.16, 0.16);
   mossAccents.push(shoulderMoss);
-  const rumpMoss = lobedMass({ lobes: 3, radius: 0.13, spread: 0.7, squash: 0.6, from: 0x2c4a26, to: 0x6ea050, seed: 62, jitter: 0.18 });
+  const rumpMoss = lobedMass({ lobes: 3, radius: 0.15, spread: 0.72, squash: 0.62, from: 0x2c4a26, to: 0x7ab458, seed: 62, jitter: 0.18 });
   kit.at(body, rumpMoss, 0, 0.14, -0.24);
   mossAccents.push(rumpMoss);
   const rng = seededRandom(19);

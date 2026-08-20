@@ -24,6 +24,7 @@ export function build_lanterling(kit = kitDefault) {
   const root = new THREE.Group();
 
   const body = kit.blob(0.045, skin, { seed: 180, noise: 0.1 });
+  kit.paint(body, { from: 0xd89a4c, to: 0xffe8b0, noise: 0.04, seed: 180 });
   root.add(body);
   body.position.y = 0.12;
 

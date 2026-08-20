@@ -37,12 +37,12 @@ export function build_sonark(kit = kitDefault) {
   kit.at(muzzle, kit.fang(0.018, kit.mat(0xece6da, { rough: 0.3 })), 0.014, -0.01, 0.02, { rz: 0.15 });
   kit.at(muzzle, kit.fang(0.018, kit.mat(0xece6da, { rough: 0.3 })), -0.014, -0.01, 0.02, { rz: -0.15 });
 
-  // Radar-dish ears: bigger than the head, cupped forward. Two layered
-  // petals (outer fur rim + pale inner dish) per ear.
-  const earL = kit.at(head, kit.petal(0.15, fur, { width: 0.1 }), 0.05, 0.07, -0.01, { rx: -0.3, ry: -0.35, rz: 0.5 });
-  kit.at(earL, kit.petal(0.11, earInner, { width: 0.07 }), 0, 0.01, 0.012, { s: 1 });
-  const earR = kit.at(head, kit.petal(0.15, fur, { width: 0.1 }), -0.05, 0.07, -0.01, { rx: -0.3, ry: 0.35, rz: -0.5 });
-  kit.at(earR, kit.petal(0.11, earInner, { width: 0.07 }), 0, 0.01, 0.012, { s: 1 });
+  // Radar-dish ears: BIGGER THAN THE BODY, cupped forward — the bible's one
+  // explicit exaggeration. Two layered petals (fur rim + pale inner dish).
+  const earL = kit.at(head, kit.petal(0.2, fur, { width: 0.14 }), 0.05, 0.07, -0.01, { rx: -0.3, ry: -0.35, rz: 0.55 });
+  kit.at(earL, kit.petal(0.15, earInner, { width: 0.1 }), 0.005, 0.01, 0.012, { s: 1 });
+  const earR = kit.at(head, kit.petal(0.2, fur, { width: 0.14 }), -0.05, 0.07, -0.01, { rx: -0.3, ry: 0.35, rz: -0.55 });
+  kit.at(earR, kit.petal(0.15, earInner.clone(), { width: 0.1 }), 0.005, 0.01, 0.012, { s: 1 });
 
   // Wings: membrane style, spanwise +X by default — mirror the left one.
   const wingR = kit.wing(0.24, membrane, { style: 'membrane', bones: 3, width: 0.17, droop: 0.16 });
@@ -54,6 +54,8 @@ export function build_sonark(kit = kitDefault) {
 
   const spark = kit.heartspark(0.024, pal.eye, { seed: 52 });
   kit.at(body, spark, 0, 0.03, 0.02);
+
+  root.add(kit.shadowDisc(0.12, 0.3));
 
   return {
     group: kit.groundPlant(root),

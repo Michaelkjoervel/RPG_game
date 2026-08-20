@@ -71,11 +71,18 @@ export function build_sancturne(kit = kitDefault) {
   // body leans forward out of the urn's neck: the ghost ARCS, it doesn't
   // stack. Authored as a child of root (not the urn) so the urn's lean stays
   // its own; the hover bob acts on this torso alone.
-  const body = kit.blob(0.17, wispVert, { seed: 151, noise: 0.2, squash: { x: 0.88, y: 1.3, z: 0.82 } });
+  const body = kit.blob(0.17, wispVert, { seed: 151, noise: 0.2, squash: { x: 1.0, y: 1.3, z: 0.9 } });
   applyVertexGradient(body.geometry, { from: 0x554687, to: 0xd9cfff, noise: 0.05, seed: 151, exp: 0.85 });
   kit.at(root, body, 0.02, 0.86, 0.08, { rx: 0.22 });
   // Inner core glow so the torso has a bright heart.
   kit.at(body, kit.orb(0.06, kit.mat(0xf2ecff, { unlit: true, transparent: true, opacity: 0.55 })), 0, 0.02, 0.05);
+  // Smoke column: a translucent skirt flaring from the torso down INTO the
+  // urn mouth, so ghost and urn read as one continuous pour rather than a
+  // balloon hovering on strings.
+  const skirt = kit.bulb(wispVert, { height: 0.34, width: 0.19, neck: 0.42, segments: 12 });
+  applyVertexGradient(skirt.geometry, { from: 0x3d3268, to: 0x9d8fd0, noise: 0.06, seed: 155, exp: 0.9 });
+  skirt.geometry.rotateX(Math.PI);                   // flare DOWNWARD from the hips
+  kit.at(body, skirt, -0.01, -0.12, -0.06);
 
   // Hooded head: a solid-enough cowl (readable at distance) over a dark void
   // face with bright gold eyes.

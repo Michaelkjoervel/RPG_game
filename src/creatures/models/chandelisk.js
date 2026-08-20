@@ -3,68 +3,101 @@
 // "Chandelier-spider, hanging crystal limbs, prisms scatter rainbow shards."
 // (Design Bible §4)
 // =============================================================================
-// Shardling's grand, chandelier-like final form: a suspended gem-cluster
-// body over six long, faceted crystal limbs that hang and taper like icicles
-// rather than reading as ordinary insect legs (still built from kit.leg()
-// so the walk cycle animates them, just re-skinned in translucent crystal
-// with a small kit.crystal ornament fused to each knee). The bible's
-// "prisms scatter rainbow shards" becomes a ring of small tinted mote
-// clusters — one per spectrum color — orbiting slowly beneath the body,
-// exactly the kind of jewel-box showpiece a Rare deserves.
+// Visual-overhaul rebuild. The old model was a dung-beetle with the crystal
+// hidden under it. Now the whole design is A CHANDELIER FIRST:
+//   1. HIGH STANCE: six long translucent crystal legs splay wide from a
+//      raised sandstone hub — the frame of the chandelier.
+//   2. THE HANGING ARRAY — signature: a ring of six glowing icicle crystals
+//      swinging beneath the hub rim around one grand two-tier central drop,
+//      every pendant emissive so the underside is a lit jewel-box.
+//   3. Gradient sandstone hub with a faceted crystal crown on top, four gold
+//      eyes, and the bible's rainbow prism scatter orbiting below.
 
 import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
+import { applyVertexGradient, jitterGeometry } from '../../gfx/materials.js';
 
 export function build_chandelisk(kit = kitDefault) {
   const pal = kit.palette(['terra', 'lumen']);
-  const stone = kit.mat(0x746346, { rough: 0.55 });
-  const crystalMat = kit.mat(0xe6dcc0, { rough: 0.1, metal: 0.12, transparent: true, opacity: 0.78 });
-  const crystalMat2 = kit.mat(0xd8ecff, { rough: 0.1, transparent: true, opacity: 0.7 });
+  const stoneV = kit.mat(0xffffff, { vertexColors: true, rough: 0.6 });
+  const STONE_LO = 0x4a3d26, STONE_HI = 0x9c8a5e;
+  const crystalMat = kit.mat(0xf2e8c8, { rough: 0.12, metal: 0.08, transparent: true, opacity: 0.8, emissive: 0xd8b868, emissiveIntensity: 0.35 });
+  const skinHex = 0x7d6c46;
 
   const root = new THREE.Group();
 
-  const thorax = kit.blob(0.13, stone, { seed: 62, noise: 0.08, squash: { x: 1, y: 0.75, z: 1.1 } });
+  // --- The hub: raised sandstone body --------------------------------------
+  const thorax = kit.blob(0.16, stoneV, { seed: 62, noise: 0.09, squash: { x: 1.05, y: 0.72, z: 1.15 } });
+  jitterGeometry(thorax.geometry, 0.008, 62);
+  applyVertexGradient(thorax.geometry, { from: STONE_LO, to: STONE_HI, noise: 0.05, seed: 62 });
   root.add(thorax);
-  thorax.position.y = 0.34;
+  thorax.position.y = 0.5;
 
-  // The grand central gem cluster, hanging chandelier-style below the thorax.
-  const chandelier = kit.crystal(0.11, crystalMat, { coreColor: pal.eye, detail: 1 });
-  kit.at(thorax, chandelier, 0, -0.1, -0.05, { s: 1 });
-  const chandelier2 = kit.crystal(0.055, crystalMat2, { coreColor: 0xffffff, detail: 0 });
-  kit.at(chandelier, chandelier2, 0, -0.12, 0, { s: 1 });
+  // Faceted crystal crown on top — the chandelier's finial.
+  const crown = kit.crystal(0.09, crystalMat, { coreColor: pal.eye, detail: 0 });
+  kit.at(thorax, crown, 0, 0.13, -0.02, { s: 1 });
+  crown.rotation.z = 0.2;
 
-  const head = kit.at(thorax, kit.orb(0.06, stone, { sz: 1.05, sy: 0.8 }), 0, 0.02, 0.13);
-  const eyeL = kit.at(head, kit.eye(0.022, { irisColor: 0xffe9b0, skinColor: 0x746346, glintSize: 0.009 }), 0.038, 0.008, 0.05, { ry: 0.4 });
-  const eyeR = kit.at(head, kit.eye(0.022, { irisColor: 0xffe9b0, skinColor: 0x746346, glintSize: 0.009 }), -0.038, 0.008, 0.05, { ry: -0.4 });
-  const eyeL2 = kit.at(head, kit.eye(0.013, { irisColor: 0xffe9b0, skinColor: 0x746346, glintSize: 0.005 }), 0.032, 0.026, 0.045, { ry: 0.4 });
-  const eyeR2 = kit.at(head, kit.eye(0.013, { irisColor: 0xffe9b0, skinColor: 0x746346, glintSize: 0.005 }), -0.032, 0.026, 0.045, { ry: -0.4 });
+  // Head knuckle at the front with four gold eyes.
+  const head = kit.orb(0.075, stoneV, { sz: 1.1, sy: 0.85 });
+  applyVertexGradient(head.geometry, { from: STONE_LO, to: STONE_HI, noise: 0.05, seed: 63 });
+  kit.at(thorax, head, 0, 0.0, 0.16);
+  const eyeL = kit.at(head, kit.eye(0.028, { irisColor: 0xffe9b0, scleraColor: 0x2c2414, skinColor: skinHex, glintSize: 0.011 }), 0.045, 0.01, 0.06, { ry: 0.4 });
+  const eyeR = kit.at(head, kit.eye(0.028, { irisColor: 0xffe9b0, scleraColor: 0x2c2414, skinColor: skinHex, glintSize: 0.011 }), -0.045, 0.01, 0.06, { ry: -0.4 });
+  const eyeL2 = kit.at(head, kit.eye(0.016, { irisColor: 0xffe9b0, scleraColor: 0x2c2414, skinColor: skinHex, glintSize: 0.006 }), 0.038, 0.034, 0.055, { ry: 0.4 });
+  const eyeR2 = kit.at(head, kit.eye(0.016, { irisColor: 0xffe9b0, scleraColor: 0x2c2414, skinColor: skinHex, glintSize: 0.006 }), -0.038, 0.034, 0.055, { ry: -0.4 });
+  // Crystal mandibles.
+  kit.at(head, kit.cone(0.012, 0.04, crystalMat, { segments: 4 }), 0.028, -0.02, 0.055, { rx: -0.6, rz: 0.25 });
+  kit.at(head, kit.cone(0.012, 0.04, crystalMat, { segments: 4 }), -0.028, -0.02, 0.055, { rx: -0.6, rz: -0.25 });
 
-  // Six hanging crystal limbs — long, tapering, icicle-like. Each has a
-  // small crystal knee ornament (the "hanging limbs" of the bible text).
+  // --- Six crystal legs, splayed wide ---------------------------------------
   const legSpots = [
-    { x: 0.11, z: 0.08, ry: 0.5 }, { x: -0.11, z: 0.08, ry: -0.5 },
-    { x: 0.14, z: -0.02, ry: 0.95 }, { x: -0.14, z: -0.02, ry: -0.95 },
-    { x: 0.11, z: -0.12, ry: 1.4 }, { x: -0.11, z: -0.12, ry: -1.4 },
+    { x: 0.13, z: 0.1, ry: 0.55 }, { x: -0.13, z: 0.1, ry: -0.55 },
+    { x: 0.16, z: -0.02, ry: 0.95 }, { x: -0.16, z: -0.02, ry: -0.95 },
+    { x: 0.13, z: -0.13, ry: 1.4 }, { x: -0.13, z: -0.13, ry: -1.4 },
   ];
   const legs = legSpots.map(({ x, z, ry }, i) => {
-    const l = kit.at(thorax, kit.leg(0.26, crystalMat, { thighR: 0.02, shinR: 0.013, footLen: 0.04 }), x, 0.03, z, { ry });
-    kit.at(l.knee, kit.crystal(0.026, crystalMat2, { coreColor: 0xffffff, detail: 0 }), 0, -0.02, 0);
+    const l = kit.at(thorax, kit.leg(0.44, crystalMat, { thighR: 0.024, shinR: 0.015, footLen: 0.045 }), x, 0.02, z, { ry, rz: Math.sign(x) * 0.35 });
+    l.knee.rotation.z = -Math.sign(x) * 0.3;          // splay out, then drop in
+    kit.at(l.knee, kit.crystal(0.028, crystalMat, { coreColor: 0xfff6dc, detail: 0 }), 0, -0.01, 0);
     return l;
   });
   const legParts = legs.map((l) => ({ hip: l.hip, knee: l.knee, foot: l.foot }));
 
-  // Rainbow prism scatter: six small mote clusters in a wide slow orbit,
-  // one per spectrum hue, tucked under the chandelier body.
+  // --- THE HANGING ARRAY ----------------------------------------------------
+  // Six icicle pendants around the rim + a grand two-tier central drop.
+  const pendants = [];
+  const N = 6;
+  for (let i = 0; i < N; i++) {
+    const a = (i / N) * Math.PI * 2 + 0.26;
+    const len = 0.13 + (i % 2) * 0.04;
+    const p = new THREE.Group(); p.name = 'pendant';
+    kit.at(thorax, p, Math.cos(a) * 0.13, -0.08, Math.sin(a) * 0.14);
+    p.rotation.z = Math.cos(a) * 0.14;                // slight outward swing
+    const ice = kit.cone(0.026, len, crystalMat, { segments: 5, flip: true });
+    p.add(ice);
+    kit.at(p, kit.orb(0.016, kit.mat(0xfff2cc, { unlit: true, transparent: true, opacity: 0.9 })), 0, -len - 0.012, 0);
+    pendants.push(p);
+  }
+  const drop = new THREE.Group(); drop.name = 'grandDrop';
+  kit.at(thorax, drop, 0, -0.1, -0.01);
+  const tier1 = kit.crystal(0.085, crystalMat, { coreColor: 0xfff6dc, detail: 1 });
+  kit.at(drop, tier1, 0, -0.06, 0);
+  const tier2 = kit.crystal(0.05, crystalMat, { coreColor: 0xffffff, detail: 0 });
+  kit.at(drop, tier2, 0, -0.2, 0);
+  kit.at(drop, kit.orb(0.02, kit.mat(0xfff6dc, { unlit: true, transparent: true, opacity: 0.95 })), 0, -0.28, 0);
+
+  // Rainbow prism scatter — one mote cluster per spectrum hue, orbiting low.
   const spectrum = [0xff6a5c, 0xffb85c, 0xfff08c, 0x8ce08c, 0x7ac6ff, 0xb08cff];
   const scatterFx = spectrum.map((c, i) => {
-    const m = kit.mote(2, { color: c, size: 0.014, radius: 0.02, height: 0.02, speed: 0.5 + i * 0.05, seed: 70 + i });
-    m.group.position.set(Math.cos((i / spectrum.length) * Math.PI * 2) * 0.16, -0.12, Math.sin((i / spectrum.length) * Math.PI * 2) * 0.16 - 0.05);
-    kit.at(thorax, m, m.group.position.x, m.group.position.y, m.group.position.z);
+    const m = kit.mote(2, { color: c, size: 0.018, radius: 0.05, height: 0.04, speed: 0.5 + i * 0.05, seed: 70 + i });
+    const a = (i / spectrum.length) * Math.PI * 2;
+    kit.at(thorax, m, Math.cos(a) * 0.2, -0.2, Math.sin(a) * 0.2);
     return m;
   });
 
   const spark = kit.heartspark(0.032, pal.eye, { seed: 71 });
-  kit.at(chandelier, spark, 0, 0.02, 0.02);
+  kit.at(thorax, spark, 0, 0.05, 0.19);
 
   return {
     group: kit.groundPlant(root),
@@ -73,7 +106,7 @@ export function build_chandelisk(kit = kitDefault) {
       head,
       eyelids: [eyeL.getObjectByName('eyelid'), eyeR.getObjectByName('eyelid'), eyeL2.getObjectByName('eyelid'), eyeR2.getObjectByName('eyelid')],
       legs: legParts,
-      accents: [chandelier],
+      accents: [crown, ...pendants, drop],
       fx: [...scatterFx, spark],
     },
     hints: {

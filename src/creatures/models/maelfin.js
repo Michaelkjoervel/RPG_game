@@ -53,8 +53,8 @@ export function build_maelfin(kit = kitDefault) {
   // Head carried high, cheeky tilt.
   const head = paint(kit.blob(0.085, peltV, { seed: 17, squash: { x: 0.95, y: 0.95, z: 1.2 } }), 17);
   kit.at(body, head, 0, 0.1, 0.28, { rx: 0.1, rz: 0.06 });
-  const eyeL = kit.at(head, kit.eye(0.038, { irisColor: 0x123044, skinColor: skinHex, glintSize: 0.016 }), 0.06, 0.018, 0.075, { ry: 0.35 });
-  const eyeR = kit.at(head, kit.eye(0.038, { irisColor: 0x123044, skinColor: skinHex, glintSize: 0.016 }), -0.06, 0.018, 0.075, { ry: -0.35 });
+  const eyeL = kit.at(head, kit.eye(0.03, { irisColor: 0x14384f, scleraColor: 0xdcecf0, skinColor: skinHex, glintSize: 0.013 }), 0.055, 0.02, 0.072, { ry: 0.35 });
+  const eyeR = kit.at(head, kit.eye(0.03, { irisColor: 0x14384f, scleraColor: 0xdcecf0, skinColor: skinHex, glintSize: 0.013 }), -0.055, 0.02, 0.072, { ry: -0.35 });
   const earL = kit.at(head, kit.ear(0.042, peltV), 0.065, 0.062, -0.01, { rz: 0.35 });
   const earR = kit.at(head, kit.ear(0.042, peltV), -0.065, 0.062, -0.01, { rz: -0.35 });
   // Cream muzzle with whiskers.
@@ -75,10 +75,11 @@ export function build_maelfin(kit = kitDefault) {
     sails.push(kit.at(body, f, 0, y + 0.008, z - 0.012, { rz: Math.PI / 2, rx: -0.62 }));
   }
 
-  // Flipper "legs" — front pair braced.
-  const legDefs = [[0.09, -0.075, 0.12], [-0.09, -0.075, 0.12]];
+  // Flipper "legs" — front pair braced, short and webbed-dark.
+  const legDefs = [[0.085, -0.075, 0.12], [-0.085, -0.075, 0.12]];
+  const flipperMat = kit.mat(0x17405c, { rough: 0.4 });
   const legs = legDefs.map(([x, y, z], i) => {
-    const l = kit.at(body, kit.leg(0.2, peltV, { thighR: 0.042, shinR: 0.034, footLen: 0.1, footMat: bellyMat }), x, y, z);
+    const l = kit.at(body, kit.leg(0.15, peltV, { thighR: 0.038, shinR: 0.03, footLen: 0.07, footMat: flipperMat }), x, y, z);
     for (const c of l.hip.children) if (c.isMesh && c.geometry) paint(c, 18 + i);
     for (const c of l.knee.children) if (c.isMesh && c.geometry) paint(c, 20 + i);
     return l;

@@ -22,27 +22,35 @@ export function build_fungore(kit = kitDefault) {
   const root = new THREE.Group();
 
   const body = kit.blob(0.32, skin, { seed: 130, noise: 0.11, squash: { x: 1.15, y: 0.9, z: 1.2 } });
+  kit.paint(body, { from: 0x33421f, to: 0x6d854a, noise: 0.07, seed: 130 });
   root.add(body);
   body.position.y = 0.38;
 
-  // Shelf-fungus armor: wide, flat, overlapping plates climbing the back,
-  // each rimmed with a thin venom-purple glow edge.
+  // Shelf-fungus armor: proper HORIZONTAL shelves jutting out of the back
+  // and flanks the way bracket fungus grows off a log — not decals lying
+  // flat against the hide. Each carries a venom-purple rim glow underneath.
   const plateSpots = [
-    [0, 0.2, 0.16, 0.28, 0.15], [0, 0.24, -0.02, 0.32, 0.16],
-    [0, 0.2, -0.22, 0.26, 0.13], [0.14, 0.12, 0.14, 0.15, 0.1], [-0.14, 0.12, 0.14, 0.15, 0.1],
+    // [x, y, z, w, ry]
+    [0, 0.27, -0.02, 0.3, 0],
+    [0.16, 0.19, 0.1, 0.22, 0.5],
+    [-0.17, 0.2, -0.04, 0.24, -0.5],
+    [0.12, 0.13, -0.2, 0.2, 1.1],
+    [-0.1, 0.1, 0.22, 0.18, -0.3],
   ];
-  for (const [x, y, z, w, h] of plateSpots) {
-    const plate = kit.at(body, kit.shellPlate(w, h, h * 0.5, shelfMat, { bulge: 0.05 }), x, y, z, { rx: -0.25 });
-    kit.at(plate, kit.box(w * 0.9, 0.008, 0.006, shelfEdge.clone()), 0, -h * 0.42, h * 0.2);
+  for (const [x, y, z, w, ry] of plateSpots) {
+    const plate = kit.shellPlate(w, w * 0.62, 0.05, shelfMat.clone(), { bulge: 0.045 });
+    kit.paint(plate, { from: 0x9a8464, to: 0xdcc9a0, axis: 'z', noise: 0.05, seed: 131 + Math.round(x * 100) });
+    kit.at(body, plate, x, y, z, { rx: -Math.PI / 2 + 0.18, ry });
+    kit.at(plate, kit.box(w * 0.82, w * 0.5, 0.008, shelfEdge.clone()), 0, -0.01, -0.012);
   }
 
-  const head = kit.at(body, kit.orb(0.16, skin, { sz: 1.05, sy: 0.85 }), 0, 0.14, 0.28);
+  const head = kit.at(body, kit.orb(0.16, skin, { sz: 1.05, sy: 0.85 }), 0, 0.16, 0.34);
+  kit.paint(head, { from: 0x415428, to: 0x74904e, noise: 0.05, seed: 132 });
 
-  // Sleepy eyes: set a touch low and a slight head droop (baked into the
-  // rest pose, the same trick thistlit.js uses for "shy") reads as drowsy
-  // without hand-tuning the eyelid blink mechanism itself.
-  const eyeL = kit.at(head, kit.eye(0.034, { irisColor: 0x2a1e12, skinColor: 0x4a5a34, glintSize: 0.011 }), 0.08, -0.02, 0.11, { ry: 0.3 });
-  const eyeR = kit.at(head, kit.eye(0.034, { irisColor: 0x2a1e12, skinColor: 0x4a5a34, glintSize: 0.011 }), -0.08, -0.02, 0.11, { ry: -0.3 });
+  // Sleepy eyes: half-lidded via the new lidBias rest pose + a slight head
+  // droop — the juggernaut is awake, just barely.
+  const eyeL = kit.at(head, kit.eye(0.04, { irisColor: 0x2a1e12, skinColor: 0x4a5a34, glintSize: 0.014, lidBias: 0.34 }), 0.075, -0.01, 0.115, { ry: 0.24 });
+  const eyeR = kit.at(head, kit.eye(0.04, { irisColor: 0x2a1e12, skinColor: 0x4a5a34, glintSize: 0.014, lidBias: 0.34 }), -0.075, -0.01, 0.115, { ry: -0.24 });
   head.rotation.x = 0.1;
 
   const earL = kit.at(head, kit.ear(0.06, skin), 0.11, 0.1, -0.02, { rz: 0.3 });
@@ -64,7 +72,9 @@ export function build_fungore(kit = kitDefault) {
   kit.at(jaw, breath, 0, -0.03, 0.07);
 
   const spark = kit.heartspark(0.05, pal.eye, { seed: 133 });
-  kit.at(body, spark, 0, 0.16, 0.26);
+  kit.at(body, spark, 0, 0.02, 0.37);
+
+  root.add(kit.shadowDisc(0.46, 0.42));
 
   return {
     group: kit.groundPlant(root),

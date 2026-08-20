@@ -45,18 +45,28 @@ export function build_noctyra(kit = kitDefault) {
 
   const root = new THREE.Group();
 
-  const body = kit.blob(0.19, skin, { seed: 170, noise: 0.09, squash: { x: 1.05, y: 1.15, z: 1.05 } });
+  // Broad-chested owl volume (the old tall squash read as an eggplant).
+  const body = kit.blob(0.19, skin, { seed: 170, noise: 0.09, squash: { x: 1.18, y: 1.02, z: 1 } });
+  kit.paint(body, { from: 0x3c3260, to: 0x7d70a4, noise: 0.06, seed: 170 });
   root.add(body);
   body.position.y = 0.26;
 
+  // Pale feathered chest ruff under the face — the night-watcher's moonlit
+  // front against the dusk plumage.
+  const ruffMat = kit.mat(0x8f84b0, { rough: 0.65, side: THREE.DoubleSide });
+  kit.at(body, kit.furFan(5, 0.11, ruffMat, { width: 0.035, spread: 1.4, curl: 0.35, seed: 171 }), 0, 0.02, 0.16, { rx: 2.65 });
+
   const head = kit.at(body, kit.orb(0.15, skin, { sy: 1.02 }), 0, 0.17, 0.02);
+  kit.paint(head, { from: 0x453a6c, to: 0x8378a8, noise: 0.05, seed: 172 });
   const disc = kit.at(head, kit.orb(0.13, discMat, { sy: 1.05, sz: 0.35 }), 0, 0, 0.06);
-  const eyeL = kit.at(disc, kit.eye(0.048, { irisColor: pal.secondary, scleraColor: 0x14101a, skinColor: 0xa89ec4, glintSize: 0.018 }), 0.05, 0.005, 0.17, { ry: 0.15 });
-  const eyeR = kit.at(disc, kit.eye(0.048, { irisColor: pal.secondary, scleraColor: 0x14101a, skinColor: 0xa89ec4, glintSize: 0.018 }), -0.05, 0.005, 0.17, { ry: -0.15 });
+  kit.paint(disc, { from: 0x8a7fa8, to: 0xc4bcd8, noise: 0.03, seed: 173 });
+  const eyeL = kit.at(disc, kit.eye(0.052, { irisColor: pal.secondary, scleraColor: 0x14101a, skinColor: 0xa89ec4, glintSize: 0.02 }), 0.052, 0.005, 0.17, { ry: 0.12 });
+  const eyeR = kit.at(disc, kit.eye(0.052, { irisColor: pal.secondary, scleraColor: 0x14101a, skinColor: 0xa89ec4, glintSize: 0.02 }), -0.052, 0.005, 0.17, { ry: -0.12 });
   const beak = kit.at(disc, kit.cone(0.024, 0.045, beakMat, { segments: 6 }), 0, -0.045, 0.17, { rx: Math.PI / 2 });
 
-  const tuftL = kit.at(head, kit.leafBlade(0.06, skin, { width: 0.02 }), 0.075, 0.13, -0.02, { rx: -1.15, rz: 0.15 });
-  const tuftR = kit.at(head, kit.leafBlade(0.06, skin, { width: 0.02 }), -0.075, 0.13, -0.02, { rx: -1.15, rz: -0.15 });
+  // Long horn-tufts — the great-owl crown, big enough to own the outline.
+  const tuftL = kit.at(head, kit.leafBlade(0.11, skin.clone(), { width: 0.032 }), 0.08, 0.11, -0.02, { rx: -1.15, rz: 0.35 });
+  const tuftR = kit.at(head, kit.leafBlade(0.11, skin.clone(), { width: 0.032 }), -0.08, 0.11, -0.02, { rx: -1.15, rz: -0.35 });
 
   // Great wings, feathered and larger than Duskit's stubs.
   const wingDefs = [[0.16, 0.02, -0.02, 1], [-0.16, 0.02, -0.02, -1]];
@@ -78,7 +88,9 @@ export function build_noctyra(kit = kitDefault) {
   blurFringe(tail.pivots[tail.pivots.length - 1], fringeMat, 3, 0.09, 0, 0, -0.03, 0.4);
 
   const spark = kit.heartspark(0.038, pal.eye, { seed: 171 });
-  kit.at(body, spark, 0, 0.02, 0.13);
+  kit.at(body, spark, 0, -0.04, 0.185);
+
+  root.add(kit.shadowDisc(0.28, 0.34));
 
   return {
     group: kit.groundPlant(root),

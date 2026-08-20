@@ -21,12 +21,16 @@ export function build_zephyra(kit = kitDefault) {
   const root = new THREE.Group();
 
   const body = kit.blob(0.075, skin, { seed: 83, noise: 0.08, squash: { x: 0.9, y: 1.1, z: 1.1 } });
+  kit.paint(body, { from: 0x4c3f6e, to: 0x9a88b8, noise: 0.05, seed: 83 });
   root.add(body);
   body.position.y = 0.14;
 
   const head = kit.at(body, kit.orb(0.045, skin, { sy: 0.9 }), 0, 0.05, 0.045);
-  const eyeL = kit.at(head, kit.eye(0.019, { irisColor: 0x1c1428, skinColor: 0x6a5a8a, glintSize: 0.008 }), 0.028, 0.005, 0.03, { ry: 0.4 });
-  const eyeR = kit.at(head, kit.eye(0.019, { irisColor: 0x1c1428, skinColor: 0x6a5a8a, glintSize: 0.008 }), -0.028, 0.005, 0.03, { ry: -0.4 });
+  kit.paint(head, { from: 0x5a4c7e, to: 0xa294c0, noise: 0.04, seed: 84 });
+  const eyeL = kit.at(head, kit.eye(0.021, { irisColor: 0x1c1428, skinColor: 0x6a5a8a, glintSize: 0.009 }), 0.026, 0.006, 0.032, { ry: 0.26 });
+  const eyeR = kit.at(head, kit.eye(0.021, { irisColor: 0x1c1428, skinColor: 0x6a5a8a, glintSize: 0.009 }), -0.026, 0.006, 0.032, { ry: -0.26 });
+  // A tiny pale royal ruff where thorax meets head.
+  kit.at(body, kit.fluffTuft(0.028, kit.mat(0xcabce0, { rough: 0.7 }), { count: 4, seed: 85 }), 0, 0.045, 0.055);
 
   // Larger, glowing-tipped antennae — a regal crown of light.
   const antL = kit.at(head, kit.horn(0.07, skin, { bend: 0.55, baseR: 0.006, tipR: 0.002 }), 0.02, 0.045, -0.008, { rz: 0.22 });

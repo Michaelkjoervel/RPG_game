@@ -48,15 +48,19 @@ export function build_stormane(kit = kitDefault) {
   // would swing the long axis onto X and lay the wolf sideways across the view.)
   const body = kit.capsule(0.14, 0.36, skin, { capSeg: 4, radSeg: 9 });
   body.geometry.rotateX(Math.PI / 2);
+  // Storm-front two-tone: deep thundercloud belly up to a rain-lit back.
+  kit.paint(body, { from: 0x3d4353, to: 0x7d8698, noise: 0.06, seed: 112 });
   root.add(body);
   body.position.y = 0.48;
 
   const chest = kit.at(body, kit.orb(0.16, skin, { sx: 0.95, sy: 1.05 }), 0, -0.02, 0.16);
+  kit.paint(chest, { from: 0x3d4353, to: 0x788196, noise: 0.05, seed: 113 });
 
   const head = kit.at(body, kit.orb(0.12, skin, { sz: 1.15, sy: 0.9 }), 0, 0.1, 0.3);
-  const snout = kit.at(head, kit.capsule(0.048, 0.08, skin), 0, -0.03, 0.09, { rx: Math.PI / 2 });
-  const eyeL = kit.at(head, kit.eye(0.04, { irisColor: 0xffe97a, scleraColor: 0x18181c, skinColor: skinHex, glintSize: 0.015 }), 0.065, 0.02, 0.085, { ry: 0.3 });
-  const eyeR = kit.at(head, kit.eye(0.04, { irisColor: 0xffe97a, scleraColor: 0x18181c, skinColor: skinHex, glintSize: 0.015 }), -0.065, 0.02, 0.085, { ry: -0.3 });
+  kit.paint(head, { from: 0x485064, to: 0x7d8698, noise: 0.05, seed: 114 });
+  const snout = kit.at(head, kit.snout(0.13, skin, { r: 0.052, taper: 0.4, up: 0.08 }), 0, -0.035, 0.06);
+  const eyeL = kit.at(head, kit.eye(0.042, { irisColor: 0xffe97a, scleraColor: 0x18181c, skinColor: skinHex, glintSize: 0.016 }), 0.062, 0.024, 0.088, { ry: 0.24 });
+  const eyeR = kit.at(head, kit.eye(0.042, { irisColor: 0xffe97a, scleraColor: 0x18181c, skinColor: skinHex, glintSize: 0.016 }), -0.062, 0.024, 0.088, { ry: -0.24 });
   const earL = kit.at(head, kit.ear(0.08, skin), 0.07, 0.09, -0.01, { rz: 0.18, ry: -0.1 });
   const earR = kit.at(head, kit.ear(0.08, skin), -0.07, 0.09, -0.01, { rz: -0.18, ry: 0.1 });
 
@@ -102,6 +106,8 @@ export function build_stormane(kit = kitDefault) {
   // the unlit core is simply occluded by the fur in front of it.
   const spark = kit.heartspark(0.04, pal.eye, { seed: 112 });
   kit.at(body, spark, 0, -0.03, 0.31);
+
+  root.add(kit.shadowDisc(0.38, 0.38));
 
   return {
     group: kit.groundPlant(root),

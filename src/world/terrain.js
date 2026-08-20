@@ -259,9 +259,10 @@ export function buildTerrain(zone) {
       if (sunT > 0) _c.lerp(cGrassSun, Math.min(1, sunT) * 0.58);
       _c.lerp(gmix > 0.5 ? cGrass : cGrass2, clamp01(0.5 + n3 * 0.8) * 0.16);
       // worn dirt patches — independent slow field so clearings read as trodden
-      // (kept sparse: the meadow must stay green-dominant)
-      const dirtN = clamp01((noise2D(x * 0.03 - 800, z * 0.03 + 300) * 0.5 + 0.5 - 0.55) * 2.6);
-      if (dirtN > 0) _c.lerp(cDirt, Math.min(1, dirtN) * 0.42);
+      // (kept sparse AND soft: the meadow must stay green-dominant — at 0.42
+      // the khaki wash dominated whole mid-grounds in dawnmeadow/mirrorlake)
+      const dirtN = clamp01((noise2D(x * 0.03 - 800, z * 0.03 + 300) * 0.5 + 0.5 - 0.6) * 2.6);
+      if (dirtN > 0) _c.lerp(cDirt, Math.min(1, dirtN) * 0.3);
       // steeper faces rockier + darker
       const rockT = clamp01((slope - 0.28) * 2.6);
       if (rockT > 0) _c.lerp(n1 > 0 ? cStone : cStoneDark, Math.min(1, rockT));
@@ -320,7 +321,7 @@ export function buildTerrain(zone) {
         _c.lerp(_cp, Math.min(1, core * 1.06));
       }
       const rimT = clamp01(1 - Math.abs(d - (hw + 1.7)) / 1.5) * (1 - core);
-      if (rimT > 0) _c.lerp(isStoneFloor ? cStoneDark : cRim, rimT * 0.36);
+      if (rimT > 0) _c.lerp(isStoneFloor ? cStoneDark : cRim, rimT * 0.48);
     }
 
     // gentle per-vertex variance (per-face tone break below carries the grain)
@@ -363,7 +364,10 @@ export function buildTerrain(zone) {
       fnrm.setXYZ(v, _nv.x, _nv.y, _nv.z);
       const r = fcol.getX(v), g = fcol.getY(v), b = fcol.getZ(v);
       const lum = (r + g + b) / 3;
-      const amp = 0.04 * cluster * (lum > 0.72 ? 0.35 : 1); // keep snow/sand facets clean
+      // warm tan (path/dirt) faces get calmer facets: on wide plazas the full
+      // per-triangle tone break read as a repetitive diagonal checker
+      const warmT = clamp01((r - b - 0.16) * 4);
+      const amp = 0.04 * cluster * (lum > 0.72 ? 0.35 : 1) * (1 - warmT * 0.5); // keep snow/sand facets clean
       fcol.setXYZ(v, clamp01(r + fj * amp), clamp01(g + fj * amp), clamp01(b + fj * amp * 0.8));
     }
   }

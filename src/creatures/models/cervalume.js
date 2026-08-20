@@ -13,12 +13,22 @@
 
 import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
+import { applyVertexGradient, jitterGeometry } from '../../gfx/materials.js';
 
 export function build_cervalume(kit = kitDefault) {
   const pal = kit.palette(['lumen', 'bloom']);
-  const skin = kit.mat(0xe8dcc0, { rough: 0.45 });                                  // radiant pale cream-gold
-  const hoofMat = kit.mat(0x6a5a3a, { rough: 0.5 });
-  const lightMat = kit.mat(0xfff2c8, { unlit: true, additive: true, opacity: 0.7 }); // hard-light antlers
+  // Radiant coat: vertex gradient from warm fawn-gold under-body to near-
+  // ivory along the spine, so the deer shades as morning light, not plastic.
+  const skin = kit.mat(0xffffff, { vertexColors: true, rough: 0.45 });
+  const COAT_LO = 0xc2a26c, COAT_HI = 0xfdf6e0;
+  const paint = (mesh, seed, jit = 0) => {
+    if (jit) jitterGeometry(mesh.geometry, jit, seed);
+    applyVertexGradient(mesh.geometry, { from: COAT_LO, to: COAT_HI, noise: 0.035, seed });
+    return mesh;
+  };
+  const hoofMat = kit.mat(0xd8b46a, { rough: 0.4, emissive: 0xa87c28, emissiveIntensity: 0.6 });
+  const lightMat = kit.mat(0xfff2c8, { unlit: true, additive: true, opacity: 0.7 }); // hard-light glow shell
+  const lightCore = kit.mat(0xffe9b0, { rough: 0.3, emissive: 0xffc95e, emissiveIntensity: 0.9 }); // solid antler core
   const bloomMat = kit.mat(pal.secondary, { unlit: true, transparent: true, opacity: 0.85 });
 
   const root = new THREE.Group();
@@ -28,27 +38,37 @@ export function build_cervalume(kit = kitDefault) {
   // is tied to the leg length below so the hooves reach the ground.
   const body = kit.capsule(0.17, 0.4, skin, { capSeg: 5, radSeg: 9 });
   body.geometry.rotateX(Math.PI / 2);
+  paint(body, 150, 0.005);
   root.add(body);
   body.position.y = 0.66;
 
-  const head = kit.at(body, kit.blob(0.13, skin, { seed: 150, squash: { x: 0.85, y: 0.9, z: 1.3 } }), 0, 0.2, 0.3);
+  // Deer chest + haunch mass so the barrel isn't a pipe.
+  kit.at(body, paint(kit.orb(0.175, skin, { sy: 1.05, sz: 0.9 }), 154, 0.007), 0, -0.02, 0.2);
+  kit.at(body, paint(kit.orb(0.16, skin, { sy: 1.08, sz: 0.95 }), 155, 0.007), 0, -0.01, -0.22);
+
+  const head = kit.at(body, paint(kit.blob(0.13, skin, { seed: 150, squash: { x: 0.85, y: 0.9, z: 1.3 } }), 156), 0, 0.2, 0.3);
   const eyeL = kit.at(head, kit.eye(0.042, { irisColor: 0x3a2c14, skinColor: 0xe8dcc0, glintSize: 0.016 }), 0.078, 0.01, 0.1, { ry: 0.3 });
   const eyeR = kit.at(head, kit.eye(0.042, { irisColor: 0x3a2c14, skinColor: 0xe8dcc0, glintSize: 0.016 }), -0.078, 0.01, 0.1, { ry: -0.3 });
-  const earL = kit.at(head, kit.ear(0.075, skin, { floppy: true }), 0.085, 0.09, -0.02, { rz: 0.35 });
-  const earR = kit.at(head, kit.ear(0.075, skin, { floppy: true }), -0.085, 0.09, -0.02, { rz: -0.35 });
+  const earL = kit.at(head, paint(kit.ear(0.075, skin, { floppy: true }), 157), 0.085, 0.09, -0.02, { rz: 0.35 });
+  const earR = kit.at(head, paint(kit.ear(0.075, skin, { floppy: true }), 158), -0.085, 0.09, -0.02, { rz: -0.35 });
 
-  // Branching hard-light antlers — the same "main horn + grafted branches"
-  // technique sylvathorn.js uses, but glowing translucent gold instead of
-  // solid bark.
+  // Branching hard-light antlers: a SOLID emissive-gold core horn (survives
+  // a silhouette test) wearing a translucent additive glow shell, branches
+  // grafted the same way sylvathorn.js does its bark rack.
   const antlerAccents = [];
   for (const side of [1, -1]) {
-    const main = kit.horn(0.24, lightMat, { bend: 0.6, baseR: 0.02, tipR: 0.004 });
-    const mainAt = kit.at(head, main, side * 0.06, 0.13, -0.01, { rz: side * 0.15, ry: side * 0.1 });
+    const main = kit.horn(0.32, lightCore, { bend: side * 0.55, baseR: 0.026, tipR: 0.006 });
+    const mainAt = kit.at(head, main, side * 0.06, 0.12, -0.01, { rz: -side * 0.35, ry: side * 0.1 });
+    const shell = kit.horn(0.33, lightMat, { bend: side * 0.55, baseR: 0.038, tipR: 0.01 });
+    kit.at(mainAt, shell, 0, -0.005, 0);
     antlerAccents.push(mainAt);
-    for (const [t, s] of [[0.42, 0.5], [0.68, 0.35]]) {
-      const branch = kit.horn(0.11 * s / 0.5, lightMat, { bend: 0.5, baseR: 0.011, tipR: 0.003 });
-      kit.at(mainAt, branch, 0, 0.24 * t, 0, { rz: side * -0.9, ry: side * 0.4 });
+    for (const [t, s] of [[0.36, 0.62], [0.62, 0.45]]) {
+      const bLen = 0.22 * s;
+      const branch = kit.horn(bLen, lightCore, { bend: side * 0.5, baseR: 0.014, tipR: 0.004 });
+      const bAt = kit.at(mainAt, branch, side * 0.55 * t * t * 0.32, 0.32 * t, 0, { rz: side * -0.85, ry: side * 0.4 });
+      kit.at(bAt, kit.orb(0.014, lightMat.clone()), side * 0.5 * bLen * 0.4, bLen, 0);
     }
+    kit.at(mainAt, kit.orb(0.018, lightMat.clone()), side * 0.55 * 0.32, 0.32, 0);
   }
 
   // --- Legs: four long, elegant legs — grown from Dapplyn's fawn stance. ---
@@ -59,7 +79,12 @@ export function build_cervalume(kit = kitDefault) {
     [0.13, -0.151, 0.25], [-0.13, -0.151, 0.25],
     [0.13, -0.151, -0.24], [-0.13, -0.151, -0.24],
   ];
-  const legs = legDefs.map(([x, y, z]) => kit.at(body, kit.leg(0.5, skin, { thighR: 0.055, shinR: 0.038, footLen: 0.09, footMat: hoofMat }), x, y, z));
+  const legs = legDefs.map(([x, y, z], i) => {
+    const l = kit.at(body, kit.leg(0.5, skin, { thighR: 0.055, shinR: 0.038, footLen: 0.09, footMat: hoofMat }), x, y, z);
+    for (const c of l.hip.children) if (c.isMesh && c.geometry) paint(c, 160 + i);
+    for (const c of l.knee.children) if (c.isMesh && c.geometry && c !== l.foot) paint(c, 164 + i);
+    return l;
+  });
 
   // Glowing blossoms resting at each footfall — hooves that leave light
   // behind them.
@@ -69,6 +94,9 @@ export function build_cervalume(kit = kitDefault) {
   });
 
   const tail = kit.at(body, kit.tailChain(2, skin, { segLen: 0.05, startR: 0.03, endR: 0.014 }), 0, 0.12, -0.34);
+  tail.pivots.forEach((p, i) => {
+    for (const c of p.children) if (c.isMesh && c.geometry && c.geometry.attributes) paint(c, 168 + i);
+  });
 
   // A slow, calm drift of gold-green light motes about the shoulders.
   const glow = kit.mote(10, { color: 0xfff2c8, size: 0.02, radius: 0.3, height: 0.3, speed: 0.3, seed: 151 });

@@ -74,8 +74,8 @@ export function build_briarback(kit = kitDefault) {
   kit.at(head, kit.orb(0.05, kit.mat(0x9a6a5c, { rough: 0.5 }), { sy: 0.7, sz: 0.5 }), 0, -0.05, 0.22);
 
   // Berry-red eyes — the bible's one specific color note.
-  const eyeL = kit.at(head, kit.eye(0.046, { irisColor: 0xd42b4a, scleraColor: 0x201410, skinColor: skinHex, glintSize: 0.017 }), 0.1, 0.03, 0.1, { ry: 0.35 });
-  const eyeR = kit.at(head, kit.eye(0.046, { irisColor: 0xd42b4a, scleraColor: 0x201410, skinColor: skinHex, glintSize: 0.017 }), -0.1, 0.03, 0.1, { ry: -0.35 });
+  const eyeL = kit.at(head, kit.eye(0.046, { irisColor: 0xf04a62, scleraColor: 0x241410, skinColor: skinHex, glintSize: 0.019 }), 0.1, 0.03, 0.1, { ry: 0.35 });
+  const eyeR = kit.at(head, kit.eye(0.046, { irisColor: 0xf04a62, scleraColor: 0x241410, skinColor: skinHex, glintSize: 0.019 }), -0.1, 0.03, 0.1, { ry: -0.35 });
 
   const earL = kit.at(head, kit.ear(0.07, hideV), 0.1, 0.1, -0.03, { rz: 0.35 });
   const earR = kit.at(head, kit.ear(0.07, hideV), -0.1, 0.1, -0.03, { rz: -0.35 });

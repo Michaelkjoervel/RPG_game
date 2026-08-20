@@ -2,51 +2,101 @@
 // SLUDGEMAW — Venom/Terra, stage 2 (Oozel awakens at L24).
 // "Bulky tar-slime with stalactite teeth. Slow, inexorable." (Design Bible §4)
 // =============================================================================
-// Oozel grown vast and grim: a darker, heavier bulb body (still authored
-// wider than tall, same proportion discipline as oozel.js), a wide
-// downturned maw ringed with hanging stalactite-teeth (kit.fang, tips
-// already point -Y so no extra rotation needed), and a slower, weightier
-// idle via `hints.personality:'heavy'`.
+// Visual-overhaul rebuild. What carries it:
+//   1. THE MAW — signature: a wide, dark cave of a mouth splitting the whole
+//      front of the body, stalactite teeth hanging from the upper lip and
+//      stalagmite teeth rising to meet them, with a faint venom glow deep
+//      inside. The creature IS a mouth wearing a swamp.
+//   2. TAR VALUE RAMP: vertex gradient from wet pitch-black base to an olive
+//      oil-sheen top, heavy mottle — reads as viscous liquid, not rubber.
+//   3. COOLED CRUST ISLANDS: jittered mineral plates riding the crown like
+//      drifting pack-ice, one big enough to be a hat tilted off-centre.
+// Tar drips (teardrop lathes) hang mid-slide down the flanks.
 
 import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
+import { applyVertexGradient, jitterGeometry } from '../../gfx/materials.js';
 
 export function build_sludgemaw(kit = kitDefault) {
   const pal = kit.palette(['venom', 'terra']);
-  const tar = kit.mat(0x2a2418, { rough: 0.32, transparent: true, opacity: 0.95 });
-  const crust = kit.mat(0x4a4030, { rough: 0.7 });
-  const sheen = kit.mat(0xd8ffb0, { unlit: true, transparent: true, opacity: 0.15 });
-  const toothMat = kit.mat(0xcfc4a0, { rough: 0.35 });
+  const tarV = kit.mat(0xffffff, { vertexColors: true, rough: 0.3 });
+  const TAR_LO = 0x14100a, TAR_HI = 0x5e5430;
+  const CRUST_LO = 0x3a3222, CRUST_HI = 0x7d6f4e;
+  const toothMat = kit.mat(0xd8cca4, { rough: 0.35 });
+  const throatGlow = kit.mat(0x9ac838, { unlit: true, transparent: true, opacity: 0.55 });
+
+  const paint = (mesh, seed, lo = TAR_LO, hi = TAR_HI, jit = 0) => {
+    if (jit) jitterGeometry(mesh.geometry, jit, seed);
+    applyVertexGradient(mesh.geometry, { from: lo, to: hi, noise: 0.06, seed });
+    return mesh;
+  };
 
   const root = new THREE.Group();
 
-  const body = kit.bulb(tar, { height: 0.32, width: 0.4, neck: 0.4, segments: 12 });
+  // The tar heap — wide, sagging, asymmetric.
+  const body = kit.bulb(tarV, { height: 0.42, width: 0.5, neck: 0.44, segments: 14 });
+  jitterGeometry(body.geometry, 0.02, 66);
+  applyVertexGradient(body.geometry, { from: TAR_LO, to: TAR_HI, noise: 0.06, seed: 66 });
   root.add(body);
+  body.rotation.y = 0.15;                            // heap slumps off-axis
 
-  const sheenCap = kit.orb(0.2, sheen, { sx: 0.9, sy: 0.5, sz: 0.75 });
-  kit.at(body, sheenCap, 0.08, 0.2, 0.14, { rz: -0.25 });
-
-  // Mineral crust plating, heavier and more armored than Oozel's single hat.
-  const crustSpots = [[0, 0.27, 0, 0.13], [0.13, 0.2, -0.1, 0.09], [-0.14, 0.19, -0.08, 0.08]];
-  const crustPlates = crustSpots.map(([x, y, z, sz]) => kit.at(body, kit.blob(sz, crust, { seed: 66 + x * 10, noise: 0.2, squash: { x: 1, y: 0.55, z: 1 } }), x, y, z));
-
-  const eyeL = kit.at(body, kit.eye(0.04, { irisColor: 0xcfe08c, scleraColor: 0x1a1610, skinColor: 0x2a2418, glintSize: 0.014 }), 0.1, 0.05, 0.27, { ry: 0.25 });
-  const eyeR = kit.at(body, kit.eye(0.04, { irisColor: 0xcfe08c, scleraColor: 0x1a1610, skinColor: 0x2a2418, glintSize: 0.014 }), -0.1, 0.05, 0.27, { ry: -0.25 });
-
-  // Wide downturned maw ringed with stalactite teeth.
-  const jaw = kit.at(body, kit.blob(0.12, tar, { seed: 67, squash: { x: 1.3, y: 0.5, z: 0.7 } }), 0, -0.05, 0.3);
-  const toothCount = 7;
-  for (let i = 0; i < toothCount; i++) {
-    const t = i / (toothCount - 1);
-    const x = (t - 0.5) * 0.2;
-    kit.at(jaw, kit.fang(0.05 + Math.sin(t * Math.PI) * 0.03, toothMat, { r: 0.012 }), x, -0.01, 0.03);
+  // --- THE MAW -------------------------------------------------------------
+  // A dark recess splitting the front, upper lip overhanging.
+  const mawGroup = new THREE.Group(); mawGroup.name = 'maw';
+  kit.at(body, mawGroup, 0, 0.15, 0.3, { ry: -0.15 }); // counter the slump: maw faces +Z
+  const cave = kit.orb(0.19, kit.mat(0x0b0804, { rough: 0.95 }), { sx: 1.35, sy: 0.62, sz: 0.7 });
+  kit.at(mawGroup, cave, 0, -0.04, 0.02);
+  const glow = kit.orb(0.12, throatGlow, { sx: 1.2, sy: 0.4, sz: 0.5 });
+  kit.at(mawGroup, glow, 0, -0.06, 0.0);
+  // Upper lip overhang.
+  const lip = paint(kit.orb(0.22, tarV, { sx: 1.35, sy: 0.42, sz: 0.7 }), 67, TAR_LO, TAR_HI, 0.012);
+  kit.at(mawGroup, lip, 0, 0.12, 0.06);
+  // Lower jaw — its own part so the animator can drop it on attack.
+  const jaw = paint(kit.orb(0.2, tarV, { sx: 1.3, sy: 0.35, sz: 0.75 }), 68, TAR_LO, 0x4a4226, 0.012);
+  kit.at(mawGroup, jaw, 0, -0.17, 0.08);
+  // Stalactite teeth hanging from the lip, stalagmites rising from the jaw.
+  const toothN = 6;
+  for (let i = 0; i < toothN; i++) {
+    const t = i / (toothN - 1);
+    const x = (t - 0.5) * 0.42;
+    const len = 0.075 + Math.sin(t * Math.PI) * 0.045;
+    kit.at(mawGroup, kit.fang(len, toothMat, { r: 0.021 }), x, 0.1, 0.16, { rz: (t - 0.5) * 0.2 });
+    if (i % 2 === 0) {
+      kit.at(jaw, kit.cone(0.018, 0.06 + Math.sin(t * Math.PI) * 0.03, toothMat, { segments: 5 }), x * 0.85, 0.02, 0.05);
+    }
   }
 
-  const gooDrip = kit.mote(6, { color: 0x8a9a4a, size: 0.022, radius: 0.16, height: 0.1, speed: 0.22, seed: 68 });
-  kit.at(body, gooDrip, 0, 0.08, 0.05);
+  // Sunken venom-bright eyes above the maw.
+  const eyeL = kit.at(body, kit.eye(0.045, { irisColor: 0xd0e86a, scleraColor: 0x141008, skinColor: 0x2a2414, glintSize: 0.016 }), 0.12, 0.36, 0.2, { ry: 0.2, rx: -0.15 });
+  const eyeR = kit.at(body, kit.eye(0.045, { irisColor: 0xd0e86a, scleraColor: 0x141008, skinColor: 0x2a2414, glintSize: 0.016 }), -0.12, 0.36, 0.18, { ry: -0.35, rx: -0.15 });
+  // Heavy tar brows half-swallowing the eyes.
+  kit.at(body, paint(kit.orb(0.075, tarV, { sy: 0.5, sz: 0.8 }), 72, TAR_LO, 0x453e20), 0.12, 0.41, 0.21, { rz: -0.3 });
+  kit.at(body, paint(kit.orb(0.075, tarV, { sy: 0.5, sz: 0.8 }), 73, TAR_LO, 0x453e20), -0.12, 0.41, 0.19, { rz: 0.3 });
 
-  const spark = kit.heartspark(0.038, pal.eye, { seed: 69 });
-  kit.at(body, spark, 0, 0.06, 0.18);
+  // --- Crust islands -------------------------------------------------------
+  const crustPlates = [];
+  const crustSpots = [[0.02, 0.48, -0.06, 0.16, 0.2], [-0.15, 0.42, 0.08, 0.1, -0.4], [0.14, 0.4, -0.16, 0.09, 0.7]];
+  for (const [x, y, z, sz, rz] of crustSpots) {
+    const c = kit.blob(sz, tarV, { seed: 66 + sz * 100, noise: 0.22, squash: { x: 1.15, y: 0.5, z: 1 } });
+    paint(c, 74 + sz * 10, CRUST_LO, CRUST_HI);
+    crustPlates.push(kit.at(body, c, x, y, z, { rz, ry: sz * 8 }));
+  }
+  // Stalagmite spikes growing out of the big crust hat.
+  kit.at(crustPlates[0], kit.cone(0.03, 0.09, kit.mat(0x6e6244, { rough: 0.6 }), { segments: 5 }), 0.04, 0.05, 0.02, { rx: -0.25 });
+  kit.at(crustPlates[0], kit.cone(0.022, 0.06, kit.mat(0x6e6244, { rough: 0.6 }), { segments: 5 }), -0.05, 0.04, -0.03, { rx: 0.2, rz: 0.3 });
+
+  // Tar drips sliding down the flanks — teardrops hanging tip-up.
+  for (const [x, y, z, s, seed] of [[0.24, 0.14, 0.1, 1, 75], [-0.22, 0.1, -0.12, 0.8, 76], [0.06, 0.08, -0.26, 0.7, 77]]) {
+    const drip = kit.teardrop(tarV, { height: 0.14 * s, width: 0.05 * s, segments: 7 });
+    paint(drip, seed, TAR_LO, 0x4a4226);
+    kit.at(body, drip, x, y, z, { rx: Math.PI });     // point the tip DOWN
+  }
+
+  const gooDrip = kit.mote(7, { color: 0x9ac838, size: 0.024, radius: 0.2, height: 0.14, speed: 0.22, seed: 68 });
+  kit.at(body, gooDrip, 0, 0.3, 0.1);
+
+  const spark = kit.heartspark(0.04, pal.eye, { seed: 69 });
+  kit.at(body, spark, 0, 0.26, 0.3);
 
   return {
     group: kit.groundPlant(root),

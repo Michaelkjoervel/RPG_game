@@ -77,10 +77,10 @@ export function build_tidelorn(kit = kitDefault) {
     seg.geometry.rotateX(Math.PI / 2);
     paint(seg, 30 + i);
     kit.at(pivot, seg, 0, 0, len * 0.5);
-    const throat = kit.capsule(r * 0.5, len * 0.9, belly, { capSeg: 3, radSeg: 7 });
+    const throat = kit.capsule(r * 0.46, len * 0.82, belly, { capSeg: 3, radSeg: 7 });
     throat.geometry.rotateX(Math.PI / 2);
-    throat.scale.set(0.72, 0.42, 1);
-    kit.at(pivot, throat, 0, -r * 0.76, len * 0.5);
+    throat.scale.set(0.6, 0.34, 1);
+    kit.at(pivot, throat, 0, -r * 0.84, len * 0.5);
     neckPivots.push(pivot);
     neckParent = pivot;
     attach = [0, 0, len + r * 0.35];

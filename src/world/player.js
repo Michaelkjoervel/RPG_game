@@ -147,7 +147,7 @@ function buildWarden() {
     const thighMesh = gmesh(new THREE.CylinderGeometry(0.08, 0.06, 0.34, 7), P.pants, { seed: 4 });
     thighMesh.position.y = -0.17;
     thigh.add(thighMesh);
-    const knee = gmesh(new THREE.SphereGeometry(0.058, 7, 5), P.pants, { seed: 5 });
+    const knee = gmesh(new THREE.SphereGeometry(0.058, 6, 4), P.pants, { seed: 5 });
     knee.position.y = -0.355;
     thigh.add(knee);
     const shin = new THREE.Group();
@@ -161,7 +161,7 @@ function buildWarden() {
     const heel = gmesh(new THREE.BoxGeometry(0.115, 0.068, 0.15), P.boots, { down: 0.06, up: 0.05, seed: 8 });
     heel.position.set(0, -0.34, 0.015);
     shin.add(heel);
-    const toe = gmesh(new THREE.SphereGeometry(0.056, 7, 5), P.boots, { down: 0.06, up: 0.05, seed: 9 });
+    const toe = gmesh(new THREE.SphereGeometry(0.056, 6, 4), P.boots, { down: 0.06, up: 0.05, seed: 9 });
     toe.scale.set(1.02, 0.66, 1.15);
     toe.position.set(0, -0.352, 0.105);
     shin.add(toe);
@@ -200,11 +200,11 @@ function buildWarden() {
   const pouch = new THREE.Group();
   pouch.position.set(-0.145, 0.135, 0.09);
   pouch.rotation.y = 0.35;
-  const pouchBody = gmesh(new THREE.SphereGeometry(0.055, 7, 5), P.satchel, { seed: 13 });
+  const pouchBody = gmesh(new THREE.SphereGeometry(0.055, 6, 4), P.satchel, { seed: 13 });
   pouchBody.scale.set(1.0, 1.1, 0.75);
   const pouchFlap = gmesh(new THREE.BoxGeometry(0.085, 0.04, 0.055), shade(P.satchel, -0.08), { seed: 14 });
   pouchFlap.position.y = 0.055;
-  const pouchBead = mesh(new THREE.SphereGeometry(0.014, 6, 5), mats.gold);
+  const pouchBead = mesh(new THREE.SphereGeometry(0.014, 5, 4), mats.gold);
   pouchBead.castShadow = false;
   pouchBead.position.set(0, 0.02, 0.045);
   pouch.add(pouchBody, pouchFlap, pouchBead);
@@ -216,7 +216,7 @@ function buildWarden() {
   const satchelBody = gmesh(new THREE.BoxGeometry(0.16, 0.14, 0.085), P.satchel, { down: 0.12, seed: 15 });
   const satchelFlap = gmesh(new THREE.BoxGeometry(0.165, 0.065, 0.095), 0x76582f, { seed: 16 });
   satchelFlap.position.y = 0.055;
-  const satchelClasp = mesh(new THREE.SphereGeometry(0.013, 6, 5), mats.gold);
+  const satchelClasp = mesh(new THREE.SphereGeometry(0.013, 5, 4), mats.gold);
   satchelClasp.castShadow = false;
   satchelClasp.position.set(0, 0.015, 0.05);
   satchel.add(satchelBody, satchelFlap, satchelClasp);
@@ -231,7 +231,7 @@ function buildWarden() {
     const sgn = Math.sign(sideX);
     const shoulder = new THREE.Group();
     shoulder.position.set(sideX, 0.45, 0);
-    const cap = gmesh(new THREE.SphereGeometry(0.068, 8, 6), P.tunic, { seed: 18 });
+    const cap = gmesh(new THREE.SphereGeometry(0.068, 7, 5), P.tunic, { seed: 18 });
     cap.scale.set(1.1, 0.88, 1.0);
     shoulder.add(cap);
     const sleeve = gmesh(new THREE.CylinderGeometry(0.056, 0.047, 0.24, 7), P.tunic, { down: 0.11, seed: 19 });
@@ -242,9 +242,9 @@ function buildWarden() {
     shoulder.add(cuff);
     const hand = new THREE.Group();
     hand.position.y = -0.335;
-    const palm = mesh(new THREE.SphereGeometry(0.052, 8, 6), mats.skin);
+    const palm = mesh(new THREE.SphereGeometry(0.052, 7, 5), mats.skin);
     palm.scale.set(0.88, 1.08, 0.98);
-    const thumb = mesh(new THREE.SphereGeometry(0.024, 6, 5), mats.skin);
+    const thumb = mesh(new THREE.SphereGeometry(0.024, 5, 4), mats.skin);
     thumb.position.set(-sgn * 0.038, 0.012, 0.022);
     hand.add(palm, thumb);
     shoulder.add(hand);
@@ -262,17 +262,17 @@ function buildWarden() {
   const head = new THREE.Group();
   head.position.y = 0.56;
   torso.add(head);
-  const skull = mesh(new THREE.SphereGeometry(0.16, 12, 10), mats.skin);
+  const skull = mesh(new THREE.SphereGeometry(0.16, 11, 8), mats.skin);
   skull.scale.set(0.98, 1.05, 1.0);
   skull.position.y = 0.10;
   head.add(skull);
   for (const sx of [-1, 1]) {
-    const ear = mesh(new THREE.SphereGeometry(0.028, 6, 5), mats.skin);
+    const ear = mesh(new THREE.SphereGeometry(0.028, 5, 4), mats.skin);
     ear.castShadow = false;
     ear.position.set(sx * 0.152, 0.085, 0.005);
     head.add(ear);
   }
-  const nose = mesh(new THREE.SphereGeometry(0.015, 6, 5), mats.skin);
+  const nose = mesh(new THREE.SphereGeometry(0.015, 5, 4), mats.skin);
   nose.castShadow = false;
   nose.position.set(0, 0.062, 0.156);
   head.add(nose);
@@ -280,7 +280,7 @@ function buildWarden() {
      side tufts over the ears, nape layer, and the springy top tuft */
   const hairShapes = [
     // [radius, x, y, z, sx, sy, sz, jitterAmp]
-    [0.175, 0, 0.155, -0.025, 1.0, 0.92, 1.06, 0.014],
+    [0.175, 0, 0.168, -0.048, 1.0, 0.92, 1.06, 0.014],
     [0.066, -0.015, 0.205, 0.115, 1.25, 0.62, 0.9, 0.01],
     [0.054, 0.075, 0.195, 0.10, 1.1, 0.62, 0.9, 0.01],
     [0.05, -0.098, 0.185, 0.085, 1.05, 0.66, 0.9, 0.01],
@@ -289,7 +289,7 @@ function buildWarden() {
     [0.09, 0, 0.028, -0.115, 1.3, 0.95, 0.72, 0.012],
   ];
   hairShapes.forEach(([r, x, y, z, sx, sy, sz, ja], i) => {
-    const g = new THREE.SphereGeometry(r, 9, 7);
+    const g = new THREE.SphereGeometry(r, 8, 6);
     jitterGeometry(g, ja, 21 + i);
     const m = gmesh(g, P.hair, { down: 0.16, up: 0.10, noise: 0.05, seed: 31 + i }, true);
     m.position.set(x, y, z);
@@ -310,17 +310,17 @@ function buildWarden() {
   /* eyes: flattened sclera + iris + pupil + specular glint (blinkable groups) */
   function buildEye(sideX) {
     const g = new THREE.Group();
-    g.position.set(sideX, 0.10, 0.14);
-    const sclera = mesh(new THREE.SphereGeometry(0.027, 8, 6), mats.sclera);
+    g.position.set(sideX, 0.10, 0.153);
+    const sclera = mesh(new THREE.SphereGeometry(0.027, 7, 5), mats.sclera);
     sclera.castShadow = false;
     sclera.scale.set(1, 1.15, 0.55);
-    const iris = mesh(new THREE.SphereGeometry(0.017, 7, 5), mats.iris);
+    const iris = mesh(new THREE.SphereGeometry(0.017, 5, 3), mats.iris);
     iris.castShadow = false;
     iris.position.z = 0.011;
-    const pupil = mesh(new THREE.SphereGeometry(0.009, 6, 4), mats.pupil);
+    const pupil = mesh(new THREE.SphereGeometry(0.009, 5, 3), mats.pupil);
     pupil.castShadow = false;
     pupil.position.z = 0.021;
-    const glint = mesh(new THREE.SphereGeometry(0.0055, 5, 4), mats.glint);
+    const glint = mesh(new THREE.SphereGeometry(0.0055, 4, 3), mats.glint);
     glint.castShadow = false;
     glint.position.set(0.007, 0.008, 0.026);
     g.add(sclera, iris, pupil, glint);
@@ -332,26 +332,26 @@ function buildWarden() {
   for (const [sx, tilt] of [[-0.06, 0.10], [0.06, -0.10]]) {
     const brow = mesh(new THREE.BoxGeometry(0.056, 0.015, 0.013), M(shade(P.hair, -0.12)));
     brow.castShadow = false;
-    brow.position.set(sx, 0.152, 0.143);
+    brow.position.set(sx, 0.152, 0.151);
     brow.rotation.z = tilt;
     head.add(brow);
   }
   for (const sx of [-1, 1]) {
-    const blush = mesh(new THREE.SphereGeometry(0.017, 6, 4), M(0xf0a688, { rough: 0.85 }));
+    const blush = mesh(new THREE.SphereGeometry(0.017, 5, 3), M(0xf0a688, { rough: 0.85 }));
     blush.castShadow = false;
     blush.scale.set(1.1, 0.7, 0.3);
     blush.position.set(sx * 0.098, 0.048, 0.118);
     blush.rotation.y = sx * 0.55;
     head.add(blush);
   }
-  const smile = mesh(new THREE.TorusGeometry(0.02, 0.006, 5, 8, Math.PI * 0.8), M(0xb5765a, { rough: 0.6 }));
+  const smile = mesh(new THREE.TorusGeometry(0.02, 0.006, 4, 7, Math.PI * 0.8), M(0xb5765a, { rough: 0.6 }));
   smile.castShadow = false;
-  smile.position.set(0, 0.042, 0.15);
+  smile.position.set(0, 0.042, 0.153);
   smile.rotation.z = -Math.PI * 0.9;
   head.add(smile);
 
   /* amber scarf — warm pop against the dusk-purple cloak */
-  const scarfRoll = mesh(new THREE.TorusGeometry(0.112, 0.047, 7, 12), mats.scarf);
+  const scarfRoll = mesh(new THREE.TorusGeometry(0.112, 0.047, 6, 10), mats.scarf);
   scarfRoll.position.set(0, 0.50, 0.005);
   scarfRoll.rotation.x = Math.PI / 2 - 0.12;
   torso.add(scarfRoll);
@@ -362,11 +362,11 @@ function buildWarden() {
 
   /* travel cloak: hood roll + back bump + 3 chained trapezoid panels that
      flare toward a gold-trimmed hem, gradient running light->deep down the chain */
-  const hood = mesh(new THREE.TorusGeometry(0.122, 0.05, 7, 11), mats.cloak);
+  const hood = mesh(new THREE.TorusGeometry(0.122, 0.05, 6, 10), mats.cloak);
   hood.position.set(0, 0.47, -0.095);
   hood.rotation.x = 1.35;
   torso.add(hood);
-  const hoodBack = mesh(new THREE.SphereGeometry(0.10, 8, 6), mats.cloak);
+  const hoodBack = mesh(new THREE.SphereGeometry(0.10, 7, 5), mats.cloak);
   hoodBack.scale.set(1.15, 0.9, 0.8);
   hoodBack.position.set(0, 0.44, -0.155);
   torso.add(hoodBack);
@@ -400,7 +400,7 @@ function buildWarden() {
     cloakSegs.push(pivot);
   }
   /* gold clasp where the cloak meets the collar */
-  const clasp = mesh(new THREE.SphereGeometry(0.028, 8, 6), mats.gold);
+  const clasp = mesh(new THREE.SphereGeometry(0.028, 6, 4), mats.gold);
   clasp.position.set(0, 0.475, 0.128);
   torso.add(clasp);
 

@@ -416,7 +416,7 @@ export function buildProps(zone, heightAt) {
           const r2 = seededRandom(vs + 1);
           const pieces = [];
           const tr = trunkG({ h: 2.0, r0: 0.3, r1: 0.13, lean, flare: 0.7, seed: vs });
-          ramp(tr, 0x46311f, 0x7a5940, 0, 2.0, { noise: 0.05, seed: vs });
+          ramp(tr, 0x5f452c, 0x8f6f4e, 0, 2.0, { noise: 0.05, seed: vs });
           pieces.push(tr);
           for (let i = 0; i < 3; i++) { // root nubs
             const a = (i / 3) * TAU + r2() * 1.2;
@@ -424,13 +424,13 @@ export function buildProps(zone, heightAt) {
               t: [Math.cos(a) * 0.3, 0.1, Math.sin(a) * 0.3],
               r: [Math.sin(a) * 1.15, r2() * TAU, -Math.cos(a) * 1.15], jit: 0.03, jseed: vs + i,
             });
-            ramp(rn, 0x412d1c, 0x5c422c, 0, 0.4, { seed: vs + i });
+            ramp(rn, 0x554029, 0x6f5138, 0, 0.4, { seed: vs + i });
             pieces.push(rn);
           }
           const br = piece(cylG(0.05, 0.1, 1.0, 5), { // branch into canopy
             t: [lean * 2 + 0.35, 2.25, 0.1], r: [0.2, 0, -0.85], jit: 0.02, jseed: vs + 9,
           });
-          ramp(br, 0x543c26, 0x6a4c33, 1.8, 2.8, { seed: vs });
+          ramp(br, 0x6a4c33, 0x82603f, 1.8, 2.8, { seed: vs });
           pieces.push(br);
           const cn = canopyPieces(r2, { k: 6, cy: 2.75, R: 1.3, spread: 0.8, squash: 0.78, seed: vs });
           for (const c of cn.pieces) {
@@ -451,7 +451,7 @@ export function buildProps(zone, heightAt) {
           const r2 = seededRandom(vs + 1);
           const pieces = [];
           const tr = trunkG({ h: 1.7, r0: 0.22, r1: 0.09, lean: (r2() - 0.5) * 0.08, flare: 0.55, seed: vs });
-          ramp(tr, 0x3d2b1c, 0x66492f, 0, 1.7, { noise: 0.05, seed: vs });
+          ramp(tr, 0x52381f, 0x7a5738, 0, 1.7, { noise: 0.05, seed: vs });
           pieces.push(tr);
           let y = 1.25, r = 1.32;
           const cones = [];
@@ -516,7 +516,7 @@ export function buildProps(zone, heightAt) {
           const r2 = seededRandom(vs + 1);
           const pieces = [];
           const tr = trunkG({ h: 1.8, r0: 0.32, r1: 0.16, lean: 0.16, flare: 0.75, seed: vs });
-          ramp(tr, 0x4e3c28, 0x7a5f42, 0, 1.8, { noise: 0.05, seed: vs });
+          ramp(tr, 0x60482e, 0x8a6a4c, 0, 1.8, { noise: 0.05, seed: vs });
           pieces.push(tr);
           const cn = canopyPieces(r2, { k: 5, cy: 2.45, R: 1.45, spread: 0.62, squash: 0.6, seed: vs });
           for (const c of cn.pieces) {
@@ -556,7 +556,7 @@ export function buildProps(zone, heightAt) {
           const r2 = seededRandom(vs + 1);
           const pieces = [];
           const tr = trunkG({ h: 2.3, r0: 0.22, r1: 0.05, lean: (r2() - 0.5) * 0.3, flare: 0.85, seed: vs, segs: 6 });
-          ramp(tr, 0x554e46, 0x8a827a, 0, 2.3, { noise: 0.05, seed: vs });
+          ramp(tr, 0x67605a, 0x9a938c, 0, 2.3, { noise: 0.05, seed: vs });
           pieces.push(tr);
           for (let i = 0; i < 4; i++) { // gnarled reaching branches
             const a = r2() * TAU;
@@ -583,7 +583,7 @@ export function buildProps(zone, heightAt) {
           const r2 = seededRandom(vs + 1);
           const pieces = [];
           const tr = trunkG({ h: 2.0, r0: 0.26, r1: 0.12, lean: (r2() - 0.5) * 0.14, flare: 0.65, seed: vs });
-          ramp(tr, 0x272b3c, 0x4a5570, 0, 2.0, { noise: 0.04, seed: vs });
+          ramp(tr, 0x39405c, 0x5f6a8f, 0, 2.0, { noise: 0.04, seed: vs });
           pieces.push(tr);
           const cn = canopyPieces(r2, { k: 5, cy: 2.6, R: 1.15, spread: 0.75, squash: 0.78, seed: vs });
           for (const c of cn.pieces) ramp(c, 0x1c4640, 0x468579, cn.lo, cn.hi, { noise: 0.05, seed: vs, exp: 1.1 });

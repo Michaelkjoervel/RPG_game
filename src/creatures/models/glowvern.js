@@ -26,6 +26,8 @@ export function build_glowvern(kit = kitDefault) {
   // about X (about Z would put the long axis on X, i.e. broadside to the view).
   const body = kit.capsule(0.1, 0.22, skin, { capSeg: 4, radSeg: 9 });
   body.geometry.rotateX(Math.PI / 2);
+  // Deep-lagoon teal belly up to a lantern-warmed back ridge.
+  kit.paint(body, { from: 0x24575c, to: 0x5aa89a, noise: 0.05, seed: 190 });
   root.add(body);
   body.position.y = 0.24;
 
@@ -35,8 +37,9 @@ export function build_glowvern(kit = kitDefault) {
   kit.at(body, bellyStripe, 0, -0.06, 0);
 
   const head = kit.at(body, kit.blob(0.075, skin, { seed: 190, squash: { x: 0.85, y: 0.85, z: 1.3 } }), 0, 0.055, 0.22);
-  const eyeL = kit.at(head, kit.eye(0.028, { irisColor: 0xfff2c8, scleraColor: 0x14201f, skinColor: 0x3a7a78, glintSize: 0.011 }), 0.052, 0.012, 0.06, { ry: 0.35 });
-  const eyeR = kit.at(head, kit.eye(0.028, { irisColor: 0xfff2c8, scleraColor: 0x14201f, skinColor: 0x3a7a78, glintSize: 0.011 }), -0.052, 0.012, 0.06, { ry: -0.35 });
+  kit.paint(head, { from: 0x2c646a, to: 0x5aa89a, noise: 0.04, seed: 191 });
+  const eyeL = kit.at(head, kit.eye(0.031, { irisColor: 0xfff2c8, scleraColor: 0x14201f, skinColor: 0x3a7a78, glintSize: 0.012 }), 0.048, 0.014, 0.062, { ry: 0.26 });
+  const eyeR = kit.at(head, kit.eye(0.031, { irisColor: 0xfff2c8, scleraColor: 0x14201f, skinColor: 0x3a7a78, glintSize: 0.012 }), -0.048, 0.014, 0.062, { ry: -0.26 });
   const earL = kit.at(head, kit.ear(0.035, skin), 0.045, 0.045, -0.01, { rz: 0.3 });
   const earR = kit.at(head, kit.ear(0.035, skin), -0.045, 0.045, -0.01, { rz: -0.3 });
 
@@ -72,6 +75,8 @@ export function build_glowvern(kit = kitDefault) {
 
   const spark = kit.heartspark(0.032, pal.eye, { seed: 192 });
   kit.at(body, spark, 0, -0.035, 0.19);
+
+  root.add(kit.shadowDisc(0.26, 0.34));
 
   return {
     group: kit.groundPlant(root),
