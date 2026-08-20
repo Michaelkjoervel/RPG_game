@@ -56,19 +56,20 @@ export function build_cervalume(kit = kitDefault) {
   // a silhouette test) wearing a translucent additive glow shell, branches
   // grafted the same way sylvathorn.js does its bark rack.
   const antlerAccents = [];
+  const A_LEN = 0.38, A_BEND = 0.4;
   for (const side of [1, -1]) {
-    const main = kit.horn(0.32, lightCore, { bend: side * 0.55, baseR: 0.026, tipR: 0.006 });
-    const mainAt = kit.at(head, main, side * 0.06, 0.12, -0.01, { rz: -side * 0.35, ry: side * 0.1 });
-    const shell = kit.horn(0.33, lightMat, { bend: side * 0.55, baseR: 0.038, tipR: 0.01 });
+    const main = kit.horn(A_LEN, lightCore, { bend: side * A_BEND, baseR: 0.04, tipR: 0.01 });
+    const mainAt = kit.at(head, main, side * 0.07, 0.11, -0.01, { rz: -side * 0.55, ry: side * 0.1, rx: -0.15 });
+    const shell = kit.horn(A_LEN * 1.04, lightMat, { bend: side * A_BEND, baseR: 0.056, tipR: 0.016 });
     kit.at(mainAt, shell, 0, -0.005, 0);
     antlerAccents.push(mainAt);
-    for (const [t, s] of [[0.36, 0.62], [0.62, 0.45]]) {
-      const bLen = 0.22 * s;
-      const branch = kit.horn(bLen, lightCore, { bend: side * 0.5, baseR: 0.014, tipR: 0.004 });
-      const bAt = kit.at(mainAt, branch, side * 0.55 * t * t * 0.32, 0.32 * t, 0, { rz: side * -0.85, ry: side * 0.4 });
-      kit.at(bAt, kit.orb(0.014, lightMat.clone()), side * 0.5 * bLen * 0.4, bLen, 0);
+    for (const [t, s] of [[0.34, 0.72], [0.62, 0.5]]) {
+      const bLen = 0.24 * s;
+      const branch = kit.horn(bLen, lightCore, { bend: side * 0.5, baseR: 0.02, tipR: 0.006 });
+      const bAt = kit.at(mainAt, branch, side * A_BEND * t * t * A_LEN, A_LEN * t, 0, { rz: side * -0.8, ry: side * 0.4 });
+      kit.at(bAt, kit.orb(0.018, lightMat.clone()), side * 0.5 * bLen * 0.4, bLen, 0);
     }
-    kit.at(mainAt, kit.orb(0.018, lightMat.clone()), side * 0.55 * 0.32, 0.32, 0);
+    kit.at(mainAt, kit.orb(0.024, lightMat.clone()), side * A_BEND * A_LEN, A_LEN, 0);
   }
 
   // --- Legs: four long, elegant legs — grown from Dapplyn's fawn stance. ---
@@ -88,8 +89,9 @@ export function build_cervalume(kit = kitDefault) {
 
   // Glowing blossoms resting at each footfall — hooves that leave light
   // behind them.
-  const blossoms = legs.map((l) => {
-    const p = kit.at(l.foot, kit.petal(0.05, bloomMat.clone(), { width: 0.045 }), 0, -0.02, 0.03, { rx: -Math.PI / 2 });
+  const blossoms = legs.map((l, i) => {
+    const p = kit.at(l.foot, kit.petal(0.08, bloomMat.clone(), { width: 0.07 }), 0, -0.018, 0.02, { rx: -Math.PI / 2, ry: i * 1.7 });
+    kit.at(l.foot, kit.orb(0.05, kit.mat(0xfff2c8, { unlit: true, additive: true, opacity: 0.4 }), { sy: 0.12 }), 0, -0.02, 0.01);
     return p;
   });
 

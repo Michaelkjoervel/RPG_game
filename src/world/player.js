@@ -105,7 +105,7 @@ function buildWarden() {
   const P = { // palette — bible anchors: dusk purple cloak, shard-gold trim, warm skin
     skin: 0xf6c9a0, hair: 0xb06a3c, tunic: 0xead9bd,
     pants: 0x4c4560, boots: 0x5d4030, bootCuff: 0x6f4d3a, belt: 0x3b3347,
-    cloak: 0x5b4a8a, gold: 0xffe9b0, satchel: 0x8a6b42, scarf: 0xffb85c,
+    cloak: 0x5b4a8a, gold: 0xffe9b0, satchel: 0x8a6b42, scarf: 0xe08a48,
     iris: 0x6a4527,
   };
   // Shared vertex-color materials: every clothing/hair mesh bakes its own
@@ -120,7 +120,7 @@ function buildWarden() {
     glint: M(0xffffff, { rough: 0.2, emissive: 0xffffff, ei: 0.85 }),
     belt: M(P.belt, { rough: 0.75 }),
     gold: M(P.gold, { rough: 0.4, metal: 0.35, emissive: 0xffe9b0, ei: 0.12 }),
-    scarf: M(P.scarf, { rough: 0.8, emissive: 0xffb85c, ei: 0.05 }),
+    scarf: M(P.scarf, { rough: 0.82 }),
     cloak: M(shade(0x5b4a8a, -0.02), { rough: 0.88 }),
   };
   const mesh = (geo, mat) => { const m = new THREE.Mesh(geo, mat); m.castShadow = true; return m; };
@@ -351,12 +351,12 @@ function buildWarden() {
   head.add(smile);
 
   /* amber scarf — warm pop against the dusk-purple cloak */
-  const scarfRoll = mesh(new THREE.TorusGeometry(0.112, 0.047, 6, 10), mats.scarf);
-  scarfRoll.position.set(0, 0.50, 0.005);
+  const scarfRoll = mesh(new THREE.TorusGeometry(0.102, 0.034, 6, 10), mats.scarf);
+  scarfRoll.position.set(0, 0.49, 0.01);
   scarfRoll.rotation.x = Math.PI / 2 - 0.12;
   torso.add(scarfRoll);
-  const scarfTail = gmesh(panelGeometry(0.075, 0.06, 0.17, 0.026), P.scarf, { down: 0.12, seed: 45 });
-  scarfTail.position.set(0.095, 0.485, 0.115);
+  const scarfTail = gmesh(panelGeometry(0.07, 0.055, 0.16, 0.024), P.scarf, { down: 0.12, seed: 45 });
+  scarfTail.position.set(0.09, 0.478, 0.112);
   scarfTail.rotation.set(0.18, 0, -0.12);
   torso.add(scarfTail);
 
@@ -370,7 +370,7 @@ function buildWarden() {
   hoodBack.scale.set(1.15, 0.9, 0.8);
   hoodBack.position.set(0, 0.44, -0.155);
   torso.add(hoodBack);
-  const cloakTopC = shade(P.cloak, 0.10), cloakBotC = shade(0x4a3b74, -0.06);
+  const cloakTopC = shade(P.cloak, 0.17, 0.04), cloakBotC = shade(0x43356b, -0.09);
   const cloakSegs = [];
   let cloakParent = torso;
   const anchorY = 0.46, anchorZ = -0.15;
@@ -385,7 +385,7 @@ function buildWarden() {
     applyVertexGradient(geo, {
       from: mixHex(cloakTopC, cloakBotC, (i + 1) / 3),
       to: mixHex(cloakTopC, cloakBotC, i / 3),
-      noise: 0.035, seed: 47 + i,
+      noise: 0.055, seed: 47 + i,
     });
     const panel = mesh(geo, mats.cloth);
     pivot.add(panel);

@@ -35,7 +35,7 @@ export function build_maelfin(kit = kitDefault) {
   const root = new THREE.Group();
 
   // Sleek torso, chest lifted — the mid-leap arc.
-  const body = kit.capsule(0.1, 0.34, peltV, { capSeg: 5, radSeg: 10 });
+  const body = kit.capsule(0.095, 0.42, peltV, { capSeg: 5, radSeg: 10 });
   body.geometry.rotateX(Math.PI / 2);
   paint(body, 15);
   root.add(body);
@@ -50,11 +50,11 @@ export function build_maelfin(kit = kitDefault) {
   const chest = paint(kit.orb(0.095, peltV, { sy: 1.05 }), 16, PELT_LO, PELT_HI, 0.006);
   kit.at(body, chest, 0, -0.01, 0.17);
 
-  // Head carried high, cheeky tilt.
-  const head = paint(kit.blob(0.085, peltV, { seed: 17, squash: { x: 0.95, y: 0.95, z: 1.2 } }), 17);
-  kit.at(body, head, 0, 0.1, 0.28, { rx: 0.1, rz: 0.06 });
-  const eyeL = kit.at(head, kit.eye(0.03, { irisColor: 0x14384f, scleraColor: 0xdcecf0, skinColor: skinHex, glintSize: 0.013 }), 0.055, 0.02, 0.072, { ry: 0.35 });
-  const eyeR = kit.at(head, kit.eye(0.03, { irisColor: 0x14384f, scleraColor: 0xdcecf0, skinColor: skinHex, glintSize: 0.013 }), -0.055, 0.02, 0.072, { ry: -0.35 });
+  // Head carried high, cheeky tilt — narrow otter skull, not a teddy ball.
+  const head = paint(kit.blob(0.075, peltV, { seed: 17, squash: { x: 0.88, y: 0.92, z: 1.35 } }), 17);
+  kit.at(body, head, 0, 0.1, 0.32, { rx: 0.1, rz: 0.06 });
+  const eyeL = kit.at(head, kit.eye(0.026, { irisColor: 0x14384f, scleraColor: 0xdcecf0, skinColor: skinHex, glintSize: 0.011 }), 0.048, 0.02, 0.068, { ry: 0.4 });
+  const eyeR = kit.at(head, kit.eye(0.026, { irisColor: 0x14384f, scleraColor: 0xdcecf0, skinColor: skinHex, glintSize: 0.011 }), -0.048, 0.02, 0.068, { ry: -0.4 });
   const earL = kit.at(head, paint(kit.ear(0.042, peltV), 21.2), 0.065, 0.062, -0.01, { rz: 0.35 });
   const earR = kit.at(head, paint(kit.ear(0.042, peltV), 21.7), -0.065, 0.062, -0.01, { rz: -0.35 });
   // Cream muzzle with whiskers.

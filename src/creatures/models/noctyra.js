@@ -60,8 +60,8 @@ export function build_noctyra(kit = kitDefault) {
   kit.paint(head, { from: 0x453a6c, to: 0x8378a8, noise: 0.05, seed: 172 });
   const disc = kit.at(head, kit.orb(0.13, discMat, { sy: 1.05, sz: 0.35 }), 0, 0, 0.06);
   kit.paint(disc, { from: 0x8a7fa8, to: 0xc4bcd8, noise: 0.03, seed: 173 });
-  const eyeL = kit.at(disc, kit.eye(0.052, { irisColor: pal.secondary, scleraColor: 0x14101a, skinColor: 0xa89ec4, glintSize: 0.02 }), 0.052, 0.005, 0.17, { ry: 0.12 });
-  const eyeR = kit.at(disc, kit.eye(0.052, { irisColor: pal.secondary, scleraColor: 0x14101a, skinColor: 0xa89ec4, glintSize: 0.02 }), -0.052, 0.005, 0.17, { ry: -0.12 });
+  const eyeL = kit.at(disc, kit.eye(0.052, { irisColor: 0xe8c96a, pupilColor: 0x14101a, scleraColor: 0x14101a, skinColor: 0xa89ec4, glintSize: 0.02 }), 0.052, 0.005, 0.17, { ry: 0.12 });
+  const eyeR = kit.at(disc, kit.eye(0.052, { irisColor: 0xe8c96a, pupilColor: 0x14101a, scleraColor: 0x14101a, skinColor: 0xa89ec4, glintSize: 0.02 }), -0.052, 0.005, 0.17, { ry: -0.12 });
   const beak = kit.at(disc, kit.cone(0.024, 0.045, beakMat, { segments: 6 }), 0, -0.045, 0.17, { rx: Math.PI / 2 });
 
   // Long horn-tufts — the great-owl crown, big enough to own the outline.

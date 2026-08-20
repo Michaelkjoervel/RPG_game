@@ -104,8 +104,8 @@ export function build_stormane(kit = kitDefault) {
 
   // On the chest surface (the chest orb reaches z=0.32) — sunk any deeper and
   // the unlit core is simply occluded by the fur in front of it.
-  const spark = kit.heartspark(0.04, pal.eye, { seed: 112 });
-  kit.at(body, spark, 0, -0.03, 0.31);
+  const spark = kit.heartspark(0.03, pal.eye, { seed: 112 });
+  kit.at(body, spark, 0, -0.085, 0.29);
 
   root.add(kit.shadowDisc(0.38, 0.38));
 

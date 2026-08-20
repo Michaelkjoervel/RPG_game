@@ -40,21 +40,21 @@ export function build_sylvathorn(kit = kitDefault) {
   const root = new THREE.Group();
 
   // --- Tall stag torso -----------------------------------------------------
-  const body = kit.capsule(0.19, 0.46, hideV, { capSeg: 5, radSeg: 10 });
+  const body = kit.capsule(0.21, 0.56, hideV, { capSeg: 5, radSeg: 10 });
   body.geometry.rotateX(Math.PI / 2);
   paint(body, 50, HIDE_LO, HIDE_HI, 0.006);
   root.add(body);
 
-  const LEG = 0.7, THIGH_R = 0.062, SHIN_R = 0.042;
+  const LEG = 0.7, THIGH_R = 0.078, SHIN_R = 0.052;
   const legDrop = 0.92 * LEG + 0.25 * THIGH_R + 0.925 * SHIN_R;   // ≈ 0.698
   const hipY = -0.16;
   body.position.y = legDrop - hipY;
 
   // Deep chest, high haunches.
-  const chest = paint(kit.orb(0.21, hideV, { sy: 1.08, sz: 0.92 }), 51, HIDE_LO, HIDE_HI, 0.008);
-  kit.at(body, chest, 0, -0.03, 0.24);
-  const haunch = paint(kit.orb(0.19, hideV, { sy: 1.1, sz: 0.95 }), 52, HIDE_LO, HIDE_HI, 0.008);
-  kit.at(body, haunch, 0, -0.01, -0.26);
+  const chest = paint(kit.orb(0.24, hideV, { sy: 1.08, sz: 0.92 }), 51, HIDE_LO, HIDE_HI, 0.008);
+  kit.at(body, chest, 0, -0.03, 0.28);
+  const haunch = paint(kit.orb(0.22, hideV, { sy: 1.1, sz: 0.95 }), 52, HIDE_LO, HIDE_HI, 0.008);
+  kit.at(body, haunch, 0, -0.01, -0.3);
 
   // Bark plates down the spine + shoulder guards, painted darker than hide.
   const plateSpots = [[0, 0.15, 0.12, 0.2], [0, 0.17, -0.08, 0.22], [0, 0.14, -0.26, 0.16]];
@@ -71,14 +71,14 @@ export function build_sylvathorn(kit = kitDefault) {
 
   // --- Raised neck + solemn head ------------------------------------------
   const NECK_TILT = 0.5;
-  const neck = kit.capsule(0.105, 0.3, hideV, { capSeg: 4, radSeg: 9 });
+  const neck = kit.capsule(0.12, 0.32, hideV, { capSeg: 4, radSeg: 9 });
   paint(neck, 53);
-  const nHalf = 0.15 + 0.105;
-  kit.at(body, neck, 0, 0.1 + nHalf * Math.cos(NECK_TILT), 0.28 + nHalf * Math.sin(NECK_TILT), { rx: NECK_TILT });
+  const nHalf = 0.16 + 0.12;
+  kit.at(body, neck, 0, 0.1 + nHalf * Math.cos(NECK_TILT), 0.32 + nHalf * Math.sin(NECK_TILT), { rx: NECK_TILT });
   const headY = 0.1 + 2 * nHalf * Math.cos(NECK_TILT);
-  const headZ = 0.28 + 2 * nHalf * Math.sin(NECK_TILT);
+  const headZ = 0.32 + 2 * nHalf * Math.sin(NECK_TILT);
 
-  const head = paint(kit.blob(0.13, hideV, { seed: 50, squash: { x: 0.85, y: 0.9, z: 1.35 } }), 54);
+  const head = paint(kit.blob(0.15, hideV, { seed: 50, squash: { x: 0.85, y: 0.9, z: 1.35 } }), 54);
   kit.at(body, head, 0, headY, headZ, { rx: -0.12 });
   const muzzle = paint(kit.capsule(0.05, 0.09, hideV, { capSeg: 3, radSeg: 8 }), 55, 0x4a3f2c, 0x8a7a58);
   muzzle.geometry.rotateX(Math.PI / 2);

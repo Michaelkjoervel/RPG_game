@@ -51,7 +51,7 @@ const CLOUD_DAY = new THREE.Color(0xf2e9d8); // warm off-white daylight cloud bo
 //   fogTint / fogTintAmt / fogMul — one-time fog harmonization at zone entry
 //   indoor   cave/spire palette override (dome, hemi, fill, slanted key)
 const MOODS = {
-  brighthollow:  { name: 'warm afternoon amber', key: 0xffc37a, keyI: 1.12, fillI: 0.85, shadow: 0x8090d8, bounce: 0xd8b48c, warmth: 0.5,  fogTint: 0xead9b4, fogTintAmt: 0.4,  fogMul: 1.05 },
+  brighthollow:  { name: 'warm afternoon amber', key: 0xffc37a, keyI: 1.12, fillI: 0.85, shadow: 0x8090d8, bounce: 0xd8b48c, warmth: 0.5,  fogTint: 0xd6dcca, fogTintAmt: 0.3,  fogMul: 1.05 },
   dawnmeadow:    { name: 'fresh spring gold',    key: 0xffd79a, keyI: 1.05, fillI: 1.0,  shadow: 0x84a0d4, bounce: 0xbcc88c, warmth: 0.35, fogTint: 0xd2e8c4, fogTintAmt: 0.35, fogMul: 0.95 },
   whisperwood:   { name: 'green-gold shafts',    key: 0xf0d878, keyI: 1.15, fillI: 0.72, shadow: 0x4a6a58, bounce: 0x84a068, warmth: 0.6,  fogTint: 0x8aa46a, fogTintAmt: 0.6,  fogMul: 1.2 },
   mirrorlake:    { name: 'dusk rose',            key: 0xffd8b4, keyI: 1.0,  fillI: 0.95, shadow: 0x8a8cc8, bounce: 0xc4aca4, warmth: 0.3,  duskBias: 0xe8907e, fogTint: 0xdcc0c0, fogTintAmt: 0.4, fogMul: 1.0 },
@@ -273,6 +273,9 @@ export function createSky(zone, scene) {
     const band0 = duskSide(tNow) ? colors.dusk : colors.dawn;
     const horizon0 = colors.night.horizon.clone().lerp(band0.horizon, ddw0).lerp(colors.day.horizon, dw0);
     fogColor.lerp(horizon0, 0.55);
+    // Aerial perspective: at midday the distance cools toward the zenith blue
+    // instead of staying a warm wall (warm fog is a dusk/dawn effect).
+    fogColor.lerp(colors.day.top, dw0 * 0.24);
   }
   if (mood.fogTint != null) fogColor.lerp(new THREE.Color(mood.fogTint), mood.fogTintAmt ?? 0.4);
   scene.fog = new THREE.FogExp2(fogColor.getHex(), (zone.ambient?.fogDensity ?? 0.008) * (mood.fogMul ?? 1));

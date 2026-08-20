@@ -113,8 +113,8 @@ export function build_charvane(kit = kitDefault) {
 
   // Smoke wisps drifting from the snout when it huffs — cool grey motes,
   // self-driving fx.
-  const smoke = kit.mote(6, { color: 0x8a8478, size: 0.02, radius: 0.05, height: 0.14, speed: 0.6, seed: 7 });
-  kit.at(head, smoke, 0, -0.03, 0.14);
+  const smoke = kit.mote(4, { color: 0x8a8478, size: 0.014, radius: 0.035, height: 0.1, speed: 0.6, seed: 7 });
+  kit.at(head, smoke, 0, -0.075, 0.2);
 
   // The heartspark rides ON the chest surface (the chest orb reaches z=0.30) —
   // any deeper and the unlit core is simply occluded by the fur around it.

@@ -37,8 +37,8 @@ export function build_duskit(kit = kitDefault) {
   const disc = kit.at(head, kit.orb(0.08, discMat, { sy: 1.05, sz: 0.35 }), 0, 0, 0.04);
   kit.paint(disc, { from: 0x968aa8, to: 0xcfc8da, noise: 0.03, seed: 162 });
 
-  const eyeL = kit.at(disc, kit.eye(0.032, { irisColor: pal.primary, scleraColor: 0x18141c, skinColor: 0xb8b0c4, glintSize: 0.012 }), 0.035, 0.005, 0.11, { ry: 0.15 });
-  const eyeR = kit.at(disc, kit.eye(0.032, { irisColor: pal.primary, scleraColor: 0x18141c, skinColor: 0xb8b0c4, glintSize: 0.012 }), -0.035, 0.005, 0.11, { ry: -0.15 });
+  const eyeL = kit.at(disc, kit.eye(0.032, { irisColor: 0xd8b45c, pupilColor: 0x16121c, scleraColor: 0x18141c, skinColor: 0xb8b0c4, glintSize: 0.012 }), 0.035, 0.005, 0.11, { ry: 0.15 });
+  const eyeR = kit.at(disc, kit.eye(0.032, { irisColor: 0xd8b45c, pupilColor: 0x16121c, scleraColor: 0x18141c, skinColor: 0xb8b0c4, glintSize: 0.012 }), -0.035, 0.005, 0.11, { ry: -0.15 });
   const beak = kit.at(disc, kit.cone(0.016, 0.03, beakMat, { segments: 6 }), 0, -0.03, 0.11, { rx: Math.PI / 2 });
 
   // Small ear-tufts — a subtle owl silhouette detail.

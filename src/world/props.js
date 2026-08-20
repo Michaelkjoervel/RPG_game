@@ -313,7 +313,7 @@ export function buildProps(zone, heightAt) {
 
   // Multi-lobed canopy: k jittered icosphere lobes clustered around (0, cy, 0).
   // Returns pieces[] (uncolored) + the [lo,hi] y-range for a shared ramp.
-  function canopyPieces(rng, { k = 5, cy = 2.6, R = 1.25, spread = 0.75, squash = 0.8, seed = 1, detail = 1 }) {
+  function canopyPieces(rng, { k = 5, cy = 2.6, R = 1.25, spread = 0.75, squash = 0.8, seed = 1, detail = 1, jit = 0.16 }) {
     const pieces = [];
     let lo = Infinity, hi = -Infinity;
     for (let i = 0; i < k; i++) {
@@ -325,7 +325,7 @@ export function buildProps(zone, heightAt) {
       const py = cy + (top ? R * 0.42 : (rng() - 0.35) * R * 0.55);
       const g = piece(icoG(1, detail), {
         t: [px, py, pz], s: [r, r * squash, r],
-        r: [0, rng() * TAU, 0], jit: 0.16, jseed: seed * 13 + i,
+        r: [0, rng() * TAU, 0], jit, jseed: seed * 13 + i,
       });
       pieces.push(g);
       lo = Math.min(lo, py - r * squash); hi = Math.max(hi, py + r * squash);
@@ -676,8 +676,8 @@ export function buildProps(zone, heightAt) {
         const vs = Math.floor(rng() * 1e6);
         const g = merged(`bushM${vs}`, () => {
           const r2 = seededRandom(vs + 1);
-          const cn = canopyPieces(r2, { k: 4, cy: 0.42, R: 0.62, spread: 0.85, squash: 0.72, seed: vs });
-          for (const c of cn.pieces) ramp(c, 0x30632e, 0x84c455, cn.lo, cn.hi, { noise: 0.06, seed: vs, exp: 1.1 });
+          const cn = canopyPieces(r2, { k: 4, cy: 0.42, R: 0.62, spread: 0.85, squash: 0.72, seed: vs, jit: 0.1 });
+          for (const c of cn.pieces) ramp(c, 0x3d7538, 0x8fce5c, cn.lo, cn.hi, { noise: 0.06, seed: vs, exp: 1.1 });
           const tw = piece(cylG(0.025, 0.045, 0.5, 4), { t: [0.1, 0.35, 0.05], r: [0.3, 0, -0.4] });
           tintG(tw, 0x5c422c, 0.04, vs);
           return [...cn.pieces, tw];
@@ -1016,15 +1016,15 @@ export function buildProps(zone, heightAt) {
           for (const px of [-0.65, 0.65]) {
             const lean = (r2() - 0.5) * 0.09;
             const post = piece(boxG(0.1, 0.78, 0.1), { t: [px, 0.37, 0], r: [(r2() - 0.5) * 0.05, 0, lean], jit: 0.012, jseed: vs + px });
-            ramp(post, 0x7a5638, 0x9e7e56, 0, 0.8, { noise: 0.05, seed: vs + px * 3 });
+            ramp(post, 0x8f6b44, 0xb08a58, 0, 0.8, { noise: 0.05, seed: vs + px * 3 });
             pieces.push(post);
             const cap = piece(coneG(0.085, 0.1, 4), { t: [px - lean * 0.5, 0.79, 0], r: [0, r2(), lean] });
-            tintG(cap, 0x8f6f4c, 0.05, vs + px);
+            tintG(cap, 0xa08054, 0.05, vs + px);
             pieces.push(cap);
           }
           for (const [ry, sag] of [[0.56, 0.02], [0.29, 0.035]]) {
             const rail = piece(boxG(1.58, 0.075, 0.055), { t: [0, ry, 0.02], r: [0, 0, (r2() - 0.5) * sag * 2], jit: 0.012, jseed: vs + ry });
-            ramp(rail, 0x8f6b44, 0xb8926a, ry - 0.05, ry + 0.05, { noise: 0.06, seed: vs + ry * 7 });
+            ramp(rail, 0xa07a4c, 0xcaa476, ry - 0.05, ry + 0.05, { noise: 0.06, seed: vs + ry * 7 });
             pieces.push(rail);
           }
           return pieces;
@@ -1084,18 +1084,18 @@ export function buildProps(zone, heightAt) {
           const r2 = seededRandom(vs + 1);
           const pieces = [];
           const foot = piece(boxG(0.92, 0.32, 0.92), { t: [0, 0.15, 0], r: [0, r2() * 0.3, 0], jit: 0.02, jseed: vs });
-          ramp(foot, 0x7a776e, 0x9a978c, 0, 0.34, { noise: 0.05, seed: vs });
+          ramp(foot, 0x8f8c83, 0xaeaba0, 0, 0.34, { noise: 0.05, seed: vs });
           pieces.push(foot);
           const lip = piece(boxG(0.99, 0.09, 0.99), { t: [0, 0.32, 0], r: [0, r2() * 0.3, 0], jit: 0.015, jseed: vs + 1 });
-          tintG(lip, 0xa3a099, 0.04, vs + 1);
+          tintG(lip, 0xb8b5ab, 0.04, vs + 1);
           pieces.push(lip);
           const mono = piece(boxG(0.52, 1.5, 0.36), {
             t: [0, 1.02, 0], r: [(r2() - 0.5) * 0.03, 0, (r2() - 0.5) * 0.07], jit: 0.028, jseed: vs + 2,
           });
-          ramp(mono, 0x8a877c, 0xc0bdb0, 0.3, 1.85, { noise: 0.05, seed: vs + 2 });
+          ramp(mono, 0xb6b2a5, 0xdad7c9, 0.3, 1.85, { noise: 0.05, seed: vs + 2 });
           pieces.push(mono);
           const cap = piece(boxG(0.58, 0.14, 0.42), { t: [0, 1.82, 0], r: [0, 0, (r2() - 0.5) * 0.08], jit: 0.02, jseed: vs + 3 });
-          ramp(cap, 0xaaa79c, 0xc9c6ba, 1.74, 1.9, { seed: vs + 3 });
+          ramp(cap, 0xc6c3b8, 0xdcd9cd, 1.74, 1.9, { seed: vs + 3 });
           pieces.push(cap);
           const moss = piece(icoG(1, 1), { t: [0.28, 0.36, 0.24], s: [0.26, 0.1, 0.2], jit: 0.14, jseed: vs + 4 });
           ramp(moss, 0x3f6b34, 0x74a854, 0.28, 0.46, { seed: vs + 4 });
@@ -1358,11 +1358,11 @@ export function buildProps(zone, heightAt) {
           const r2 = seededRandom(vs + 1);
           const pieces = [];
           const base = piece(boxG(2.4, 0.9, 1.1), { t: [0, 0.45, 0], jit: 0.015, jseed: vs });
-          ramp(base, 0x7d5f3f, 0xa8875e, 0, 0.95, { noise: 0.05, seed: vs });
+          ramp(base, 0x92714c, 0xbc9a6c, 0, 0.95, { noise: 0.05, seed: vs });
           pieces.push(base);
           for (let i = 0; i < 5; i++) { // front plank lines
             const pl = piece(boxG(0.44, 0.86, 0.03), { t: [-0.96 + i * 0.48, 0.45, 0.55] });
-            ramp(pl, lerpColorHex(0x6b4f36, 0x4a3624, r2() * 0.6), 0x8a6a48, 0, 0.9, { noise: 0.07, seed: vs + i });
+            ramp(pl, lerpColorHex(0x7d5f3f, 0x5c4630, r2() * 0.6), 0x9e7e56, 0, 0.9, { noise: 0.07, seed: vs + i });
             pieces.push(pl);
           }
           const top = piece(boxG(2.52, 0.09, 1.22), { t: [0, 0.95, 0] });
@@ -1370,7 +1370,7 @@ export function buildProps(zone, heightAt) {
           pieces.push(top);
           for (const [px, pz, h] of [[-1.2, -0.5, 2.1], [1.2, -0.5, 2.1], [-1.2, 0.62, 2.4], [1.2, 0.62, 2.4]]) {
             const post = piece(boxG(0.09, h, 0.09), { t: [px, h / 2, pz], jit: 0.01, jseed: vs + px + pz });
-            ramp(post, 0x6a4c33, 0x8a6a48, 0, h, { noise: 0.04, seed: vs + px * 3 + pz });
+            ramp(post, 0x7d5c3d, 0x9e7e56, 0, h, { noise: 0.04, seed: vs + px * 3 + pz });
             pieces.push(post);
           }
           pieces.push(...tuftPieces(r2, { n: 3, R: 1.35, seed: vs + 7 }));
@@ -1470,7 +1470,7 @@ export function buildProps(zone, heightAt) {
         const g = merged(`crateM${vs}`, () => {
           const pieces = [];
           const body = piece(boxG(0.75, 0.75, 0.75), { t: [0, 0.37, 0], r: [0, yaw, 0], jit: 0.012, jseed: vs });
-          ramp(body, 0x7d5f3f, 0xa8875e, 0, 0.78, { noise: 0.06, seed: vs });
+          ramp(body, 0x92714c, 0xbc9a6c, 0, 0.78, { noise: 0.06, seed: vs });
           pieces.push(body);
           for (const ey of [0.08, 0.7]) { // edge battens
             const b1 = piece(boxG(0.8, 0.1, 0.1), { t: [0, ey, 0], r: [0, yaw, 0] });
@@ -1504,14 +1504,14 @@ export function buildProps(zone, heightAt) {
           }
           paintFaces(body, (cx, cy, cz) => { // stave tones around the hoop
             const sector = Math.floor(((Math.atan2(cz, cx) + Math.PI) / TAU) * 10);
-            const base = sector % 2 ? 0x8a6a48 : 0x7a5c3d;
-            return lerpColorHex(base, 0xa8875e, clamp(cy / 0.85, 0, 1) * 0.5);
+            const base = sector % 2 ? 0x9a7a55 : 0x8a6a48;
+            return lerpColorHex(base, 0xbc9a6c, clamp(cy / 0.85, 0, 1) * 0.55);
           });
           pieces.push(body);
           for (const hy of [0.2, 0.62]) {
             const f = 1 + 0.18 * Math.sin((hy / 0.82) * Math.PI);
             const hoop = piece(cylG(0.315 * f, 0.315 * f, 0.07, 10), { t: [0, hy, 0] });
-            tintG(hoop, 0x3f3a34, 0.03, vs + hy * 7);
+            tintG(hoop, 0x554e46, 0.03, vs + hy * 7);
             pieces.push(hoop);
           }
           const lid = piece(cylG(0.27, 0.27, 0.03, 10), { t: [0, 0.83, 0] });
@@ -1684,9 +1684,9 @@ export function buildProps(zone, heightAt) {
           const r2 = seededRandom(vs + 1);
           const pieces = [];
           const steps = [
-            [1.56, 0.34, 0x84817a, 0xa3a09a, 0],
-            [1.24, 0.32, 0x94918a, 0xb3b0a8, 0.32],
-            [0.96, 0.28, 0xa19e97, 0xc0bdb4, 0.6],
+            [1.56, 0.34, 0xb4b0a6, 0xcac6bb, 0],
+            [1.24, 0.32, 0xbebab0, 0xd6d3c9, 0.32],
+            [0.96, 0.28, 0xc6c2b8, 0xe0ddd3, 0.6],
           ];
           for (const [sw, sh, cLo, cHi, sy] of steps) {
             const st = piece(boxG(sw, sh, sw), { t: [0, sy + sh / 2, 0], r: [0, (r2() - 0.5) * 0.06, 0], jit: 0.02, jseed: vs + sy * 9 });
@@ -1696,22 +1696,22 @@ export function buildProps(zone, heightAt) {
           const hem = piece(coneG(0.62, 0.8, 7), { t: [0, 1.2, 0], jit: 0.035, jseed: vs + 1 });
           const body = piece(coneG(0.54, 1.9, 7), { t: [0, 1.82, 0], jit: 0.03, jseed: vs + 2 });
           const chest = piece(coneG(0.4, 1.05, 7), { t: [0, 2.4, 0], jit: 0.025, jseed: vs + 3 });
-          for (const b of [hem, body, chest]) ramp(b, 0x8d8a80, 0xc9c6b8, 0.8, 3.0, { noise: 0.05, seed: vs + 2, exp: 1.1 });
+          for (const b of [hem, body, chest]) ramp(b, 0xc4c0b4, 0xe8e5d8, 0.8, 3.0, { noise: 0.05, seed: vs + 2, exp: 1.1 });
           pieces.push(hem, body, chest);
           const sash = piece(boxG(0.12, 1.45, 0.46), { t: [0, 1.86, 0.17], r: [0.06, 0, 0] });
-          ramp(sash, 0x827f76, 0xa3a097, 1.1, 2.6, { seed: vs + 4 });
+          ramp(sash, 0xaba89e, 0xc9c6ba, 1.1, 2.6, { seed: vs + 4 });
           pieces.push(sash);
           const head = piece(sphereG(0.3, 8, 6), { t: [0, 2.97, 0], jit: 0.02, jseed: vs + 5 });
-          ramp(head, 0xa8a599, 0xc9c6b9, 2.7, 3.25, { seed: vs + 5 });
+          ramp(head, 0xd0cdc0, 0xeae7da, 2.7, 3.25, { seed: vs + 5 });
           pieces.push(head);
           const hood = piece(coneG(0.35, 0.55, 6), { t: [0, 3.17, -0.08], r: [0.4, 0, 0], jit: 0.025, jseed: vs + 6 });
-          ramp(hood, 0x8d8a82, 0xaba89f, 2.95, 3.45, { seed: vs + 6 });
+          ramp(hood, 0xb6b3aa, 0xd2cfc4, 2.95, 3.45, { seed: vs + 6 });
           pieces.push(hood);
           const arm = piece(cylG(0.1, 0.13, 1.0, 6), { t: [0.55, 2.22, 0.25], r: [0.5, 0, -0.5], jit: 0.02, jseed: vs + 7 });
-          ramp(arm, 0x94918a, 0xb8b5a8, 1.8, 2.7, { seed: vs + 7 });
+          ramp(arm, 0xc0bdb2, 0xdedbce, 1.8, 2.7, { seed: vs + 7 });
           pieces.push(arm);
           const cuff = piece(cylG(0.145, 0.13, 0.2, 6), { t: [0.72, 2.52, 0.44], r: [0.5, 0, -0.5] });
-          tintG(cuff, 0x9a978e, 0.04, vs + 8);
+          tintG(cuff, 0xc2bfb4, 0.04, vs + 8);
           pieces.push(cuff);
           const moss = piece(icoG(1, 1), { t: [-0.55, 0.36, 0.5], s: [0.3, 0.11, 0.24], jit: 0.14, jseed: vs + 9 });
           ramp(moss, 0x3f6b34, 0x74a854, 0.28, 0.48, { seed: vs + 9 });

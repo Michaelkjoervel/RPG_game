@@ -58,8 +58,8 @@ export function build_prismfin(kit = kitDefault) {
   kit.at(body, kit.orb(0.045, skinAccent), -0.03, -0.03, -0.06, { sy: 0.5 });
   kit.at(body, kit.orb(0.05, kit.mat(0xffd98c, { rough: 0.3 })), -0.02, 0.08, 0.06, { sy: 0.45 });
 
-  const eyeL = kit.at(body, kit.eye(0.036, { irisColor: 0x2a1c4a, skinColor: 0xf2f0e0, glintSize: 0.015 }), 0.085, 0.03, 0.19, { ry: 0.4 });
-  const eyeR = kit.at(body, kit.eye(0.036, { irisColor: 0x2a1c4a, skinColor: 0xf2f0e0, glintSize: 0.015 }), -0.085, 0.03, 0.19, { ry: -0.4 });
+  const eyeL = kit.at(body, kit.eye(0.028, { irisColor: 0x2a1c4a, scleraColor: 0xfdf8ea, skinColor: 0xf2ecd8, glintSize: 0.012 }), 0.068, 0.045, 0.16, { ry: 0.55 });
+  const eyeR = kit.at(body, kit.eye(0.028, { irisColor: 0x2a1c4a, scleraColor: 0xfdf8ea, skinColor: 0xf2ecd8, glintSize: 0.012 }), -0.068, 0.045, 0.16, { ry: -0.55 });
 
   const whiskerMat = kit.mat(0xffe9b0, { unlit: true, transparent: true, opacity: 0.75 });
   const whiskL = kit.at(body, kit.leafBlade(0.07, whiskerMat, { width: 0.005 }), 0.06, -0.02, 0.2, { ry: -0.3, rz: 0.1 });

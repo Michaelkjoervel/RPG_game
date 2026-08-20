@@ -200,7 +200,7 @@ function buildHuman(spec) {
       new THREE.Vector2(0.15 * wide, TL * 0.70), new THREE.Vector2(0.158 * wide, TL * 0.86),
       new THREE.Vector2(0.10 * wide, TL * 0.99), new THREE.Vector2(0.028 * wide, TL * 1.03),
     ];
-    return vgrad(new THREE.LatheGeometry(pts, 10), { seed: 8 });
+    return vgrad(new THREE.LatheGeometry(pts, 10), { seed: 8, from: 0xa0948a, noise: 0.05 });
   }), primaryM);
   torsoMesh.scale.set(1.06, 1, 0.88); // oval cross-section
   torso.add(torsoMesh);
@@ -217,7 +217,7 @@ function buildHuman(spec) {
         new THREE.Vector2(0.235 * wide, -legLen * 0.92), new THREE.Vector2(0.20 * wide, -legLen * 0.5),
         new THREE.Vector2(0.155 * wide, 0.0), new THREE.Vector2(0.16 * wide, TL * 0.3),
       ];
-      return vgrad(new THREE.LatheGeometry(pts, 10), { seed: 9, exp: 0.85 });
+      return vgrad(new THREE.LatheGeometry(pts, 10), { seed: 9, exp: 0.85, from: 0x9a8e84, noise: 0.05 });
     }), primaryM);
     robe.scale.set(1.04, 1, 0.9);
     torso.add(robe);
@@ -229,7 +229,7 @@ function buildHuman(spec) {
     apron.position.set(0, TL * 0.78, 0.135 * wide);
     apron.rotation.x = 0.07;
     torso.add(apron);
-    const tie = mesh(geo(K('npc_aprontie'), () => new THREE.BoxGeometry(0.20 * wide, 0.035, 0.02)), bootM, false);
+    const tie = mesh(geo(K('npc_aprontie'), () => vgrad(new THREE.BoxGeometry(0.20 * wide, 0.035, 0.02), { seed: 15 })), bootM, false);
     tie.position.set(0, TL * 0.38, 0.145 * wide);
     torso.add(tie);
   }
@@ -305,7 +305,7 @@ function buildHuman(spec) {
       glint.position.set(headR * 0.045, headR * 0.05, headR * 0.16);
       eye.add(sclera, iris, pupil, glint);
       headGrp.add(eye);
-      const brow = mesh(geo(K('npc_brow'), () => new THREE.BoxGeometry(headR * 0.36, headR * 0.085, headR * 0.08)), hairM, false);
+      const brow = mesh(geo(K('npc_brow'), () => vgrad(new THREE.BoxGeometry(headR * 0.36, headR * 0.085, headR * 0.08), { from: 0xf2ede8, seed: 25 })), hairM, false);
       brow.position.set(sx * headR * 0.36, headR * 0.42, headR * 0.97);
       brow.rotation.z = -sx * 0.1;
       headGrp.add(brow);
@@ -327,10 +327,13 @@ function buildHuman(spec) {
   };
   const style = spec.hairStyle ?? 'crop';
   if (style !== 'bald') {
-    hairPart(K('npc_hairmain'), () => jitterGeometry(new THREE.SphereGeometry(headR * 1.05, 9, 7), headR * 0.07, 31), 0, 0.30, -0.08, 1.0, 0.9, 1.05);
+    hairPart(K('npc_hairmain'), () => jitterGeometry(new THREE.SphereGeometry(headR * 1.03, 9, 7), headR * 0.05, 31), 0, 0.34, -0.10, 1.02, 0.9, 1.0);
   }
   if (style === 'crop' || style === 'side' || style === 'spiky') {
     hairPart(K('npc_hairnape'), () => jitterGeometry(new THREE.SphereGeometry(headR * 0.5, 7, 5), headR * 0.05, 32), 0, -0.12, -0.62, 1.35, 0.8, 0.7);
+  }
+  if (style === 'crop' || style === 'bun' || style === 'ponytail' || style === 'spiky') {
+    hairPart(K('npc_hairline'), () => jitterGeometry(new THREE.SphereGeometry(headR * 0.46, 7, 5), headR * 0.04, 40), 0, 1.0, 0.42, 1.75, 0.5, 0.85);
   }
   if (style === 'side' || style === 'bob') {
     hairPart(K('npc_hairfringe'), () => jitterGeometry(new THREE.SphereGeometry(headR * 0.42, 7, 5), headR * 0.05, 33), -0.28, 1.02, 0.55, 1.5, 0.6, 0.9);
@@ -370,7 +373,7 @@ function buildHuman(spec) {
     const brim = mesh(geo(K('hat_brim'), () => vgrad(new THREE.CylinderGeometry(headR * 1.85, headR * 1.95, 0.025, 12), { seed: 20 })), strawM, false);
     const top = mesh(geo(K('hat_top'), () => vgrad(new THREE.ConeGeometry(headR * 1.05, headR * 1.05, 10), { seed: 21 })), strawM, false);
     top.position.y = headR * 0.52;
-    const band = mesh(geo(K('hat_bandr'), () => new THREE.CylinderGeometry(headR * 0.72, headR * 0.78, headR * 0.22, 10)), bootM, false);
+    const band = mesh(geo(K('hat_bandr'), () => vgrad(new THREE.CylinderGeometry(headR * 0.72, headR * 0.78, headR * 0.22, 10), { seed: 24 })), bootM, false);
     band.position.y = headR * 0.12;
     hatMesh.add(brim, top, band);
     hatMesh.position.y = headR * 0.85;
@@ -393,7 +396,7 @@ function buildHuman(spec) {
     hatMesh.position.y = headR * 0.62;
   } else if (spec.hat === 'goggles') {
     hatMesh = new THREE.Group();
-    const band = mesh(geo(K('hat_band'), () => new THREE.TorusGeometry(headR * 1.0, 0.012, 6, 14)), hairM, false);
+    const band = mesh(geo(K('hat_band'), () => vgrad(new THREE.TorusGeometry(headR * 1.0, 0.012, 6, 14), { from: 0xf2ede8, seed: 26 })), hairM, false);
     band.rotation.y = Math.PI / 2;
     const lensGeo = geo(K('hat_lens'), () => new THREE.CircleGeometry(headR * 0.32, 10));
     const lensM = stdMat(0xbfe4ff, { rough: 0.2, metal: 0.4, transparent: true, opacity: 0.85, emissive: 0xbfe4ff, ei: 0.2 });
@@ -407,7 +410,7 @@ function buildHuman(spec) {
   let cape = null;
   if (spec.cape) {
     const capeM = stdMat(spec.cape === true ? spec.secondary : spec.cape, { rough: 1, side: THREE.DoubleSide, sway: 0.5, vertexColors: true });
-    cape = mesh(geo(K('npc_cape'), () => vgrad(panelGeo(0.30 * wide, 0.44 * wide, TL * 1.35, 0.02, 4, 4), { seed: 23, exp: 0.9 })), capeM, true);
+    cape = mesh(geo(K('npc_cape'), () => vgrad(panelGeo(0.30 * wide, 0.44 * wide, TL * 1.35, 0.02, 4, 4), { seed: 23, exp: 0.9, from: 0x968a80, noise: 0.05 })), capeM, true);
     cape.position.set(0, TL * 0.98, -0.115 * wide);
     cape.rotation.x = 0.16;
     torso.add(cape);
@@ -485,7 +488,7 @@ function spectacles(ctx) {
   const rimM = stdMat(0x4a4038, { rough: 0.45, metal: 0.5 });
   const r = ctx.headR;
   for (const sx of [-1, 1]) {
-    const rim = mesh(geo('spec_rim', () => new THREE.TorusGeometry(0.028, 0.006, 5, 10)), rimM, false);
+    const rim = mesh(geo('spec_rim', () => new THREE.TorusGeometry(0.032, 0.008, 5, 10)), rimM, false);
     rim.position.set(sx * r * 0.36, r * 0.10, r * 0.94);
     ctx.headGrp.add(rim);
   }
