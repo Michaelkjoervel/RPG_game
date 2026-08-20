@@ -33,9 +33,10 @@ export function build_vellit(kit = kitDefault) {
   kit.paint(head, { from: 0xb89a70, to: 0xe0cda6, noise: 0.04, seed: 61 });
   const eyeL = kit.at(head, kit.eye(0.043, { irisColor: 0x2a2016, skinColor: 0xcdb28a, glintSize: 0.016 }), 0.065, 0.017, 0.076, { ry: 0.25 });
   const eyeR = kit.at(head, kit.eye(0.043, { irisColor: 0x2a2016, skinColor: 0xcdb28a, glintSize: 0.016 }), -0.065, 0.017, 0.076, { ry: -0.25 });
-  // Tiny cream muzzle-dot nose.
-  kit.at(head, kit.orb(0.028, cream.clone(), { sz: 0.8 }), 0, -0.03, 0.088);
-  kit.at(head, kit.orb(0.012, darkTip.clone()), 0, -0.014, 0.104);
+  // Tiny cream muzzle-dot nose, tucked low so it can't be mistaken for a
+  // third eye at distance.
+  kit.at(head, kit.orb(0.022, cream.clone(), { sz: 0.75, sy: 0.8 }), 0, -0.042, 0.086);
+  kit.at(head, kit.orb(0.01, darkTip.clone()), 0, -0.028, 0.1);
 
   // Tiny fawn-nub horns — the "-deer" half of the mix, kept small so the
   // ears stay the dominant silhouette read.

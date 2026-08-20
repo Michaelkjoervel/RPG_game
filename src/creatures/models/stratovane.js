@@ -25,7 +25,7 @@ import { applyVertexGradient, jitterGeometry, lobedMass } from '../../gfx/materi
 function lightningVein(kit, len, segCount, seed) {
   const group = new THREE.Group(); group.name = 'lightningVein';
   const rng = seededRandom(seed);
-  const m = kit.mat(0xffe94f, { unlit: true, transparent: true, opacity: 0.12 });
+  const m = kit.mat(0xffe94f, { unlit: true, transparent: true, opacity: 0.35 });
   const segs = [];
   let x = 0, y = 0;
   for (let i = 0; i < segCount; i++) {
@@ -57,26 +57,26 @@ export function build_stratovane(kit = kitDefault) {
   const root = new THREE.Group();
 
   // --- Manta hull ----------------------------------------------------------
-  const body = kit.blob(0.3, cloudV, { seed: 110, noise: 0.14, squash: { x: 1.15, y: 0.55, z: 1.15 } });
+  const body = kit.blob(0.3, cloudV, { seed: 110, noise: 0.14, squash: { x: 1.0, y: 0.6, z: 1.15 } });
   paint(body, 110);
   root.add(body);
   body.position.y = 0.66;
 
-  // Cumulonimbus stack boiling over the back — dark anvil under, lit crowns.
-  const stack = lobedMass({ lobes: 5, radius: 0.22, spread: 0.7, squash: 0.72, from: 0x3a3e52, to: 0x9aa2b8, seed: 111, jitter: 0.2 });
-  kit.at(body, stack, 0, 0.2, -0.04);
-  const stack2 = lobedMass({ lobes: 3, radius: 0.14, spread: 0.66, squash: 0.7, from: 0x444a60, to: 0xaeb6cc, seed: 112, jitter: 0.22 });
-  kit.at(body, stack2, 0.05, 0.38, -0.1);
+  // Cumulonimbus stack boiling over the back — storm-dark, only the crowns lit.
+  const stack = lobedMass({ lobes: 5, radius: 0.22, spread: 0.7, squash: 0.75, from: 0x272b3c, to: 0x7c8398, seed: 111, jitter: 0.2 });
+  kit.at(body, stack, 0, 0.22, -0.04);
+  const stack2 = lobedMass({ lobes: 3, radius: 0.15, spread: 0.66, squash: 0.75, from: 0x2c3044, to: 0x9aa2b8, seed: 112, jitter: 0.22 });
+  kit.at(body, stack2, 0.05, 0.44, -0.1);
 
   // Storm-lit face: heavy brow shelf, volt eyes, twin cephalic horns.
   const brow = paint(kit.orb(0.16, cloudV, { sy: 0.5, sz: 0.7 }), 113, 0x262a38, 0x5e6478);
   kit.at(body, brow, 0, 0.12, 0.26);
-  const eyeL = kit.at(body, kit.eye(0.05, { irisColor: 0xffe94f, scleraColor: 0x181a24, skinColor: 0x3e4254, glintSize: 0.018 }), 0.1, 0.05, 0.3, { ry: 0.25 });
-  const eyeR = kit.at(body, kit.eye(0.05, { irisColor: 0xffe94f, scleraColor: 0x181a24, skinColor: 0x3e4254, glintSize: 0.018 }), -0.1, 0.05, 0.3, { ry: -0.25 });
-  const hornL = paint(kit.horn(0.16, cloudV, { baseR: 0.032, tipR: 0.008, bend: 0.5 }), 114, 0x262a38, 0x6e7488);
-  const hornR = paint(kit.horn(0.16, cloudV, { baseR: 0.032, tipR: 0.008, bend: -0.5 }), 115, 0x262a38, 0x6e7488);
-  const hornLAt = kit.at(body, hornL, 0.14, 0.1, 0.28, { rx: 1.25, rz: -0.35 });
-  const hornRAt = kit.at(body, hornR, -0.14, 0.1, 0.28, { rx: 1.25, rz: 0.35 });
+  const eyeL = kit.at(body, kit.eye(0.058, { irisColor: 0xffe94f, scleraColor: 0x181a24, skinColor: 0x3e4254, glintSize: 0.021 }), 0.1, 0.05, 0.3, { ry: 0.25 });
+  const eyeR = kit.at(body, kit.eye(0.058, { irisColor: 0xffe94f, scleraColor: 0x181a24, skinColor: 0x3e4254, glintSize: 0.021 }), -0.1, 0.05, 0.3, { ry: -0.25 });
+  const hornL = paint(kit.horn(0.24, cloudV, { baseR: 0.04, tipR: 0.01, bend: 0.5 }), 114, 0x262a38, 0x6e7488);
+  const hornR = paint(kit.horn(0.24, cloudV, { baseR: 0.04, tipR: 0.01, bend: -0.5 }), 115, 0x262a38, 0x6e7488);
+  const hornLAt = kit.at(body, hornL, 0.15, 0.1, 0.28, { rx: 1.2, rz: -0.35 });
+  const hornRAt = kit.at(body, hornR, -0.15, 0.1, 0.28, { rx: 1.2, rz: 0.35 });
   // Mouth slot on the leading edge.
   kit.at(body, kit.box(0.16, 0.02, 0.04, kit.mat(0x14161e, { rough: 0.9 })), 0, -0.05, 0.34);
 
@@ -84,32 +84,32 @@ export function build_stratovane(kit = kitDefault) {
   const veins = [];
   const wings = [];
   for (const side of [1, -1]) {
-    const w = kit.wing(0.6, wingV, { style: 'membrane', bones: 3, width: 0.42, droop: 0.08 });
-    // Paint every membrane card: storm-dark at the root, pale at the tip.
+    const w = kit.wing(0.46, wingV, { style: 'membrane', bones: 3, width: 0.32, droop: 0.08 });
+    // Paint every membrane card: pale storm-gray at the root, anvil-dark tips.
     w.group.traverse((n) => {
       if (n.isMesh && n.geometry) {
-        applyVertexGradient(n.geometry, { from: 0x343a4e, to: 0x8990a8, axis: 'x', noise: 0.04, seed: 116 });
+        applyVertexGradient(n.geometry, { from: 0x565e78, to: 0x2c3042, axis: 'x', noise: 0.04, seed: 116 });
       }
     });
-    kit.at(body, w, side * 0.16, 0.04, 0.0, { rx: -0.06, ry: side * -0.1, rz: side * 0.18, sx: side < 0 ? -1 : 1 });
+    kit.at(body, w, side * 0.16, 0.06, 0.0, { rx: -0.06, ry: side * -0.1, rz: side * 0.35, sx: side < 0 ? -1 : 1 });
     wings.push(w);
     // Solid leading-edge spar so the wing survives a silhouette test.
-    const spar = paint(kit.capsule(0.024, 0.5, cloudV, { capSeg: 3, radSeg: 6 }), 117, 0x262a38, 0x767c92);
+    const spar = paint(kit.capsule(0.02, 0.4, cloudV, { capSeg: 3, radSeg: 6 }), 117, 0x262a38, 0x767c92);
     spar.geometry.rotateZ(Math.PI / 2);               // genuine crossbar — the one right use
-    kit.at(w.bones[0], spar, 0.26, 0.02, 0.015);
+    kit.at(w.bones[0], spar, 0.21, 0.02, 0.015);
     // Lightning veins across the mid and outer cards. The membrane cards are
     // rotated ~-76° about X inside each bone, so the vein group gets the SAME
     // rx to lie flat ON the card, plus rz 90° so the zigzag runs spanwise.
     const cardTilt = -Math.PI * 0.42 + 0.08 * 0.3;
-    const v1 = lightningVein(kit, 0.34, 6, 200 + (side > 0 ? 0 : 10));
+    const v1 = lightningVein(kit, 0.26, 6, 200 + (side > 0 ? 0 : 10));
     kit.at(w.bones[1], v1, 0.02, 0.02, -0.02, { rx: cardTilt, rz: Math.PI / 2 });
-    const v2 = lightningVein(kit, 0.24, 5, 201 + (side > 0 ? 0 : 10));
+    const v2 = lightningVein(kit, 0.18, 5, 201 + (side > 0 ? 0 : 10));
     kit.at(w.bones[2], v2, 0.02, 0.02, -0.02, { rx: cardTilt, rz: Math.PI / 2 });
     veins.push(v1, v2);
   }
 
   // --- Vane tail -----------------------------------------------------------
-  const tail = kit.at(body, kit.tailChain(5, cloudV, { segLen: 0.09, startR: 0.05, endR: 0.012 }), 0, -0.02, -0.28);
+  const tail = kit.at(body, kit.tailChain(5, cloudV, { segLen: 0.07, startR: 0.045, endR: 0.012 }), 0, -0.02, -0.28);
   tail.pivots.forEach((p, i) => {
     for (const c of p.children) if (c.isMesh && c.geometry && c.geometry.attributes) paint(c, 118 + i);
   });
@@ -123,7 +123,7 @@ export function build_stratovane(kit = kitDefault) {
       const period = 2.6;
       const local = thunderT % period;
       const flash = local < 0.14 ? 1 - local / 0.14 : (local < 0.3 ? 0.5 * (1 - (local - 0.14) / 0.16) : 0);
-      for (const v of veins) v.mat.opacity = 0.12 + flash * 0.88;
+      for (const v of veins) v.mat.opacity = 0.35 + flash * 0.65;
     },
   };
   // Rain falling out of its own underside; charge motes about the crown.

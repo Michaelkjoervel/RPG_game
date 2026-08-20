@@ -492,27 +492,25 @@ export function eye(r = 0.05, opts = {}) {
       pupilC = pupilColor != null ? new THREE.Color(pupilColor) : reqIris.clone().multiplyScalar(0.16);
     }
     if (pupilColor != null) pupilC = new THREE.Color(pupilColor);
-    // Iris coverage is deliberately LARGE (most of the visible front) — a
-    // wide white ring around a small iris reads "googly/wall-eyed" the
-    // moment the head turns 3/4; a big iris stays a stylized eye from every
-    // angle.
-    const iR = r * 0.78 * irisScale;
-    // Dark outline ring behind the iris — defines the iris edge against the
-    // sclera the way stylized 2D eyes are inked.
-    const rim = new THREE.Mesh(new THREE.SphereGeometry(iR * 1.14, 8, 5), mat(pupilC.getHex(), { unlit: true }));
+    // Iris/rim/pupil are SPHERICAL CAPS painted onto the eyeball (slightly
+    // larger radius, theta-limited), not flat discs floating in front of it.
+    // A disc iris vanishes edge-on the moment the head turns 3/4 and leaves
+    // a googly white ball; a wrapped cap stays a stylized eye from every
+    // angle — the classic "painted eyeball".
+    const capTheta = Math.min(1.05 * irisScale, 1.45); // iris angular radius (rad from +Z)
+    const capMesh = (radius, theta, color, wSeg) => {
+      const geo = new THREE.SphereGeometry(radius, wSeg, 4, 0, Math.PI * 2, 0, theta);
+      geo.rotateX(Math.PI / 2); // cap pole from +Y onto +Z
+      return new THREE.Mesh(geo, mat(color, { unlit: true }));
+    };
+    const rim = capMesh(r * 1.025, Math.min(capTheta * 1.18, 1.5), pupilC.getHex(), 10);
     rim.name = 'eyeIrisRim';
-    rim.position.z = r * 0.34;
-    rim.scale.z = 0.42;
     group.add(rim);
-    const iris = new THREE.Mesh(new THREE.SphereGeometry(iR, 8, 5), mat(irisC.getHex(), { unlit: true }));
+    const iris = capMesh(r * 1.05, capTheta, irisC.getHex(), 10);
     iris.name = 'eyeIris';
-    iris.position.z = r * 0.42;
-    iris.scale.z = 0.48;
     group.add(iris);
-    const pup = new THREE.Mesh(new THREE.SphereGeometry(iR * 0.58, 7, 4), mat(pupilC.getHex(), { unlit: true }));
+    const pup = capMesh(r * 1.075, capTheta * 0.52, pupilC.getHex(), 8);
     pup.name = 'eyePupil';
-    pup.position.z = r * 0.58;
-    pup.scale.z = 0.5;
     group.add(pup);
   }
   // Main catchlight: floored so no model ends up with an invisible speck —
@@ -525,7 +523,7 @@ export function eye(r = 0.05, opts = {}) {
   if (microGlint) {
     const g2 = new THREE.Mesh(new THREE.SphereGeometry(gR * 0.45, 5, 3), mat(0xffffff, { unlit: true, transparent: true, opacity: 0.85 }));
     g2.name = 'eyeGlint2';
-    g2.position.set(-r * 0.26, -r * 0.2, r * 0.82);
+    g2.position.set(-r * 0.28, -r * 0.22, r * 0.92);
     group.add(g2);
   }
   // Eyelid: slightly darker than the skin so a blink reads as a lid, not a

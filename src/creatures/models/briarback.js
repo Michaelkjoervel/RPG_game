@@ -77,8 +77,8 @@ export function build_briarback(kit = kitDefault) {
   const eyeL = kit.at(head, kit.eye(0.046, { irisColor: 0xf04a62, scleraColor: 0x241410, skinColor: skinHex, glintSize: 0.019 }), 0.1, 0.03, 0.1, { ry: 0.35 });
   const eyeR = kit.at(head, kit.eye(0.046, { irisColor: 0xf04a62, scleraColor: 0x241410, skinColor: skinHex, glintSize: 0.019 }), -0.1, 0.03, 0.1, { ry: -0.35 });
 
-  const earL = kit.at(head, kit.ear(0.07, hideV), 0.1, 0.1, -0.03, { rz: 0.35 });
-  const earR = kit.at(head, kit.ear(0.07, hideV), -0.1, 0.1, -0.03, { rz: -0.35 });
+  const earL = kit.at(head, paint(kit.ear(0.07, hideV), 48.2), 0.1, 0.1, -0.03, { rz: 0.35 });
+  const earR = kit.at(head, paint(kit.ear(0.07, hideV), 48.7), -0.1, 0.1, -0.03, { rz: -0.35 });
 
   // Big forward-swept tusks.
   const tuskMat = kit.mat(0xeae0c8, { rough: 0.3 });

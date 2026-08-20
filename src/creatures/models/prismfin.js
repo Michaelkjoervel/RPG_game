@@ -47,11 +47,11 @@ export function build_prismfin(kit = kitDefault) {
 
   const root = new THREE.Group();
 
-  const body = kit.blob(0.16, skin, { seed: 82, noise: 0.06, squash: { x: 0.66, y: 0.8, z: 1.2 } });
+  const body = kit.blob(0.16, skin, { seed: 82, noise: 0.06, squash: { x: 0.6, y: 0.88, z: 1.35 } });
   jitterGeometry(body.geometry, 0.005, 82);
   paint(body, 82);
   root.add(body);
-  body.position.y = 0.2;
+  body.position.y = 0.22;
 
   // Koi mottling: violet saddle patches + a gold crown blaze.
   kit.at(body, kit.orb(0.06, skinAccent), 0.045, 0.05, 0.1, { sy: 0.5 });

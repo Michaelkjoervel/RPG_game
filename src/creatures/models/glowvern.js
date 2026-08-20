@@ -47,10 +47,12 @@ export function build_glowvern(kit = kitDefault) {
   // wyvern wingspan.
   // They ride ON the back (above the spine at y=+radius), not on the flank —
   // wings sunk into the barrel just read as flaps stuck to the ribs.
-  const wingDefs = [[0.07, 0.085, -0.02, 1], [-0.07, 0.085, -0.02, -1]];
+  const wingDefs = [[0.065, 0.08, -0.02, 1], [-0.065, 0.08, -0.02, -1]];
   const wingParts = wingDefs.map(([x, y, z, side]) => {
-    const w = kit.wing(0.2, wingMat, { style: 'membrane', bones: 2, width: 0.16, droop: 0.1 });
-    kit.at(body, w, x, y, z, { ry: 0.15, rx: -0.25 });
+    const w = kit.wing(0.2, wingMat, { style: 'membrane', bones: 2, width: 0.16, droop: 0.3 });
+    // Folded low against the flanks (rz droop) so they read attached, not
+    // as a flat plane hovering over the spine.
+    kit.at(body, w, x, y, z, { ry: 0.15, rx: -0.35, rz: -0.5 });
     w.group.scale.x = side;
     return w;
   });

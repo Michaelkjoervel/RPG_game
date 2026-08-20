@@ -69,7 +69,7 @@ export function build_aurelark(kit = kitDefault) {
   // Trailing pennant feathers — three long thin streamers off the tail,
   // each its own accent for independent ripple. The showpiece.
   const pennantDefs = [[0, 0, -0.22, 0], [0.025, 0.01, -0.22, 0.18], [-0.025, 0.01, -0.22, -0.18]];
-  const pennants = pennantDefs.map(([x, y, z, rz]) => kit.at(body, kit.leafBlade(0.24, pennantMat, { width: 0.012 }), x, y, z, { ry: Math.PI, rz }));
+  const pennants = pennantDefs.map(([x, y, z, rz]) => kit.at(body, kit.leafBlade(0.26, pennantMat, { width: 0.024 }), x, y, z, { ry: Math.PI, rz }));
 
   // Comet-scatter of warm dawn motes trailing behind — a vain soloist
   // always seems lit from behind.

@@ -82,8 +82,8 @@ export function build_stormane(kit = kitDefault) {
       maneT += dt;
       for (const b of boltMeshes) {
         const flick = Math.sin(maneT * 3 + b.phase) > 0.55 || Math.random() < 0.01;
-        b.mesh.material.opacity = flick ? 0.85 + Math.random() * 0.15 : 0.15 + Math.random() * 0.15;
-        b.mesh.scale.y = flick ? 1 : 0.7;
+        b.mesh.material.opacity = flick ? 0.9 + Math.random() * 0.1 : 0.4 + Math.random() * 0.15;
+        b.mesh.scale.y = flick ? 1 : 0.8;
       }
     },
   };

@@ -20,7 +20,7 @@ import { applyVertexGradient, jitterGeometry } from '../../gfx/materials.js';
 export function build_sludgemaw(kit = kitDefault) {
   const pal = kit.palette(['venom', 'terra']);
   const tarV = kit.mat(0xffffff, { vertexColors: true, rough: 0.3 });
-  const TAR_LO = 0x14100a, TAR_HI = 0x5e5430;
+  const TAR_LO = 0x1a1408, TAR_HI = 0x6e6238;
   const CRUST_LO = 0x3a3222, CRUST_HI = 0x7d6f4e;
   const toothMat = kit.mat(0xd8cca4, { rough: 0.35 });
   const throatGlow = kit.mat(0x9ac838, { unlit: true, transparent: true, opacity: 0.55 });
@@ -42,36 +42,38 @@ export function build_sludgemaw(kit = kitDefault) {
 
   // --- THE MAW -------------------------------------------------------------
   // A dark recess splitting the front, upper lip overhanging.
+  // The bulb's front surface at maw height sits near z≈0.42 — everything
+  // here is pushed PROUD of that, or the mouth reads as a closed lump.
   const mawGroup = new THREE.Group(); mawGroup.name = 'maw';
-  kit.at(body, mawGroup, 0, 0.15, 0.3, { ry: -0.15 }); // counter the slump: maw faces +Z
-  const cave = kit.orb(0.19, kit.mat(0x0b0804, { rough: 0.95 }), { sx: 1.35, sy: 0.62, sz: 0.7 });
-  kit.at(mawGroup, cave, 0, -0.04, 0.02);
-  const glow = kit.orb(0.12, throatGlow, { sx: 1.2, sy: 0.4, sz: 0.5 });
-  kit.at(mawGroup, glow, 0, -0.06, 0.0);
+  kit.at(body, mawGroup, 0, 0.16, 0.34, { ry: -0.15 }); // counter the slump: maw faces +Z
+  const cave = kit.orb(0.2, kit.mat(0x0b0804, { rough: 0.95 }), { sx: 1.4, sy: 0.7, sz: 0.9 });
+  kit.at(mawGroup, cave, 0, -0.03, 0.08);
+  const glow = kit.orb(0.13, throatGlow, { sx: 1.25, sy: 0.45, sz: 0.7 });
+  kit.at(mawGroup, glow, 0, -0.06, 0.08);
   // Upper lip overhang.
-  const lip = paint(kit.orb(0.22, tarV, { sx: 1.35, sy: 0.42, sz: 0.7 }), 67, TAR_LO, TAR_HI, 0.012);
-  kit.at(mawGroup, lip, 0, 0.12, 0.06);
+  const lip = paint(kit.orb(0.24, tarV, { sx: 1.4, sy: 0.4, sz: 0.85 }), 67, TAR_LO, TAR_HI, 0.012);
+  kit.at(mawGroup, lip, 0, 0.16, 0.12);
   // Lower jaw — its own part so the animator can drop it on attack.
-  const jaw = paint(kit.orb(0.2, tarV, { sx: 1.3, sy: 0.35, sz: 0.75 }), 68, TAR_LO, 0x4a4226, 0.012);
-  kit.at(mawGroup, jaw, 0, -0.17, 0.08);
+  const jaw = paint(kit.orb(0.22, tarV, { sx: 1.35, sy: 0.32, sz: 0.9 }), 68, TAR_LO, 0x4a4226, 0.012);
+  kit.at(mawGroup, jaw, 0, -0.2, 0.14);
   // Stalactite teeth hanging from the lip, stalagmites rising from the jaw.
   const toothN = 6;
   for (let i = 0; i < toothN; i++) {
     const t = i / (toothN - 1);
-    const x = (t - 0.5) * 0.42;
-    const len = 0.075 + Math.sin(t * Math.PI) * 0.045;
-    kit.at(mawGroup, kit.fang(len, toothMat, { r: 0.021 }), x, 0.1, 0.16, { rz: (t - 0.5) * 0.2 });
+    const x = (t - 0.5) * 0.46;
+    const len = 0.085 + Math.sin(t * Math.PI) * 0.05;
+    kit.at(mawGroup, kit.fang(len, toothMat, { r: 0.024 }), x, 0.12, 0.26 - Math.abs(t - 0.5) * 0.12, { rz: (t - 0.5) * 0.2 });
     if (i % 2 === 0) {
-      kit.at(jaw, kit.cone(0.018, 0.06 + Math.sin(t * Math.PI) * 0.03, toothMat, { segments: 5 }), x * 0.85, 0.02, 0.05);
+      kit.at(jaw, kit.cone(0.02, 0.07 + Math.sin(t * Math.PI) * 0.03, toothMat, { segments: 5 }), x * 0.85, 0.0, 0.14 - Math.abs(t - 0.5) * 0.1);
     }
   }
 
-  // Sunken venom-bright eyes above the maw.
-  const eyeL = kit.at(body, kit.eye(0.045, { irisColor: 0xd0e86a, scleraColor: 0x141008, skinColor: 0x2a2414, glintSize: 0.016 }), 0.12, 0.36, 0.2, { ry: 0.2, rx: -0.15 });
-  const eyeR = kit.at(body, kit.eye(0.045, { irisColor: 0xd0e86a, scleraColor: 0x141008, skinColor: 0x2a2414, glintSize: 0.016 }), -0.12, 0.36, 0.18, { ry: -0.35, rx: -0.15 });
+  // Venom-bright eyes riding proud of the crown slope, above the maw.
+  const eyeL = kit.at(body, kit.eye(0.05, { irisColor: 0xd0e86a, scleraColor: 0x141008, skinColor: 0x2a2414, glintSize: 0.018 }), 0.13, 0.32, 0.19, { ry: 0.25, rx: -0.1 });
+  const eyeR = kit.at(body, kit.eye(0.05, { irisColor: 0xd0e86a, scleraColor: 0x141008, skinColor: 0x2a2414, glintSize: 0.018 }), -0.13, 0.32, 0.17, { ry: -0.35, rx: -0.1 });
   // Heavy tar brows half-swallowing the eyes.
-  kit.at(body, paint(kit.orb(0.075, tarV, { sy: 0.5, sz: 0.8 }), 72, TAR_LO, 0x453e20), 0.12, 0.41, 0.21, { rz: -0.3 });
-  kit.at(body, paint(kit.orb(0.075, tarV, { sy: 0.5, sz: 0.8 }), 73, TAR_LO, 0x453e20), -0.12, 0.41, 0.19, { rz: 0.3 });
+  kit.at(body, paint(kit.orb(0.085, tarV, { sy: 0.5, sz: 0.85 }), 72, TAR_LO, 0x453e20), 0.13, 0.38, 0.19, { rz: -0.3 });
+  kit.at(body, paint(kit.orb(0.085, tarV, { sy: 0.5, sz: 0.85 }), 73, TAR_LO, 0x453e20), -0.13, 0.38, 0.17, { rz: 0.3 });
 
   // --- Crust islands -------------------------------------------------------
   const crustPlates = [];

@@ -106,8 +106,8 @@ void main() {
   // zenith (fully by ~30 deg — gameplay cameras see real sky color, not haze).
   // The mid stop is what keeps dawn/dusk skies from being a flat lerp —
   // pink-gold or coral lives there while the zenith stays deep.
-  vec3 col = mix(uMid, uTop, smoothstep(0.15, 0.5, h));
-  col = mix(uHorizon, col, smoothstep(0.0, 0.16, h));
+  vec3 col = mix(uMid, uTop, smoothstep(0.1, 0.38, h));
+  col = mix(uHorizon, col, smoothstep(0.0, 0.12, h));
   col = mix(uBottom, col, smoothstep(-0.12, 0.04, h));
   // Azimuthal horizon glow — sunrise/sunset fire concentrated around the
   // sun's compass bearing, fading with elevation. This is what gives dusk a
@@ -115,8 +115,8 @@ void main() {
   vec2 fwd = normalize(vDir.xz + vec2(1e-5, 0.0));
   vec2 sunFwd = normalize(uSunDir.xz + vec2(1e-5, 0.0));
   float az = max(dot(fwd, sunFwd), 0.0);
-  float band = exp(-abs(h - 0.02) * 5.0);
-  col += uGlowColor * (pow(az, 3.0) * band * uGlowAmt);
+  float band = exp(-abs(h - 0.02) * 7.0);
+  col += uGlowColor * (pow(az, 5.0) * band * uGlowAmt);
   // sun disc + bloom
   float sunDot = max(dot(vDir, uSunDir), 0.0);
   float disc = smoothstep(0.9985, 0.9997, sunDot);
@@ -203,7 +203,9 @@ function makeColorSet(zone, mood) {
     top,
     mid: top.clone().lerp(bottom, 0.3), // mostly zenith hue — a hint of haze
     bottom: bottom.clone().lerp(top, 0.22),
-    horizon: bottom.clone().lerp(keyC, (mood.warmth ?? 0.3) * 0.22),
+    // Noon horizon is warm-WHITE haze, not orange — authored skyBottom values
+    // are warm enough that un-desaturated they read as permanent sunset.
+    horizon: bottom.clone().lerp(WHITE, 0.35).lerp(keyC, (mood.warmth ?? 0.3) * 0.18),
   };
   const night = {
     top: top.clone().lerp(new THREE.Color(0x05070f), 0.9),
@@ -237,7 +239,8 @@ function makeColorSet(zone, mood) {
     sunNoon: sun,
     sunDawn: sun.clone().lerp(new THREE.Color(0xff9a5c), 0.6),
     sunDusk: (duskBias ? sun.clone().lerp(duskBias, 0.3) : sun.clone()).lerp(new THREE.Color(0xff6e3c), 0.6),
-    moon: new THREE.Color(0xbfd2ff),
+    moon: new THREE.Color(0x93ace0), // dim steel-blue — moonlight, not daylight
+
     shadow: new THREE.Color(mood.shadow ?? MOOD_DEFAULT.shadow),
     bounce: new THREE.Color(mood.bounce ?? MOOD_DEFAULT.bounce),
     duskGround: new THREE.Color(0x5b4a8a), // design-bible dusk purple (shadow side)
@@ -480,7 +483,7 @@ export function createSky(zone, scene) {
       domeUniforms.uHorizon.value.copy(colors.night.horizon).lerp(band.horizon, ddw).lerp(colors.day.horizon, dw);
       // horizon fire around the sun's bearing — strongest mid-band, gone at noon
       domeUniforms.uGlowColor.value.copy(colors.night.glow).lerp(band.glow, clamp01(ddw * 1.6));
-      let glowAmt = Math.pow(ddw, 1.15) * 1.5 * (1 - dw * 0.8) + nw * 0.12;
+      let glowAmt = Math.pow(ddw, 1.15) * 0.95 * (1 - dw * 0.8) + nw * 0.12;
       if (zone.ambient?.weather === 'storm') glowAmt *= 0.2;
       domeUniforms.uGlowAmt.value = glowAmt;
 
@@ -501,7 +504,7 @@ export function createSky(zone, scene) {
       const moonMix = clamp01((nw - 0.45) / 0.45);
       sunLight.color.copy(sunCol).lerp(colors.moon, moonMix);
       const dayI = Math.pow(dw, 0.8) * 3.0 + ddw * 1.9;
-      sunLight.intensity = (dayI * (1 - moonMix) + 0.9 * moonMix) * keyI;
+      sunLight.intensity = (dayI * (1 - moonMix) + 0.62 * moonMix) * keyI;
       // Direction hand-off sun -> moon. The two are exact opposites, so the
       // blend passes through zero-length at the midpoint — the y-lift keeps it
       // finite (the key sweeps overhead during deep twilight, when it is at
@@ -527,7 +530,7 @@ export function createSky(zone, scene) {
       hemi.groundColor.copy(colors.night.bottom).lerp(colors.duskGround, warmW).lerp(_tc4, dw);
       // Fill stays LOW relative to the key (~1:7 at noon) so forms model;
       // floored through dusk so the band never collapses to black.
-      hemi.intensity = Math.max(lerp(0.17, 0.44, dw), 0.38 * clamp01(ddw * 5)) * fillI;
+      hemi.intensity = Math.max(lerp(0.13, 0.44, dw), 0.4 * clamp01(ddw * 5)) * fillI;
 
       if (stars) {
         // zone.ambient.stars / mood.starFloor: permanent-twilight zones
@@ -550,8 +553,11 @@ export function createSky(zone, scene) {
         // warm puff over Skyreach broke the cold mood.
         const cloudTint = _tc2.copy(colors.night.top).lerp(WHITE, 0.3).lerp(CLOUD_DAY, dw).lerp(band.glow, ddw * 0.55);
         if (zone.ambient?.weather === 'storm') cloudTint.multiplyScalar(0.38);
+        // Permanent-twilight zones: clouds stay dim wisps, never bright puffs
+        // glaring against the dark violet sky.
+        if (mood.starFloor) cloudTint.multiplyScalar(0.45);
         cloudMat.uniforms.uColor.value.copy(cloudTint);
-        cloudMat.uniforms.uAlpha.value = lerp(0.18, zone.ambient?.weather === 'storm' ? 0.6 : 0.78, dw);
+        cloudMat.uniforms.uAlpha.value = lerp(0.18, zone.ambient?.weather === 'storm' ? 0.6 : 0.78, dw) * (mood.starFloor ? 0.55 : 1);
         for (let i = 0; i < data.length; i++) {
           const c = data[i];
           c.x += cloudDrift.x * c.speed * dt;

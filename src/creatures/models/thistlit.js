@@ -52,9 +52,9 @@ export function build_thistlit(kit = kitDefault) {
   // Shy body language: eyes sit a touch low and peek out from under the
   // quill crown — but they FACE FORWARD now, so the shyness reads as a
   // lowered head, not as averted blank eyeballs.
-  const eyeL = kit.at(head, kit.eye(0.034, { irisColor: 0x2a2016, skinColor: 0x5a4a34, glintSize: 0.013 }), 0.048, -0.005, 0.072, { ry: 0.25 });
-  const eyeR = kit.at(head, kit.eye(0.034, { irisColor: 0x2a2016, skinColor: 0x5a4a34, glintSize: 0.013 }), -0.048, -0.005, 0.072, { ry: -0.25 });
-  head.rotation.x = 0.12; // shy downward tilt, baked into the rest pose
+  const eyeL = kit.at(head, kit.eye(0.034, { irisColor: 0x2a2016, skinColor: 0x5a4a34, glintSize: 0.013 }), 0.048, 0.004, 0.078, { ry: 0.25 });
+  const eyeR = kit.at(head, kit.eye(0.034, { irisColor: 0x2a2016, skinColor: 0x5a4a34, glintSize: 0.013 }), -0.048, 0.004, 0.078, { ry: -0.25 });
+  head.rotation.x = 0.06; // shy downward tilt, baked into the rest pose (gentle — the face must still read)
 
   // Small floppy ears.
   const earL = kit.at(head, kit.ear(0.04, skin, { floppy: true }), 0.07, 0.03, -0.01, { rz: 0.6, ry: -0.2 });

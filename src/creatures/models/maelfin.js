@@ -55,8 +55,8 @@ export function build_maelfin(kit = kitDefault) {
   kit.at(body, head, 0, 0.1, 0.28, { rx: 0.1, rz: 0.06 });
   const eyeL = kit.at(head, kit.eye(0.03, { irisColor: 0x14384f, scleraColor: 0xdcecf0, skinColor: skinHex, glintSize: 0.013 }), 0.055, 0.02, 0.072, { ry: 0.35 });
   const eyeR = kit.at(head, kit.eye(0.03, { irisColor: 0x14384f, scleraColor: 0xdcecf0, skinColor: skinHex, glintSize: 0.013 }), -0.055, 0.02, 0.072, { ry: -0.35 });
-  const earL = kit.at(head, kit.ear(0.042, peltV), 0.065, 0.062, -0.01, { rz: 0.35 });
-  const earR = kit.at(head, kit.ear(0.042, peltV), -0.065, 0.062, -0.01, { rz: -0.35 });
+  const earL = kit.at(head, paint(kit.ear(0.042, peltV), 21.2), 0.065, 0.062, -0.01, { rz: 0.35 });
+  const earR = kit.at(head, paint(kit.ear(0.042, peltV), 21.7), -0.065, 0.062, -0.01, { rz: -0.35 });
   // Cream muzzle with whiskers.
   kit.at(head, kit.orb(0.045, bellyMat, { sz: 1.25, sy: 0.8 }), 0, -0.035, 0.075);
   kit.at(head, kit.orb(0.016, kit.mat(0x1c3244, { rough: 0.4 }), { sy: 0.7 }), 0, -0.02, 0.115);

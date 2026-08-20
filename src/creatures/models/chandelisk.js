@@ -21,7 +21,7 @@ export function build_chandelisk(kit = kitDefault) {
   const pal = kit.palette(['terra', 'lumen']);
   const stoneV = kit.mat(0xffffff, { vertexColors: true, rough: 0.6 });
   const STONE_LO = 0x4a3d26, STONE_HI = 0x9c8a5e;
-  const crystalMat = kit.mat(0xf2e8c8, { rough: 0.12, metal: 0.08, transparent: true, opacity: 0.8, emissive: 0xd8b868, emissiveIntensity: 0.35 });
+  const crystalMat = kit.mat(0xe8cf92, { rough: 0.12, metal: 0.08, transparent: true, opacity: 0.9, emissive: 0xc08a2e, emissiveIntensity: 0.55 });
   const skinHex = 0x7d6c46;
 
   const root = new THREE.Group();
@@ -57,9 +57,9 @@ export function build_chandelisk(kit = kitDefault) {
     { x: 0.13, z: -0.13, ry: 1.4 }, { x: -0.13, z: -0.13, ry: -1.4 },
   ];
   const legs = legSpots.map(({ x, z, ry }, i) => {
-    const l = kit.at(thorax, kit.leg(0.44, crystalMat, { thighR: 0.024, shinR: 0.015, footLen: 0.045 }), x, 0.02, z, { ry, rz: Math.sign(x) * 0.35 });
+    const l = kit.at(thorax, kit.leg(0.44, crystalMat, { thighR: 0.032, shinR: 0.02, footLen: 0.05 }), x, 0.02, z, { ry, rz: Math.sign(x) * 0.35 });
     l.knee.rotation.z = -Math.sign(x) * 0.3;          // splay out, then drop in
-    kit.at(l.knee, kit.crystal(0.028, crystalMat, { coreColor: 0xfff6dc, detail: 0 }), 0, -0.01, 0);
+    kit.at(l.knee, kit.crystal(0.034, crystalMat, { coreColor: 0xfff6dc, detail: 0 }), 0, -0.01, 0);
     return l;
   });
   const legParts = legs.map((l) => ({ hip: l.hip, knee: l.knee, foot: l.foot }));
@@ -70,22 +70,22 @@ export function build_chandelisk(kit = kitDefault) {
   const N = 6;
   for (let i = 0; i < N; i++) {
     const a = (i / N) * Math.PI * 2 + 0.26;
-    const len = 0.13 + (i % 2) * 0.04;
+    const len = 0.18 + (i % 2) * 0.06;
     const p = new THREE.Group(); p.name = 'pendant';
-    kit.at(thorax, p, Math.cos(a) * 0.13, -0.08, Math.sin(a) * 0.14);
+    kit.at(thorax, p, Math.cos(a) * 0.14, -0.06, Math.sin(a) * 0.15);
     p.rotation.z = Math.cos(a) * 0.14;                // slight outward swing
-    const ice = kit.cone(0.026, len, crystalMat, { segments: 5, flip: true });
+    const ice = kit.cone(0.032, len, crystalMat, { segments: 5, flip: true });
     p.add(ice);
-    kit.at(p, kit.orb(0.016, kit.mat(0xfff2cc, { unlit: true, transparent: true, opacity: 0.9 })), 0, -len - 0.012, 0);
+    kit.at(p, kit.orb(0.02, kit.mat(0xfff2cc, { unlit: true, transparent: true, opacity: 0.9 })), 0, -len - 0.014, 0);
     pendants.push(p);
   }
   const drop = new THREE.Group(); drop.name = 'grandDrop';
-  kit.at(thorax, drop, 0, -0.1, -0.01);
-  const tier1 = kit.crystal(0.085, crystalMat, { coreColor: 0xfff6dc, detail: 1 });
-  kit.at(drop, tier1, 0, -0.06, 0);
-  const tier2 = kit.crystal(0.05, crystalMat, { coreColor: 0xffffff, detail: 0 });
-  kit.at(drop, tier2, 0, -0.2, 0);
-  kit.at(drop, kit.orb(0.02, kit.mat(0xfff6dc, { unlit: true, transparent: true, opacity: 0.95 })), 0, -0.28, 0);
+  kit.at(thorax, drop, 0, -0.08, -0.01);
+  const tier1 = kit.crystal(0.105, crystalMat, { coreColor: 0xfff6dc, detail: 1 });
+  kit.at(drop, tier1, 0, -0.08, 0);
+  const tier2 = kit.crystal(0.062, crystalMat, { coreColor: 0xffffff, detail: 0 });
+  kit.at(drop, tier2, 0, -0.22, 0);
+  kit.at(drop, kit.orb(0.024, kit.mat(0xfff6dc, { unlit: true, transparent: true, opacity: 0.95 })), 0, -0.3, 0);
 
   // Rainbow prism scatter — one mote cluster per spectrum hue, orbiting low.
   const spectrum = [0xff6a5c, 0xffb85c, 0xfff08c, 0x8ce08c, 0x7ac6ff, 0xb08cff];

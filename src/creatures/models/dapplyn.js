@@ -50,7 +50,7 @@ export function build_dapplyn(kit = kitDefault) {
   const pal = kit.palette(['bloom']);
   const skin = kit.mat(0x9a6f45, { rough: 0.65 });   // honey-brown fawn fur
   const cream = kit.mat(0xf1e3c8, { rough: 0.6 });
-  const dappleMat = kit.mat(pal.eye, { unlit: true, transparent: true, opacity: 0.7, side: THREE.DoubleSide });
+  const dappleMat = kit.mat(0xffedb8, { unlit: true, transparent: true, opacity: 0.85, side: THREE.DoubleSide });
 
   const root = new THREE.Group();
 
@@ -100,7 +100,7 @@ export function build_dapplyn(kit = kitDefault) {
     // Sit exactly on the torso's surface for this height: the capsule's
     // half-width at height y is sqrt(r^2 - y^2) (r = 0.125).
     const x = side * Math.sqrt(Math.max(0.0156 - y * y, 0.0016));
-    spotDefs.push([x, y, -0.15 + rng() * 0.3, 0.014 + rng() * 0.01, i + 1, side]);
+    spotDefs.push([x, y, -0.15 + rng() * 0.3, 0.02 + rng() * 0.013, i + 1, side]);
   }
   const dapples = driftingDapples(body, spotDefs, dappleMat);
 
