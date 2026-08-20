@@ -20,7 +20,7 @@ import { applyVertexGradient, jitterGeometry } from '../../gfx/materials.js';
 export function build_chandelisk(kit = kitDefault) {
   const pal = kit.palette(['terra', 'lumen']);
   const stoneV = kit.mat(0xffffff, { vertexColors: true, rough: 0.6 });
-  const STONE_LO = 0x4a3d26, STONE_HI = 0x9c8a5e;
+  const STONE_LO = 0x3a2f1e, STONE_HI = 0x74643f;   // hub darker than its crystals: the light hangs FROM the stone
   const crystalMat = kit.mat(0xe8cf92, { rough: 0.12, metal: 0.08, transparent: true, opacity: 0.9, emissive: 0xc08a2e, emissiveIntensity: 0.55 });
   const skinHex = 0x7d6c46;
 
@@ -99,8 +99,14 @@ export function build_chandelisk(kit = kitDefault) {
   const spark = kit.heartspark(0.032, pal.eye, { seed: 71 });
   kit.at(thorax, spark, 0, 0.05, 0.19);
 
+  const grounded = kit.groundPlant(root);
+  // Soft contact shadow so the creature reads planted on any ground.
+  const contact = kit.shadowDisc(0.45, 0.32);
+  contact.position.y = 0.02 - grounded.position.y;
+  grounded.add(contact);
+
   return {
-    group: kit.groundPlant(root),
+    group: grounded,
     parts: {
       body: thorax,
       head,

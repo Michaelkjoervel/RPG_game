@@ -103,8 +103,14 @@ export function build_vantash(kit = kitDefault) {
   const spark = kit.heartspark(0.036, pal.eye, { seed: 161 });
   kit.at(body, spark, 0, 0.02, 0.12);
 
+  const grounded = kit.groundPlant(root);
+  // Soft contact shadow so the creature reads planted on any ground.
+  const contact = kit.shadowDisc(0.32, 0.32);
+  contact.position.y = 0.02 - grounded.position.y;
+  grounded.add(contact);
+
   return {
-    group: kit.groundPlant(root),
+    group: grounded,
     parts: {
       body,
       head,

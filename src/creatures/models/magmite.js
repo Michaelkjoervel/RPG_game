@@ -33,10 +33,11 @@ export function build_magmite(kit = kitDefault) {
 
   const root = new THREE.Group();
 
-  // Glowing ember underbody — the furnace the shell barely contains.
-  const body = kit.blob(0.14, magma, { seed: 130, noise: 0.08, squash: { x: 1, y: 0.7, z: 1.2 } });
+  // Glowing ember underbody — the furnace the shell barely contains. Kept
+  // small and squat so it leaks at the rim instead of ballooning below.
+  const body = kit.blob(0.12, magma, { seed: 130, noise: 0.08, squash: { x: 1, y: 0.55, z: 1.2 } });
   root.add(body);
-  body.position.y = 0.11;
+  body.position.y = 0.085;
 
   // The cooling-crust shell — a low rocky dome fused over the whole back,
   // jittered basalt with a lit crown, its rim floating just above the ember
@@ -85,8 +86,14 @@ export function build_magmite(kit = kitDefault) {
   const spark = kit.heartspark(0.026, pal.eye, { seed: 134 });
   kit.at(body, spark, 0, 0.03, 0.08);
 
+  const grounded = kit.groundPlant(root);
+  // Soft contact shadow so the creature reads planted on any ground.
+  const contact = kit.shadowDisc(0.28, 0.32);
+  contact.position.y = 0.02 - grounded.position.y;
+  grounded.add(contact);
+
   return {
-    group: kit.groundPlant(root),
+    group: grounded,
     parts: {
       body,
       head,

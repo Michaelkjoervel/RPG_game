@@ -88,8 +88,8 @@ export function build_prismfin(kit = kitDefault) {
   kit.at(tail.pivots[tail.pivots.length - 1], tailFin, 0, 0, -0.025, { ry: Math.PI / 2 });
   // Two long trailing ribbon-fins off the tail — the grand koi's train.
   const ribbonMat = kit.mat(0x9fc8ff, { rough: 0.25, transparent: true, opacity: 0.6, side: THREE.DoubleSide, emissive: 0x6f98d8, emissiveIntensity: 0.6 });
-  const ribbonL = kit.at(tail.pivots[tail.pivots.length - 1], kit.leafBlade(0.22, ribbonMat, { width: 0.045 }), 0.02, 0.01, -0.03, { ry: Math.PI / 2 + 0.3, rz: 0.25 });
-  const ribbonR = kit.at(tail.pivots[tail.pivots.length - 1], kit.leafBlade(0.22, ribbonMat, { width: 0.045 }), -0.02, 0.01, -0.03, { ry: Math.PI / 2 - 0.3, rz: 0.25 });
+  const ribbonL = kit.at(tail.pivots[tail.pivots.length - 1], kit.leafBlade(0.16, ribbonMat, { width: 0.04 }), 0.02, 0.01, -0.03, { ry: Math.PI / 2 + 0.3, rz: 0.25 });
+  const ribbonR = kit.at(tail.pivots[tail.pivots.length - 1], kit.leafBlade(0.16, ribbonMat, { width: 0.04 }), -0.02, 0.01, -0.03, { ry: Math.PI / 2 - 0.3, rz: 0.25 });
 
   // Trailing aurora shimmer — a loose ribbon of drifting color motes.
   const auroraGlow = kit.mote(12, { color: 0x9fc8ff, size: 0.02, radius: 0.3, height: 0.22, speed: 0.3, seed: 83 });

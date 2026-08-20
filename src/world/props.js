@@ -202,10 +202,16 @@ export function buildProps(zone, heightAt) {
   }
 
   // Bake an absolute vertical color ramp (post-transform coords) into a piece.
-  //   ramp(g, from, to, lo, hi, {noise, seed, exp, axis:0|1|2})
+  // The current sky rig is a single dominant overhead key with a weak fill, so
+  // vertical faces get starved — `lift` bakes a fake side-fill by brightening
+  // vertices in proportion to how vertical their face is (1 - |ny|).
+  //   ramp(g, from, to, lo, hi, {noise, seed, exp, axis:0|1|2, lift})
   function ramp(g, from, to, lo, hi, o = {}) {
     const p = g.attributes.position;
+    if (!g.attributes.normal) g.computeVertexNormals();
+    const nrm = g.attributes.normal;
     const noise = o.noise ?? 0.045, seed = o.seed ?? 1, exp = o.exp ?? 1, ax = o.axis ?? 1;
+    const lift = o.lift ?? 0.38;
     _c1.set(from); _c2.set(to);
     const span = Math.max(1e-5, hi - lo);
     const colors = new Float32Array(p.count * 3);
@@ -215,24 +221,28 @@ export function buildProps(zone, heightAt) {
       let t = clamp((v - lo) / span, 0, 1);
       t = Math.pow(t, exp);
       const n = noise ? hashN(x, y, z, seed) * noise : 0;
-      colors[i * 3 + 0] = _c1.r + (_c2.r - _c1.r) * t + n;
-      colors[i * 3 + 1] = _c1.g + (_c2.g - _c1.g) * t + n;
-      colors[i * 3 + 2] = _c1.b + (_c2.b - _c1.b) * t + n * 0.7;
+      const sl = 1 + lift * (1 - Math.abs(nrm.getY(i)));
+      colors[i * 3 + 0] = (_c1.r + (_c2.r - _c1.r) * t + n) * sl;
+      colors[i * 3 + 1] = (_c1.g + (_c2.g - _c1.g) * t + n) * sl;
+      colors[i * 3 + 2] = (_c1.b + (_c2.b - _c1.b) * t + n * 0.7) * sl;
     }
     g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     return g;
   }
 
-  // Flat single-color bake with mottling.
-  function tintG(g, hex, noise = 0.04, seed = 1) {
+  // Flat single-color bake with mottling (same baked side-fill as ramp()).
+  function tintG(g, hex, noise = 0.04, seed = 1, lift = 0.38) {
     const p = g.attributes.position;
+    if (!g.attributes.normal) g.computeVertexNormals();
+    const nrm = g.attributes.normal;
     _c1.set(hex);
     const colors = new Float32Array(p.count * 3);
     for (let i = 0; i < p.count; i++) {
       const n = noise ? hashN(p.getX(i), p.getY(i), p.getZ(i), seed) * noise : 0;
-      colors[i * 3 + 0] = _c1.r + n;
-      colors[i * 3 + 1] = _c1.g + n;
-      colors[i * 3 + 2] = _c1.b + n * 0.7;
+      const sl = 1 + lift * (1 - Math.abs(nrm.getY(i)));
+      colors[i * 3 + 0] = (_c1.r + n) * sl;
+      colors[i * 3 + 1] = (_c1.g + n) * sl;
+      colors[i * 3 + 2] = (_c1.b + n * 0.7) * sl;
     }
     g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     return g;
@@ -251,10 +261,11 @@ export function buildProps(zone, heightAt) {
       _fb.sub(_fa); _fc.sub(_fa);
       _fb.cross(_fc).normalize();
       _c1.set(fn(cx, cy, cz, _fb.x, _fb.y, _fb.z));
+      const sl = 1 + 0.38 * (1 - Math.abs(_fb.y)); // baked side-fill (see ramp)
       for (let k = 0; k < 3; k++) {
-        colors[(f + k) * 3 + 0] = _c1.r;
-        colors[(f + k) * 3 + 1] = _c1.g;
-        colors[(f + k) * 3 + 2] = _c1.b;
+        colors[(f + k) * 3 + 0] = _c1.r * sl;
+        colors[(f + k) * 3 + 1] = _c1.g * sl;
+        colors[(f + k) * 3 + 2] = _c1.b * sl;
       }
     }
     g.setAttribute('color', new THREE.BufferAttribute(colors, 3));

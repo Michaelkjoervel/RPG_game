@@ -147,8 +147,14 @@ export function build_sancturne(kit = kitDefault) {
   const goldRise = kit.mote(6, { color: 0xffe9b0, size: 0.016, radius: 0.14, height: 0.4, speed: 0.4, seed: 154 });
   kit.at(urnGroup, goldRise, 0, 0.5, 0);
 
+  const grounded = kit.groundPlant(root);
+  // Soft contact shadow so the creature reads planted on any ground.
+  const contact = kit.shadowDisc(0.35, 0.32);
+  contact.position.y = 0.02 - grounded.position.y;
+  grounded.add(contact);
+
   return {
-    group: kit.groundPlant(root),
+    group: grounded,
     parts: {
       body,
       head,

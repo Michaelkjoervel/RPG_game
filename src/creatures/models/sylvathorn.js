@@ -160,8 +160,14 @@ export function build_sylvathorn(kit = kitDefault) {
   const spark = kit.heartspark(0.05, 0xbfe89a, { seed: 28 });
   kit.at(body, spark, 0, -0.08, 0.42);
 
+  const grounded = kit.groundPlant(root);
+  // Soft contact shadow so the creature reads planted on any ground.
+  const contact = kit.shadowDisc(0.45, 0.32);
+  contact.position.y = 0.02 - grounded.position.y;
+  grounded.add(contact);
+
   return {
-    group: kit.groundPlant(root),
+    group: grounded,
     parts: {
       body,
       head,

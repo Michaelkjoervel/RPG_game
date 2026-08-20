@@ -45,7 +45,7 @@ export function build_rimehorn(kit = kitDefault) {
     return kit.at(body, t, x, y, z);
   });
 
-  const head = kit.at(body, paint(kit.blob(0.13, coat, { seed: 122, squash: { x: 0.9, y: 0.85, z: 1.1 } }), 122), 0, 0.16, 0.28);
+  const head = kit.at(body, paint(kit.blob(0.13, coat, { seed: 122, squash: { x: 0.9, y: 0.85, z: 1.1 } }), 122), 0, 0.21, 0.3);
   const eyeL = kit.at(head, kit.eye(0.038, { irisColor: 0x3a2c1c, skinColor: 0xd8dce4, glintSize: 0.014 }), 0.08, 0.02, 0.09, { ry: 0.3 });
   const eyeR = kit.at(head, kit.eye(0.038, { irisColor: 0x3a2c1c, skinColor: 0xd8dce4, glintSize: 0.014 }), -0.08, 0.02, 0.09, { ry: -0.3 });
   const earL = kit.at(head, kit.ear(0.07, coatDark, { floppy: true }), 0.1, 0.07, -0.03, { rz: 0.4, ry: -0.2 });
@@ -98,8 +98,14 @@ export function build_rimehorn(kit = kitDefault) {
   const spark = kit.heartspark(0.04, pal.eye, { seed: 124 });
   kit.at(body, spark, 0, 0.06, 0.2);
 
+  const grounded = kit.groundPlant(root);
+  // Soft contact shadow so the creature reads planted on any ground.
+  const contact = kit.shadowDisc(0.35, 0.32);
+  contact.position.y = 0.02 - grounded.position.y;
+  grounded.add(contact);
+
   return {
-    group: kit.groundPlant(root),
+    group: grounded,
     parts: {
       body,
       head,
