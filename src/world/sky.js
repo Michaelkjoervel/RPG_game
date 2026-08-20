@@ -62,7 +62,10 @@ const MOODS = {
     // Raking teal-white key (low elevation, real intensity) sculpts the cave
     // floor; hemi pulled down in trade so the net luminance holds but forms
     // shade instead of reading as one flat teal wash.
-    indoor: { domeTop: 0x0e1a1c, domeBottom: 0x091012, domeHorizon: 0x143230, hemiSky: 0x58a8a0, hemiGround: 0x1e3c3a, fill: 0x5ee0cc, key: 0x9fd8d0, keyI: 2.2, keyDir: [0.6, 0.5, 0.38], hemiScale: 0.78 } },
+    // Tight bright fill pool (small radius, fast decay): brightness falls off
+    // INSIDE the visible frame, so the flat cave floor grades from a lit pool
+    // around the Warden into teal-dark distance instead of one even wash.
+    indoor: { domeTop: 0x0e1a1c, domeBottom: 0x091012, domeHorizon: 0x143230, hemiSky: 0x58a8a0, hemiGround: 0x1e3c3a, fill: 0x5ee0cc, key: 0x9fd8d0, keyI: 2.2, keyDir: [0.6, 0.5, 0.38], hemiScale: 0.78, fillRadius: 19, fillDecay: 1.55, fillScale: 1.3 } },
   hollowspire:   { name: 'oppressive violet',    fogTint: 0x1c1428, fogTintAmt: 0.55, fogMul: 1.0,
     indoor: { domeTop: 0x141020, domeBottom: 0x0c0a14, domeHorizon: 0x241a34, hemiSky: 0x9282ba, hemiGround: 0x352c4a, fill: 0xb8a2ff, key: 0xa88fd8, keyI: 1.0, keyDir: [-0.4, 0.85, 0.25] } },
 };
@@ -333,14 +336,14 @@ export function createSky(zone, scene) {
       const x = Math.cos(yaw) * cy, y = Math.sin(elev), z = Math.sin(yaw) * cy;
       const r = domeR * 0.985;
       pos[i * 3] = x * r; pos[i * 3 + 1] = y * r; pos[i * 3 + 2] = z * r;
-      size[i] = 1.1 + starRng() * 2.2;
+      size[i] = 1.35 + starRng() * 2.4;
       phase[i] = starRng() * 100;
     }
     starGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     starGeo.setAttribute('aSize', new THREE.BufferAttribute(size, 1));
     starGeo.setAttribute('aPhase', new THREE.BufferAttribute(phase, 1));
     const hasDOM = typeof window !== 'undefined';
-    const pixelScale = hasDOM ? Math.min(window.devicePixelRatio || 1, 2) * 1.6 : 1.6;
+    const pixelScale = hasDOM ? Math.min(window.devicePixelRatio || 1, 2) * 1.85 : 1.85;
     starUniforms = { uTime: { value: 0 }, uAlpha: { value: 0 }, uPixelScale: { value: pixelScale } };
     const starMat = new THREE.ShaderMaterial({
       uniforms: starUniforms, vertexShader: STAR_VERT, fragmentShader: STAR_FRAG,
@@ -433,7 +436,7 @@ export function createSky(zone, scene) {
   // Warden never dissolves into the dark (see update()).
   let fillLight = null;
   if (indoor) {
-    fillLight = new THREE.PointLight(ind.fill, indoorFillI, 30, 1.2);
+    fillLight = new THREE.PointLight(ind.fill, indoorFillI * (ind.fillScale ?? 1), ind.fillRadius ?? 30, ind.fillDecay ?? 1.2);
     fillLight.name = 'skyFill';
     scene.add(fillLight);
   } else {
@@ -584,7 +587,7 @@ export function createSky(zone, scene) {
       // (median luminance target ≥12% in caves) while the dark dome keeps the mood.
       // The slanted mood key breathes very slightly with the fill.
       hemi.intensity = indoorHemiI * (1 + Math.sin(time * 0.15) * 0.025);
-      if (fillLight) fillLight.intensity = indoorFillI * (1 + Math.sin(time * 0.4) * 0.05);
+      if (fillLight) fillLight.intensity = indoorFillI * (ind.fillScale ?? 1) * (1 + Math.sin(time * 0.4) * 0.05);
       sunLight.intensity = ind.keyI * (1 + Math.sin(time * 0.23) * 0.03);
     }
   }

@@ -141,7 +141,7 @@ function buildHuman(spec) {
   const hairM = stdMat(spec.hair, { rough: 0.74, vertexColors: true });
   const primaryM = stdMat(spec.primary, { rough: 0.88, vertexColors: true });
   const secondaryM = stdMat(spec.secondary, { rough: 0.86, vertexColors: true });
-  const bootM = stdMat(shade(spec.secondary, -0.16, -0.12), { rough: 0.85, vertexColors: true });
+  const bootM = stdMat(spec.bootColor ?? shade(spec.secondary, -0.16, -0.12), { rough: 0.85, vertexColors: true });
   const accentM = stdMat(spec.accent ?? GOLD, { rough: 0.4, metal: 0.3, emissive: spec.accent ?? GOLD, ei: 0.25 });
   const scleraM = stdMat(0xfdf8ee, { rough: 0.35 });
   const irisM = stdMat(spec.iris ?? 0x5a4632, { rough: 0.3, emissive: spec.iris ?? 0x5a4632, ei: 0.15 });
@@ -237,8 +237,8 @@ function buildHuman(spec) {
   /* shoulder mantle (the Order): stern collar cone over the shoulders */
   if (spec.mantle) {
     const mantleM = stdMat(spec.secondary, { rough: 0.9, side: THREE.DoubleSide, vertexColors: true });
-    const mantle = mesh(geo(K('npc_mantle'), () => vgrad(new THREE.CylinderGeometry(0.115 * wide, 0.235 * wide, TL * 0.38, 9, 1, true), { seed: 11 })), mantleM);
-    mantle.position.y = TL * 0.84;
+    const mantle = mesh(geo(K('npc_mantle'), () => vgrad(new THREE.CylinderGeometry(0.14 * wide, 0.235 * wide, TL * 0.28, 9, 1, true), { seed: 11 })), mantleM);
+    mantle.position.y = TL * 0.80;
     torso.add(mantle);
   }
 
@@ -246,8 +246,9 @@ function buildHuman(spec) {
   function buildArm(sx) {
     const arm = new THREE.Group();
     arm.position.set(sx * 0.205 * wide, shoulderY, 0);
-    const cap = mesh(geo(K('npc_armcap'), () => vgrad(new THREE.SphereGeometry(0.064 * wide, 7, 5), { seed: 12 })), primaryM);
-    cap.scale.set(1.1, 0.85, 1);
+    const cap = mesh(geo(K('npc_armcap'), () => vgrad(new THREE.SphereGeometry(0.058 * wide, 7, 5), { seed: 12 })), primaryM);
+    cap.scale.set(1.1, 0.82, 1);
+    cap.position.y = -0.005;
     arm.add(cap);
     const sleeve = mesh(geo(K('npc_sleeve'), () => vgrad(new THREE.CylinderGeometry(0.054 * wide, 0.045 * wide, 0.26, 7), { seed: 13 })), primaryM);
     sleeve.position.y = -0.15;
@@ -316,7 +317,9 @@ function buildHuman(spec) {
     headGrp.add(smile);
   }
 
-  /* hair — per-id style with actual shaped volume (jittered lobes, not a cap) */
+  /* hair — per-id style with actual shaped volume (jittered lobes, not a cap).
+     A hood or masked hood replaces the hair entirely — lobes would poke
+     straight through the fabric shell otherwise. */
   const hairPart = (key, make, x, y, z, sx = 1, sy = 1, sz = 1, rx = 0, rz = 0) => {
     const m = mesh(geo(key, () => vgrad(make(), { from: 0xa89a8c, seed: 17, noise: 0.05 })), hairM, false);
     m.position.set(x * headR, y * headR, z * headR);
@@ -325,8 +328,9 @@ function buildHuman(spec) {
     headGrp.add(m);
     return m;
   };
-  const style = spec.hairStyle ?? 'crop';
-  if (style !== 'bald') {
+  const hooded = spec.hat === 'hood' || spec.hat === 'mask';
+  const style = hooded ? 'none' : (spec.hairStyle ?? 'crop');
+  if (style !== 'bald' && style !== 'none') {
     hairPart(K('npc_hairmain'), () => jitterGeometry(new THREE.SphereGeometry(headR * 1.03, 9, 7), headR * 0.05, 31), 0, 0.34, -0.10, 1.02, 0.9, 1.0);
   }
   if (style === 'crop' || style === 'side' || style === 'spiky') {
@@ -461,7 +465,7 @@ function archetypeFor(id, kind, appearance) {
 
   switch (kind) {
     case 'seeker':
-      return { ...base, primary: num(pal?.[0], 0x5c5c66), secondary: num(pal?.[1], 0x46464e), accent: 0xdedad2, hat: hatFromData ?? 'mask', cape: 0x40404a, mantle: true, hairStyle: 'crop' };
+      return { ...base, primary: num(pal?.[0], 0x5c5c66), secondary: num(pal?.[1], 0x46464e), accent: 0xdedad2, hat: hatFromData ?? 'mask', cape: 0x40404a, mantle: true, hairStyle: 'crop', bootColor: 0x3a3a44 };
     case 'keeper':
       return { ...base, hat: hatFromData ?? 'none', cape: base.secondary };
     case 'rival':
@@ -511,13 +515,18 @@ function halfCape(ctx, outer = 0x2a2f3f, lining = 0xff8a4a) {
   ctx.torso.add(trim);
 }
 function antlerCirclet(ctx) {
+  // On the HEAD (rides head turns), rising clear of the hair volume.
   const antlerM = stdMat(0xe8dcc2, { rough: 0.5, emissive: 0x6fce5c, ei: 0.08 });
   for (const side of [-1, 1]) {
-    const horn = mesh(geo('antler', () => new THREE.ConeGeometry(0.02, 0.22, 5)), antlerM, false);
-    horn.position.set(side * 0.06, ctx.headGrp.position.y + 0.1, -0.01);
-    horn.rotation.z = side * -0.35;
-    horn.rotation.x = -0.2;
-    ctx.torso.add(horn);
+    const horn = mesh(geo('antler', () => new THREE.ConeGeometry(0.026, 0.28, 5)), antlerM, false);
+    horn.position.set(side * 0.085, ctx.headR * 1.05, -ctx.headR * 0.1);
+    horn.rotation.z = side * -0.42;
+    horn.rotation.x = -0.15;
+    ctx.headGrp.add(horn);
+    const tine = mesh(geo('antler_tine', () => new THREE.ConeGeometry(0.016, 0.12, 4)), antlerM, false);
+    tine.position.set(side * 0.135, ctx.headR * 1.15, -ctx.headR * 0.08);
+    tine.rotation.z = side * -1.0;
+    ctx.headGrp.add(tine);
   }
 }
 function lantern(ctx, side = 1) {
@@ -532,13 +541,16 @@ function lantern(ctx, side = 1) {
   ctx.extra = (ctx.extra ?? []).concat([{ type: 'lantern', node: grp, glow, light }]);
 }
 function crackedHalo(ctx) {
+  // Floats a clear hand-span above the scalp (head sits higher on the new
+  // bodies — anchor off headR, not a fixed offset, or the hair swallows it).
+  const haloY = ctx.headGrp.position.y + ctx.headR * 1.7;
   const haloM = stdMat(GOLD, { emissive: GOLD, ei: 1.3, rough: 0.3, transparent: true, opacity: 0.92 });
   const halo = mesh(geo('halo', () => new THREE.TorusGeometry(0.16, 0.014, 6, 20, Math.PI * 1.5)), haloM, false);
   halo.rotation.x = Math.PI / 2;
-  halo.position.y = ctx.headGrp.position.y + 0.24;
+  halo.position.y = haloY;
   ctx.torso.add(halo);
   const light = new THREE.PointLight(GOLD, 1.0, 4.5, 2);
-  light.position.y = ctx.headGrp.position.y + 0.24;
+  light.position.y = haloY;
   ctx.torso.add(light);
   ctx.extra = (ctx.extra ?? []).concat([{ type: 'halo', node: halo }]);
 }
@@ -563,7 +575,18 @@ const ID_OVERRIDES = {
   keeper_liora: (kind, a) => ({ ...archetypeFor('keeper_liora', 'keeper', a), primary: 0x4f9e4f, secondary: 0xffe9b0, hat: 'circlet', special: (ctx) => antlerCirclet(ctx) }),
   keeper_maro: (kind, a) => ({ ...archetypeFor('keeper_maro', 'keeper', a), primary: 0x2e6a7a, secondary: 0x1f4a56, special: (ctx) => { fisherCoat(ctx); lantern(ctx, 1); } }),
   keeper_sera: (kind, a) => ({ ...archetypeFor('keeper_sera', 'keeper', a), primary: 0x5a6478, secondary: 0xffd94f, hat: 'goggles', special: (ctx) => coatTails(ctx) }),
-  archon_sol: (kind, a) => ({ ...archetypeFor('archon_sol', 'keeper', a), primary: 0xf4efe0, secondary: GOLD, accent: GOLD, height: 1.78, cape: 0xffe9b0, special: (ctx) => crackedHalo(ctx) }),
+  archon_sol: (kind, a) => ({
+    ...archetypeFor('archon_sol', 'keeper', a), primary: 0xf4efe0, secondary: GOLD, accent: GOLD,
+    height: 1.78, cape: 0xffe9b0, hairStyle: 'bald', hair: 0xe8e0d0, bootColor: 0xcdc2a4,
+    special: (ctx) => {
+      crackedHalo(ctx);
+      // radiant robe: the Archon glows faintly even at noon
+      ctx.materials.primaryM.emissive.setHex(0xfff6dd);
+      ctx.materials.primaryM.emissiveIntensity = 0.16;
+      ctx.materials.secondaryM.emissive.setHex(0xffe9b0);
+      ctx.materials.secondaryM.emissiveIntensity = 0.2;
+    },
+  }),
   // skin/hair are pinned rather than left to basePalette()'s id hash: the rival's look is
   // established art, and it must not silently reroll just because the id string changed.
   bryn: (kind, a) => ({

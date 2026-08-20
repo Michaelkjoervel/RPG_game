@@ -16,20 +16,26 @@ import * as kitDefault from '../kit.js';
 export function build_shardling(kit = kitDefault) {
   const pal = kit.palette(['terra', 'lumen']);
   const stone = kit.mat(0x8a7a5c, { rough: 0.6 });
-  const gemMat = kit.mat(0xdcd0a8, { rough: 0.15, metal: 0.1, transparent: true, opacity: 0.82 });
+  const gemMat = kit.mat(0xf0e2b0, { rough: 0.12, metal: 0.08, transparent: true, opacity: 0.88, emissive: 0xc09a3e, emissiveIntensity: 0.5 });
 
   const root = new THREE.Group();
 
   const thorax = kit.blob(0.07, stone, { seed: 60, noise: 0.1, squash: { x: 1, y: 0.85, z: 1.05 } });
+  kit.paint(thorax, { from: 0x5e5138, to: 0xa8986e, noise: 0.05, seed: 60, rough: 0.6 });
   root.add(thorax);
   thorax.position.y = 0.09;
 
   // Translucent gem abdomen, trailing behind the thorax — the collector's
-  // prize, refracting a faint scatter of light of its own.
-  const abdomen = kit.crystal(0.065, gemMat, { coreColor: pal.eye, detail: 0 });
-  kit.at(thorax, abdomen, 0, 0.02, -0.075, { s: 1 });
+  // prize, refracting a faint scatter of light of its own. Bigger than the
+  // body that drags it: the hoard IS the silhouette.
+  const abdomen = kit.crystal(0.085, gemMat, { coreColor: pal.eye, detail: 0 });
+  kit.at(thorax, abdomen, 0, 0.03, -0.1, { s: 1 });
+  abdomen.rotation.x = 0.3;
+  // Two smaller hoard-shards fused to its rim.
+  kit.at(abdomen, kit.crystal(0.032, gemMat, { coreColor: 0xfff6dc, detail: 0 }), 0.06, 0.04, -0.02);
+  kit.at(abdomen, kit.crystal(0.026, gemMat, { coreColor: 0xfff6dc, detail: 0 }), -0.055, 0.05, 0.02);
 
-  const head = kit.at(thorax, kit.orb(0.036, stone, { sz: 1.1, sy: 0.85 }), 0, 0.01, 0.075);
+  const head = kit.at(thorax, kit.paint(kit.orb(0.036, stone, { sz: 1.1, sy: 0.85 }), { from: 0x5e5138, to: 0xa8986e, noise: 0.05, seed: 61, rough: 0.6 }), 0, 0.01, 0.075);
   const eyeL = kit.at(head, kit.eye(0.014, { irisColor: 0xffe9b0, skinColor: 0x8a7a5c, glintSize: 0.006 }), 0.024, 0.006, 0.03, { ry: 0.4 });
   const eyeR = kit.at(head, kit.eye(0.014, { irisColor: 0xffe9b0, skinColor: 0x8a7a5c, glintSize: 0.006 }), -0.024, 0.006, 0.03, { ry: -0.4 });
   const eyeL2 = kit.at(head, kit.eye(0.009, { irisColor: 0xffe9b0, skinColor: 0x8a7a5c, glintSize: 0.004 }), 0.02, 0.017, 0.028, { ry: 0.4 });

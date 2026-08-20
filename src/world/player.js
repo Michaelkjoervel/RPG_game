@@ -120,7 +120,7 @@ function buildWarden() {
     glint: M(0xffffff, { rough: 0.2, emissive: 0xffffff, ei: 0.85 }),
     belt: M(P.belt, { rough: 0.75 }),
     gold: M(P.gold, { rough: 0.4, metal: 0.35, emissive: 0xffe9b0, ei: 0.12 }),
-    scarf: M(P.scarf, { rough: 0.82 }),
+    scarf: M(P.scarf, { rough: 0.82, emissive: 0xe08a48, ei: 0.1 }),
     cloak: M(shade(0x5b4a8a, -0.02), { rough: 0.88 }),
   };
   const mesh = (geo, mat) => { const m = new THREE.Mesh(geo, mat); m.castShadow = true; return m; };
