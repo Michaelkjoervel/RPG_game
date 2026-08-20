@@ -55,9 +55,15 @@ export const ZONE = {
     { kind: 'tree_oak', density: 0.22, area: [-70, 60, 20] },
     { kind: 'tree_oak', density: 0.18, area: [85, 60, 22] },
     // — meadow dressing, dense and alive —
-    { kind: 'flower_patch', density: 0.22, area: [0, 0, 95] },
+    { kind: 'flower_patch', density: 0.3, area: [0, 0, 95] },
     { kind: 'grass_tuft', density: 0.55, area: [0, 0, 100] },
-    { kind: 'bush', density: 0.05, area: [0, 0, 90] },
+    { kind: 'bush', density: 0.08, area: [0, 0, 90] },
+    // — mid-field landmarks so the open center doesn't read empty —
+    { kind: 'tree_oak', at: [25, 22], scale: 1.15 },
+    { kind: 'tree_birch', at: [-22, 32] },
+    { kind: 'tree_oak', at: [18, -34], scale: 0.9 },
+    { kind: 'rock', at: [-8, 28], scale: 0.8 },
+    { kind: 'mushroom_cluster', at: [27, 18] },
     { kind: 'rock_mossy', at: [20, -35] },
     { kind: 'rock_mossy', at: [-60, -20] },
     { kind: 'stump', at: [-15, -60] },

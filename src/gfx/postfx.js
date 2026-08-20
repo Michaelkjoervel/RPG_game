@@ -46,7 +46,7 @@ const ATMO_SHADER = {
   uniforms: {
     tDiffuse: { value: null },
     uVignette: { value: 0.34 },  // corner falloff strength
-    uSat: { value: 1.13 },       // saturation lift
+    uSat: { value: 1.09 },       // saturation lift (1.13 pushed midground grass toward acid green)
     uContrast: { value: 1.06 },  // pivot contrast around linear mid-gray
     uWarm: { value: 0.014 },     // warm push into the lights
     uCool: { value: 0.012 },     // cool blue lift in the shadows

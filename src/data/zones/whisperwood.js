@@ -14,7 +14,7 @@ export const ZONE = {
   size: 240,
 
   ambient: {
-    skyTop: 0x6f8fae, skyBottom: 0xb9cdb0,
+    skyTop: 0x53869c, skyBottom: 0xafcaa2,
     fogColor: 0x8fa898, fogDensity: 0.016,
     sun: 0xdfe8c8,
     music: 'forest',

@@ -424,7 +424,7 @@ export function createSky(zone, scene) {
   const hemi = new THREE.HemisphereLight(
     indoor ? ind.hemiSky : colors.day.top.getHex(),
     indoor ? ind.hemiGround : colors.day.bottom.getHex(),
-    indoor ? indoorHemiI : 0.44 * fillI,
+    indoor ? indoorHemiI : 0.5 * fillI,
   );
   hemi.name = 'skyHemi';
   scene.add(hemi);
@@ -541,9 +541,11 @@ export function createSky(zone, scene) {
       hemi.color.copy(colors.night.mid).lerp(band.horizon, warmW).lerp(_tc3, dw);
       _tc4.copy(colors.day.bottom).lerp(colors.bounce, 0.5);
       hemi.groundColor.copy(colors.night.bottom).lerp(colors.duskGround, warmW).lerp(_tc4, dw);
-      // Fill stays LOW relative to the key (~1:7 at noon) so forms model;
-      // floored through dusk so the band never collapses to black.
-      hemi.intensity = Math.max(lerp(0.13, 0.44, dw), 0.4 * clamp01(ddw * 5)) * fillI;
+      // Fill stays LOW relative to the key (~1:6 at noon) so forms model;
+      // floored through dusk so the band never collapses to black. (Raised
+      // from 0.44: shadow sides of tall props and canopy undersides were
+      // dropping to unreadable cool gray.)
+      hemi.intensity = Math.max(lerp(0.13, 0.5, dw), 0.4 * clamp01(ddw * 5)) * fillI;
 
       if (stars) {
         // zone.ambient.stars / mood.starFloor: permanent-twilight zones
