@@ -81,12 +81,24 @@ export function build_vantash(kit = kitDefault) {
     [0.11, -0.133, 0.22], [-0.11, -0.133, 0.22],
     [0.11, -0.133, -0.22], [-0.11, -0.133, -0.22],
   ];
-  const legs = legDefs.map(([x, y, z]) => kit.at(body, kit.leg(0.3, fur, { thighR: 0.055, shinR: 0.04, footLen: 0.09 }), x, y, z));
+  const legs = legDefs.map(([x, y, z], i) => {
+    const l = kit.at(body, kit.leg(0.3, fur, { thighR: 0.055, shinR: 0.04, footLen: 0.09, footMat: furPlain }), x, y, z);
+    for (const c of l.hip.children) if (c.isMesh && c.geometry) paint(c, 170 + i);
+    for (const c of l.knee.children) if (c.isMesh && c.geometry && c !== l.foot) paint(c, 174 + i);
+    return l;
+  });
 
-  // Long tail ending in a hooked, claw-like tip of solidified dark.
-  const tail = kit.at(body, kit.tailChain(6, fur, { segLen: 0.09, startR: 0.045, endR: 0.014 }), 0, 0.07, -0.28);
+  // Long tail carried in a rising curve, ending in the HOOK OF DARK — a
+  // solid void-black crescent with a glowing edge seam, big enough to be the
+  // second thing the eye finds after the eyes.
+  const tail = kit.at(body, kit.tailChain(7, fur, { segLen: 0.09, startR: 0.042, endR: 0.013 }), 0, 0.07, -0.32);
+  tail.pivots.forEach((p, i) => {
+    p.rotation.x = i === 0 ? 0.5 : (i < 4 ? 0.1 : -0.05);
+    for (const c of p.children) if (c.isMesh && c.geometry && c.geometry.attributes) paint(c, 178 + i);
+  });
   const hookTip = tail.pivots[tail.pivots.length - 1];
-  const hook = kit.at(hookTip, kit.horn(0.09, glowMat, { baseR: 0.018, tipR: 0.004, bend: 1.1 }), 0, 0, -0.09, { rx: -Math.PI / 2 });
+  const hook = kit.at(hookTip, kit.horn(0.16, kit.mat(0x1c1730, { rough: 0.3 }), { baseR: 0.03, tipR: 0.006, bend: 1.3 }), 0, 0, -0.07, { rx: -Math.PI / 2 - 0.3 });
+  kit.at(hook, kit.horn(0.15, glowMat, { baseR: 0.012, tipR: 0.003, bend: 1.3 }), 0.014, 0.005, 0);
 
   const spark = kit.heartspark(0.036, pal.eye, { seed: 161 });
   kit.at(body, spark, 0, 0.02, 0.12);
