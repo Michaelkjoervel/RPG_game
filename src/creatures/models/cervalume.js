@@ -27,8 +27,10 @@ export function build_cervalume(kit = kitDefault) {
     return mesh;
   };
   const hoofMat = kit.mat(0xd8b46a, { rough: 0.4, emissive: 0xa87c28, emissiveIntensity: 0.6 });
-  const lightMat = kit.mat(0xfff2c8, { unlit: true, additive: true, opacity: 0.7 }); // hard-light glow shell
-  const lightCore = kit.mat(0xffe9b0, { rough: 0.3, emissive: 0xffc95e, emissiveIntensity: 0.9 }); // solid antler core
+  const lightMat = kit.mat(0xffda80, { unlit: true, transparent: true, opacity: 0.85 }); // hard-light glow tips
+  // Solid saturated gold core — pale-cream antlers vanished against a pale
+  // coat and a bright sky; this reads as METAL LIGHT at any distance.
+  const lightCore = kit.mat(0xf0a83a, { rough: 0.3, metal: 0.1, emissive: 0xc87818, emissiveIntensity: 0.85 });
   const bloomMat = kit.mat(pal.secondary, { unlit: true, transparent: true, opacity: 0.85 });
 
   const root = new THREE.Group();
@@ -56,20 +58,18 @@ export function build_cervalume(kit = kitDefault) {
   // a silhouette test) wearing a translucent additive glow shell, branches
   // grafted the same way sylvathorn.js does its bark rack.
   const antlerAccents = [];
-  const A_LEN = 0.38, A_BEND = 0.4;
+  const A_LEN = 0.42, A_BEND = 0.4;
   for (const side of [1, -1]) {
-    const main = kit.horn(A_LEN, lightCore, { bend: side * A_BEND, baseR: 0.04, tipR: 0.01 });
+    const main = kit.horn(A_LEN, lightCore, { bend: side * A_BEND, baseR: 0.048, tipR: 0.012 });
     const mainAt = kit.at(head, main, side * 0.07, 0.11, -0.01, { rz: -side * 0.55, ry: side * 0.1, rx: -0.15 });
-    const shell = kit.horn(A_LEN * 1.04, lightMat, { bend: side * A_BEND, baseR: 0.056, tipR: 0.016 });
-    kit.at(mainAt, shell, 0, -0.005, 0);
     antlerAccents.push(mainAt);
-    for (const [t, s] of [[0.34, 0.72], [0.62, 0.5]]) {
-      const bLen = 0.24 * s;
-      const branch = kit.horn(bLen, lightCore, { bend: side * 0.5, baseR: 0.02, tipR: 0.006 });
+    for (const [t, s] of [[0.34, 0.78], [0.62, 0.55]]) {
+      const bLen = 0.26 * s;
+      const branch = kit.horn(bLen, lightCore, { bend: side * 0.5, baseR: 0.024, tipR: 0.007 });
       const bAt = kit.at(mainAt, branch, side * A_BEND * t * t * A_LEN, A_LEN * t, 0, { rz: side * -0.8, ry: side * 0.4 });
-      kit.at(bAt, kit.orb(0.018, lightMat.clone()), side * 0.5 * bLen * 0.4, bLen, 0);
+      kit.at(bAt, kit.orb(0.02, lightMat.clone()), side * 0.5 * bLen * 0.4, bLen, 0);
     }
-    kit.at(mainAt, kit.orb(0.024, lightMat.clone()), side * A_BEND * A_LEN, A_LEN, 0);
+    kit.at(mainAt, kit.orb(0.026, lightMat.clone()), side * A_BEND * A_LEN, A_LEN, 0);
   }
 
   // --- Legs: four long, elegant legs — grown from Dapplyn's fawn stance. ---

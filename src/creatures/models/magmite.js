@@ -38,12 +38,13 @@ export function build_magmite(kit = kitDefault) {
   root.add(body);
   body.position.y = 0.11;
 
-  // The cooling-crust shell — a heavy domed plate over the whole back,
-  // jittered so it reads as rock, not pressed steel.
-  const shell = kit.shellPlate(0.28, 0.18, 0.32, crust, { bulge: 0.24, segments: 4 });
-  jitterGeometry(shell.geometry, 0.012, 131);
-  applyVertexGradient(shell.geometry, { from: CRUST_LO, to: CRUST_HI, noise: 0.06, seed: 131, axis: 'z' });
-  kit.at(body, shell, 0, 0.07, 0, { rx: -Math.PI / 2 });
+  // The cooling-crust shell — a low rocky dome fused over the whole back,
+  // jittered basalt with a lit crown, its rim floating just above the ember
+  // underbody so the glow leaks out all the way round.
+  const shell = kit.blob(0.17, crust, { seed: 131, noise: 0.14, squash: { x: 1.05, y: 0.62, z: 1.25 } });
+  jitterGeometry(shell.geometry, 0.01, 131);
+  applyVertexGradient(shell.geometry, { from: CRUST_LO, to: CRUST_HI, noise: 0.06, seed: 131 });
+  kit.at(body, shell, 0, 0.06, -0.01);
 
   // Lava-seam cracks across the shell — wider, two-tone, plus glow beads at
   // the joints so the shell reads as barely holding.
@@ -51,10 +52,13 @@ export function build_magmite(kit = kitDefault) {
   const seams = [];
   for (let i = 0; i < 6; i++) {
     const len = 0.08 + rng() * 0.07;
+    const px = (rng() - 0.5) * 0.18, pz = (rng() - 0.5) * 0.22;
+    // Ride the dome: height falls off toward the rim.
+    const py = 0.175 - (px * px + pz * pz * 0.6) * 0.55;
     const strip = kit.box(0.016, len, 0.01, seamMat);
-    kit.at(body, strip, (rng() - 0.5) * 0.2, 0.13, (rng() - 0.5) * 0.24, { rx: Math.PI / 2, ry: rng() * Math.PI || 0.001 });
+    kit.at(body, strip, px, py, pz, { rx: Math.PI / 2, ry: rng() * Math.PI || 0.001 });
     seams.push(strip);
-    if (i % 2 === 0) kit.at(body, kit.orb(0.016, magma.clone()), (rng() - 0.5) * 0.2, 0.135, (rng() - 0.5) * 0.22);
+    if (i % 2 === 0) kit.at(body, kit.orb(0.016, magma.clone()), px + 0.02, py + 0.004, pz - 0.01);
   }
 
   const head = kit.at(body, paint(kit.blob(0.075, crust, { seed: 132, squash: { x: 0.95, y: 0.85, z: 1 } }), 132), 0, 0.02, 0.16);

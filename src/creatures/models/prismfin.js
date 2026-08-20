@@ -22,10 +22,16 @@ import { applyVertexGradient, jitterGeometry } from '../../gfx/materials.js';
 const AURORA = [0xb08cff, 0x6fa8ff, 0x6fe0c8, 0xffe08c];
 
 function auroraFin(kit, len, opts = {}) {
+  // Solid-alpha translucent layers with their own emissive — additive layers
+  // washed out to nothing against a lit sky (same lesson as thalassyr's
+  // crest). Largest layer first so the stack reads back-to-front.
   const group = new THREE.Group(); group.name = 'auroraFin';
   const layers = [];
   for (let i = 0; i < AURORA.length; i++) {
-    const m = kit.mat(AURORA[i], { unlit: true, additive: true, opacity: 0.48, side: THREE.DoubleSide });
+    const m = kit.mat(AURORA[i], {
+      rough: 0.25, transparent: true, opacity: 0.66 - i * 0.05, side: THREE.DoubleSide,
+      emissive: AURORA[i], emissiveIntensity: 0.55,
+    });
     const f = kit.fin(len * (1 - i * 0.16), m, { width: opts.width, curve: 0.15 + i * 0.05 });
     f.position.y = i * len * 0.05;
     group.add(f);
@@ -47,8 +53,8 @@ export function build_prismfin(kit = kitDefault) {
 
   const root = new THREE.Group();
 
-  const body = kit.blob(0.16, skin, { seed: 82, noise: 0.06, squash: { x: 0.6, y: 0.88, z: 1.35 } });
-  jitterGeometry(body.geometry, 0.005, 82);
+  const body = kit.blob(0.14, skin, { seed: 82, noise: 0.06, squash: { x: 0.56, y: 0.82, z: 1.5 } });
+  jitterGeometry(body.geometry, 0.004, 82);
   paint(body, 82);
   root.add(body);
   body.position.y = 0.22;
@@ -58,16 +64,16 @@ export function build_prismfin(kit = kitDefault) {
   kit.at(body, kit.orb(0.045, skinAccent), -0.03, -0.03, -0.06, { sy: 0.5 });
   kit.at(body, kit.orb(0.05, kit.mat(0xffd98c, { rough: 0.3 })), -0.02, 0.08, 0.06, { sy: 0.45 });
 
-  const eyeL = kit.at(body, kit.eye(0.028, { irisColor: 0x2a1c4a, scleraColor: 0xfdf8ea, skinColor: 0xf2ecd8, glintSize: 0.012 }), 0.068, 0.045, 0.16, { ry: 0.55 });
-  const eyeR = kit.at(body, kit.eye(0.028, { irisColor: 0x2a1c4a, scleraColor: 0xfdf8ea, skinColor: 0xf2ecd8, glintSize: 0.012 }), -0.068, 0.045, 0.16, { ry: -0.55 });
+  const eyeL = kit.at(body, kit.eye(0.024, { irisColor: 0x2a1c4a, scleraColor: 0xfdf8ea, skinColor: 0xf2ecd8, glintSize: 0.01 }), 0.058, 0.05, 0.15, { ry: 0.6 });
+  const eyeR = kit.at(body, kit.eye(0.024, { irisColor: 0x2a1c4a, scleraColor: 0xfdf8ea, skinColor: 0xf2ecd8, glintSize: 0.01 }), -0.058, 0.05, 0.15, { ry: -0.6 });
 
   const whiskerMat = kit.mat(0xffe9b0, { unlit: true, transparent: true, opacity: 0.75 });
   const whiskL = kit.at(body, kit.leafBlade(0.07, whiskerMat, { width: 0.005 }), 0.06, -0.02, 0.2, { ry: -0.3, rz: 0.1 });
   const whiskR = kit.at(body, kit.leafBlade(0.07, whiskerMat, { width: 0.005 }), -0.06, -0.02, 0.2, { ry: Math.PI + 0.3, rz: -0.1 });
 
   // Tall dorsal aurora sail — adds height, not length.
-  const dorsal = auroraFin(kit, 0.3, { width: 0.2 });
-  kit.at(body, dorsal, 0, 0.1, 0.03, { rx: -1.15, ry: Math.PI });
+  const dorsal = auroraFin(kit, 0.34, { width: 0.24 });
+  kit.at(body, dorsal, 0, 0.08, 0.05, { rx: -1.15, ry: Math.PI });
 
   const pecL = auroraFin(kit, 0.16, { width: 0.1 });
   kit.at(body, pecL, 0.09, -0.01, 0.08, { rx: -0.15, ry: 0.9 });
@@ -81,7 +87,7 @@ export function build_prismfin(kit = kitDefault) {
   const tailFin = auroraFin(kit, 0.2, { width: 0.15 });
   kit.at(tail.pivots[tail.pivots.length - 1], tailFin, 0, 0, -0.025, { ry: Math.PI / 2 });
   // Two long trailing ribbon-fins off the tail — the grand koi's train.
-  const ribbonMat = kit.mat(0x9fc8ff, { unlit: true, additive: true, opacity: 0.5, side: THREE.DoubleSide });
+  const ribbonMat = kit.mat(0x9fc8ff, { rough: 0.25, transparent: true, opacity: 0.6, side: THREE.DoubleSide, emissive: 0x6f98d8, emissiveIntensity: 0.6 });
   const ribbonL = kit.at(tail.pivots[tail.pivots.length - 1], kit.leafBlade(0.22, ribbonMat, { width: 0.045 }), 0.02, 0.01, -0.03, { ry: Math.PI / 2 + 0.3, rz: 0.25 });
   const ribbonR = kit.at(tail.pivots[tail.pivots.length - 1], kit.leafBlade(0.22, ribbonMat, { width: 0.045 }), -0.02, 0.01, -0.03, { ry: Math.PI / 2 - 0.3, rz: 0.25 });
 

@@ -34,23 +34,30 @@ export function build_glyphant(kit = kitDefault) {
 
   const root = new THREE.Group();
 
-  const body = paint(kit.blob(0.24, stone, { seed: 140, noise: 0.1, squash: { x: 1.15, y: 1, z: 1.3 } }), 140);
+  const body = paint(kit.blob(0.24, stone, { seed: 140, noise: 0.1, squash: { x: 1.1, y: 1, z: 1.18 } }), 140);
   root.add(body);
-  body.position.y = 0.38;
+  body.position.y = 0.46;
 
   // A carved masonry band around the barrel — this guardian was BUILT.
-  const band = kit.orb(0.245, bandMat, { sx: 1.16, sy: 0.16, sz: 1.31 });
+  const band = kit.orb(0.245, bandMat, { sx: 1.12, sy: 0.16, sz: 1.19 });
   kit.at(body, band, 0, 0.05, 0);
 
-  const head = kit.at(body, paint(kit.blob(0.16, stone, { seed: 141, squash: { x: 0.95, y: 0.95, z: 1.05 } }), 141), 0, 0.1, 0.3);
+  const head = kit.at(body, paint(kit.blob(0.16, stone, { seed: 141, squash: { x: 0.95, y: 0.95, z: 1.05 } }), 141), 0, 0.16, 0.28);
   const eyeL = kit.at(head, kit.eye(0.045, { irisColor: 0xffe9b0, scleraColor: 0x2a2620, skinColor: 0x8c8268, glintSize: 0.017 }), 0.1, 0.01, 0.12, { ry: 0.3 });
   const eyeR = kit.at(head, kit.eye(0.045, { irisColor: 0xffe9b0, scleraColor: 0x2a2620, skinColor: 0x8c8268, glintSize: 0.017 }), -0.1, 0.01, 0.12, { ry: -0.3 });
 
-  // Big fan ears — carved slabs with a lit inner face.
-  const earL = kit.at(head, paint(kit.petal(0.2, stone, { width: 0.18 }), 143), 0.13, 0.04, -0.02, { rx: -0.1, ry: -0.75, rz: 0.25 });
-  kit.at(earL, kit.petal(0.14, stoneLight, { width: 0.12 }), 0.01, 0, 0.005);
-  const earR = kit.at(head, paint(kit.petal(0.2, stone, { width: 0.18 }), 144), -0.13, 0.04, -0.02, { rx: -0.1, ry: 0.75, rz: -0.25 });
-  kit.at(earR, kit.petal(0.14, stoneLight, { width: 0.12 }), -0.01, 0, 0.005);
+  // Big fan ears — carved slabs standing UP-AND-OUT from the skull sides
+  // (petal length runs +X, so rz≈75° swings the blade upward; ry flares it).
+  const earL = kit.at(head, paint(kit.petal(0.19, stone, { width: 0.16 }), 143), 0.11, 0.06, -0.01, { rz: 0.95, ry: -0.5 });
+  kit.at(earL, kit.petal(0.13, stoneLight, { width: 0.11 }), 0.015, 0, 0.006);
+  const earR = kit.at(head, paint(kit.petal(0.19, stone, { width: 0.16 }), 144), -0.11, 0.06, -0.01, { rz: Math.PI - 0.95, ry: 0.5 });
+  kit.at(earR, kit.petal(0.13, stoneLight, { width: 0.11 }), 0.015, 0, -0.006);
+  // Flat blades must survive being seen from either side.
+  for (const e of [earL, earR]) {
+    e.material = e.material.clone();
+    e.material.side = THREE.DoubleSide;
+    for (const c of e.children) { c.material = c.material.clone(); c.material.side = THREE.DoubleSide; }
+  }
 
   // Proper guardian tusks, gold-capped.
   const tuskMat = kit.mat(0xeee4c8, { rough: 0.3 });
@@ -66,11 +73,11 @@ export function build_glyphant(kit = kitDefault) {
   });
 
   const legDefs = [
-    [0.16, 0.24, 0.16], [-0.16, 0.24, 0.16],
-    [0.17, 0.24, -0.15], [-0.17, 0.24, -0.15],
+    [0.16, 0.1, 0.16], [-0.16, 0.1, 0.16],
+    [0.17, 0.1, -0.15], [-0.17, 0.1, -0.15],
   ];
   const legs = legDefs.map(([x, y, z], i) => {
-    const l = kit.at(body, kit.leg(0.36, stone, { thighR: 0.095, shinR: 0.07, footLen: 0.11, footMat: kit.mat(0x6e6244, { rough: 0.7 }) }), x, y, z);
+    const l = kit.at(body, kit.leg(0.5, stone, { thighR: 0.1, shinR: 0.075, footLen: 0.12, footMat: kit.mat(0x6e6244, { rough: 0.7 }) }), x, y, z);
     for (const c of l.hip.children) if (c.isMesh && c.geometry) paint(c, 150 + i);
     for (const c of l.knee.children) if (c.isMesh && c.geometry && c !== l.foot) paint(c, 154 + i);
     return l;

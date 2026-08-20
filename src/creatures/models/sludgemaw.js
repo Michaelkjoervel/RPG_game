@@ -33,65 +33,67 @@ export function build_sludgemaw(kit = kitDefault) {
 
   const root = new THREE.Group();
 
-  // The tar heap — wide, sagging, asymmetric.
-  const body = kit.bulb(tarV, { height: 0.42, width: 0.5, neck: 0.44, segments: 14 });
-  jitterGeometry(body.geometry, 0.02, 66);
+  // The tar heap — a taller, rounder slump so the maw has a real face-wall
+  // to split (the old wide skirt read as a UFO, not a mouth).
+  const body = kit.bulb(tarV, { height: 0.5, width: 0.42, neck: 0.5, segments: 14 });
+  jitterGeometry(body.geometry, 0.018, 66);
   applyVertexGradient(body.geometry, { from: TAR_LO, to: TAR_HI, noise: 0.06, seed: 66 });
   root.add(body);
-  body.rotation.y = 0.15;                            // heap slumps off-axis
+  body.rotation.y = 0.12;                            // heap slumps off-axis
 
   // --- THE MAW -------------------------------------------------------------
   // A dark recess splitting the front, upper lip overhanging.
-  // The bulb's front surface at maw height sits near z≈0.42 — everything
-  // here is pushed PROUD of that, or the mouth reads as a closed lump.
+  // THE MAW: a dark cave splitting the entire lower front — lip shelf above,
+  // dropped jaw below, all of it proud of the body surface so it reads as an
+  // opening, not a stripe.
   const mawGroup = new THREE.Group(); mawGroup.name = 'maw';
-  kit.at(body, mawGroup, 0, 0.16, 0.34, { ry: -0.15 }); // counter the slump: maw faces +Z
-  const cave = kit.orb(0.2, kit.mat(0x0b0804, { rough: 0.95 }), { sx: 1.4, sy: 0.7, sz: 0.9 });
-  kit.at(mawGroup, cave, 0, -0.03, 0.08);
-  const glow = kit.orb(0.13, throatGlow, { sx: 1.25, sy: 0.45, sz: 0.7 });
-  kit.at(mawGroup, glow, 0, -0.06, 0.08);
+  kit.at(body, mawGroup, 0, 0.14, 0.3, { ry: -0.12 }); // counter the slump: maw faces +Z
+  const cave = kit.orb(0.21, kit.mat(0x0b0804, { rough: 0.95 }), { sx: 1.3, sy: 0.85, sz: 0.9 });
+  kit.at(mawGroup, cave, 0, -0.02, 0.1);
+  const glow = kit.orb(0.14, throatGlow, { sx: 1.1, sy: 0.55, sz: 0.7 });
+  kit.at(mawGroup, glow, 0, -0.08, 0.14);
   // Upper lip overhang.
-  const lip = paint(kit.orb(0.24, tarV, { sx: 1.4, sy: 0.4, sz: 0.85 }), 67, TAR_LO, TAR_HI, 0.012);
-  kit.at(mawGroup, lip, 0, 0.16, 0.12);
-  // Lower jaw — its own part so the animator can drop it on attack.
-  const jaw = paint(kit.orb(0.22, tarV, { sx: 1.35, sy: 0.32, sz: 0.9 }), 68, TAR_LO, 0x4a4226, 0.012);
-  kit.at(mawGroup, jaw, 0, -0.2, 0.14);
+  const lip = paint(kit.orb(0.23, tarV, { sx: 1.3, sy: 0.42, sz: 0.9 }), 67, TAR_LO, TAR_HI, 0.012);
+  kit.at(mawGroup, lip, 0, 0.2, 0.1);
+  // Lower jaw — its own part so the animator can drop it on attack. It hangs
+  // OPEN a crack at rest: an inexorable mouth never fully closes.
+  const jaw = paint(kit.orb(0.21, tarV, { sx: 1.25, sy: 0.3, sz: 1.0 }), 68, TAR_LO, 0x4a4226, 0.012);
+  kit.at(mawGroup, jaw, 0, -0.24, 0.12, { rx: 0.12 });
   // Stalactite teeth hanging from the lip, stalagmites rising from the jaw.
-  const toothN = 6;
+  const toothN = 7;
   for (let i = 0; i < toothN; i++) {
     const t = i / (toothN - 1);
-    const x = (t - 0.5) * 0.46;
-    const len = 0.085 + Math.sin(t * Math.PI) * 0.05;
-    kit.at(mawGroup, kit.fang(len, toothMat, { r: 0.024 }), x, 0.12, 0.26 - Math.abs(t - 0.5) * 0.12, { rz: (t - 0.5) * 0.2 });
+    const x = (t - 0.5) * 0.44;
+    const len = 0.1 + Math.sin(t * Math.PI) * 0.055;
+    kit.at(mawGroup, kit.fang(len, toothMat, { r: 0.026 }), x, 0.14, 0.3 - Math.abs(t - 0.5) * 0.16, { rz: (t - 0.5) * 0.2 });
     if (i % 2 === 0) {
-      kit.at(jaw, kit.cone(0.02, 0.07 + Math.sin(t * Math.PI) * 0.03, toothMat, { segments: 5 }), x * 0.85, 0.0, 0.14 - Math.abs(t - 0.5) * 0.1);
+      kit.at(jaw, kit.cone(0.022, 0.08 + Math.sin(t * Math.PI) * 0.03, toothMat, { segments: 5 }), x * 0.85, 0.02, 0.2 - Math.abs(t - 0.5) * 0.14);
     }
   }
 
   // Venom-bright eyes riding proud of the crown slope, above the maw.
-  const eyeL = kit.at(body, kit.eye(0.05, { irisColor: 0xd0e86a, scleraColor: 0x141008, skinColor: 0x2a2414, glintSize: 0.018 }), 0.13, 0.32, 0.19, { ry: 0.25, rx: -0.1 });
-  const eyeR = kit.at(body, kit.eye(0.05, { irisColor: 0xd0e86a, scleraColor: 0x141008, skinColor: 0x2a2414, glintSize: 0.018 }), -0.13, 0.32, 0.17, { ry: -0.35, rx: -0.1 });
+  const eyeL = kit.at(body, kit.eye(0.052, { irisColor: 0xd0e86a, scleraColor: 0x141008, skinColor: 0x2a2414, glintSize: 0.019 }), 0.12, 0.42, 0.16, { ry: 0.22, rx: -0.1 });
+  const eyeR = kit.at(body, kit.eye(0.052, { irisColor: 0xd0e86a, scleraColor: 0x141008, skinColor: 0x2a2414, glintSize: 0.019 }), -0.12, 0.42, 0.14, { ry: -0.32, rx: -0.1 });
   // Heavy tar brows half-swallowing the eyes.
-  kit.at(body, paint(kit.orb(0.085, tarV, { sy: 0.5, sz: 0.85 }), 72, TAR_LO, 0x453e20), 0.13, 0.38, 0.19, { rz: -0.3 });
-  kit.at(body, paint(kit.orb(0.085, tarV, { sy: 0.5, sz: 0.85 }), 73, TAR_LO, 0x453e20), -0.13, 0.38, 0.17, { rz: 0.3 });
+  kit.at(body, paint(kit.orb(0.085, tarV, { sy: 0.5, sz: 0.85 }), 72, TAR_LO, 0x453e20), 0.12, 0.48, 0.16, { rz: -0.3 });
+  kit.at(body, paint(kit.orb(0.085, tarV, { sy: 0.5, sz: 0.85 }), 73, TAR_LO, 0x453e20), -0.12, 0.48, 0.14, { rz: 0.3 });
 
-  // --- Crust islands -------------------------------------------------------
+  // --- Crust islands: ONE tilted cap + one small floe --------------------
   const crustPlates = [];
-  const crustSpots = [[0.02, 0.48, -0.06, 0.16, 0.2], [-0.15, 0.42, 0.08, 0.1, -0.4], [0.14, 0.4, -0.16, 0.09, 0.7]];
-  for (const [x, y, z, sz, rz] of crustSpots) {
-    const c = kit.blob(sz, tarV, { seed: 66 + sz * 100, noise: 0.22, squash: { x: 1.15, y: 0.5, z: 1 } });
-    paint(c, 74 + sz * 10, CRUST_LO, CRUST_HI);
-    crustPlates.push(kit.at(body, c, x, y, z, { rz, ry: sz * 8 }));
+  for (const [x, y, z, sz, rz, seed] of [[0.03, 0.56, -0.04, 0.15, 0.22, 74], [-0.14, 0.48, -0.12, 0.085, -0.4, 75]]) {
+    const c = kit.blob(sz, tarV, { seed, noise: 0.22, squash: { x: 1.2, y: 0.45, z: 1.05 } });
+    paint(c, seed, CRUST_LO, CRUST_HI);
+    crustPlates.push(kit.at(body, c, x, y, z, { rz, ry: seed }));
   }
-  // Stalagmite spikes growing out of the big crust hat.
-  kit.at(crustPlates[0], kit.cone(0.03, 0.09, kit.mat(0x6e6244, { rough: 0.6 }), { segments: 5 }), 0.04, 0.05, 0.02, { rx: -0.25 });
-  kit.at(crustPlates[0], kit.cone(0.022, 0.06, kit.mat(0x6e6244, { rough: 0.6 }), { segments: 5 }), -0.05, 0.04, -0.03, { rx: 0.2, rz: 0.3 });
+  // Stalagmite spikes growing out of the big crust cap.
+  kit.at(crustPlates[0], kit.cone(0.03, 0.1, kit.mat(0x6e6244, { rough: 0.6 }), { segments: 5 }), 0.04, 0.04, 0.02, { rx: -0.25 });
+  kit.at(crustPlates[0], kit.cone(0.022, 0.065, kit.mat(0x6e6244, { rough: 0.6 }), { segments: 5 }), -0.05, 0.035, -0.03, { rx: 0.2, rz: 0.3 });
 
-  // Tar drips sliding down the flanks — teardrops hanging tip-up.
-  for (const [x, y, z, s, seed] of [[0.24, 0.14, 0.1, 1, 75], [-0.22, 0.1, -0.12, 0.8, 76], [0.06, 0.08, -0.26, 0.7, 77]]) {
+  // Tar drips sliding down the flanks — teardrops hanging tip-down.
+  for (const [x, y, z, s, seed] of [[0.2, 0.2, 0.12, 1, 75], [-0.19, 0.16, -0.12, 0.8, 76], [0.05, 0.12, -0.24, 0.7, 77]]) {
     const drip = kit.teardrop(tarV, { height: 0.14 * s, width: 0.05 * s, segments: 7 });
     paint(drip, seed, TAR_LO, 0x4a4226);
-    kit.at(body, drip, x, y, z, { rx: Math.PI });     // point the tip DOWN
+    kit.at(body, drip, x, y, z, { rx: Math.PI });
   }
 
   const gooDrip = kit.mote(7, { color: 0x9ac838, size: 0.024, radius: 0.2, height: 0.14, speed: 0.22, seed: 68 });
