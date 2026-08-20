@@ -39,20 +39,24 @@ export function build_sancturne(kit = kitDefault) {
   const urnGroup = new THREE.Group(); urnGroup.name = 'urn';
   root.add(urnGroup);
   urnGroup.rotation.z = 0.07;                                     // ancient lean
-  const urn = kit.bulb(stoneV, { height: 0.62, width: 0.36, neck: 0.34, segments: 14 });
-  jitterGeometry(urn.geometry, 0.014, 5);
+  // Taller, narrower vase — the squat first pass read as a rock pile.
+  const urn = kit.bulb(stoneV, { height: 0.72, width: 0.27, neck: 0.42, segments: 14 });
+  jitterGeometry(urn.geometry, 0.012, 5);
   applyVertexGradient(urn.geometry, { from: URN_LO, to: URN_HI, noise: 0.05, seed: 5 });
   urnGroup.add(urn);
-  // Carved shoulder band + lip ring in worn gold.
-  const band = kit.orb(0.3, goldSoft.clone(), { sy: 0.06 });
-  kit.at(urn, band, 0, 0.4, 0);
-  const lip = kit.orb(0.15, goldSoft.clone(), { sy: 0.05 });
-  kit.at(urn, lip, 0, 0.62, 0);
-  // Glowing cracks — light escaping the reliquary.
+  // Carved shoulder band + lip ring in worn gold, sized to the bulb profile
+  // (the bulb's widest point is near its base; the neck is narrow).
+  const band = kit.orb(0.105, goldSoft.clone(), { sy: 0.04 });
+  kit.at(urn, band, 0, 0.44, 0);
+  const lip = kit.orb(0.07, goldSoft.clone(), { sy: 0.035 });
+  kit.at(urn, lip, 0, 0.71, 0);
+  // Glowing cracks — SHORT seams hugging the belly, light escaping the
+  // reliquary (long bars read as straws stuck in a pot).
   const crackDefs = [
-    [0.24, 0.24, 0.17, 0.03, 0.36, 0.5, 0.12],
-    [-0.23, 0.17, -0.17, 0.024, 0.28, -0.7, -0.14],
-    [0.07, 0.12, 0.29, 0.026, 0.32, 0.1, 0.3],
+    [0.16, 0.2, 0.12, 0.02, 0.15, 0.5, 0.2],
+    [-0.15, 0.15, -0.12, 0.016, 0.12, -0.7, -0.25],
+    [0.05, 0.11, 0.2, 0.018, 0.14, 0.1, 0.4],
+    [-0.09, 0.26, 0.14, 0.014, 0.1, 0.3, -0.3],
   ];
   const cracks = [];
   for (const [x, y, z, w, len, ry, rz] of crackDefs) {
@@ -61,26 +65,27 @@ export function build_sancturne(kit = kitDefault) {
     cracks.push(c);
   }
   // A little rubble of the same stone at the base plants it.
-  for (const [x, z, r, seed] of [[0.26, 0.1, 0.05, 21], [-0.22, -0.14, 0.04, 22], [0.1, -0.26, 0.035, 23]]) {
-    const peb = kit.blob(r, stoneV, { seed, noise: 0.25 });
+  for (const [x, z, r, seed] of [[0.22, 0.08, 0.038, 21], [-0.19, -0.1, 0.032, 22], [0.08, -0.22, 0.027, 23]]) {
+    const peb = kit.blob(r, stoneV, { seed, noise: 0.4 });
     applyVertexGradient(peb.geometry, { from: URN_LO, to: 0x6e6390, noise: 0.06, seed });
-    kit.at(root, peb, x, r * 0.7, z);
+    kit.at(root, peb, x, r * 0.6, z);
   }
 
   // --- The keeper: hooded figure of light pouring from the mouth ----------
   // body leans forward out of the urn's neck: the ghost ARCS, it doesn't
   // stack. Authored as a child of root (not the urn) so the urn's lean stays
   // its own; the hover bob acts on this torso alone.
-  const body = kit.blob(0.17, wispVert, { seed: 151, noise: 0.2, squash: { x: 1.0, y: 1.3, z: 0.9 } });
+  const body = kit.blob(0.16, wispVert, { seed: 151, noise: 0.2, squash: { x: 0.92, y: 1.3, z: 0.9 } });
   applyVertexGradient(body.geometry, { from: 0x554687, to: 0xd9cfff, noise: 0.05, seed: 151, exp: 0.85 });
-  kit.at(root, body, 0.02, 0.86, 0.08, { rx: 0.22 });
+  kit.at(root, body, 0.02, 0.96, 0.08, { rx: 0.22 });
   // Inner core glow so the torso has a bright heart.
   kit.at(body, kit.orb(0.06, kit.mat(0xf2ecff, { unlit: true, transparent: true, opacity: 0.55 })), 0, 0.02, 0.05);
   // Smoke column: a translucent skirt flaring from the torso down INTO the
   // urn mouth, so ghost and urn read as one continuous pour rather than a
   // balloon hovering on strings.
-  const skirt = kit.bulb(wispVert, { height: 0.34, width: 0.19, neck: 0.42, segments: 12 });
-  applyVertexGradient(skirt.geometry, { from: 0x3d3268, to: 0x9d8fd0, noise: 0.06, seed: 155, exp: 0.9 });
+  const skirtMat = kit.mat(0xffffff, { unlit: true, transparent: true, opacity: 0.55, vertexColors: true, side: THREE.DoubleSide });
+  const skirt = kit.bulb(skirtMat, { height: 0.34, width: 0.17, neck: 0.42, segments: 12 });
+  applyVertexGradient(skirt.geometry, { from: 0x352b5c, to: 0x8d7fc0, noise: 0.06, seed: 155, exp: 0.9 });
   skirt.geometry.rotateX(Math.PI);                   // flare DOWNWARD from the hips
   kit.at(body, skirt, -0.01, -0.12, -0.06);
 
@@ -101,8 +106,8 @@ export function build_sancturne(kit = kitDefault) {
 
   // Sleeve-arms: two long fin blades drooping forward like robed arms held
   // over the urn it guards.
-  const sleeveL = kit.at(body, kit.fin(0.28, wispMat, { width: 0.16, curve: 0.3 }), 0.13, 0.04, 0.08, { rz: -1.75, ry: 0.4 });
-  const sleeveR = kit.at(body, kit.fin(0.28, wispMat, { width: 0.16, curve: 0.3 }), -0.13, 0.04, 0.08, { rz: Math.PI + 1.75, ry: -0.4 });
+  const sleeveL = kit.at(body, kit.fin(0.28, wispMat, { width: 0.16, curve: 0.3 }), 0.13, 0.04, 0.1, { rz: -1.65, ry: 0.7 });
+  const sleeveR = kit.at(body, kit.fin(0.28, wispMat, { width: 0.16, curve: 0.3 }), -0.13, 0.04, 0.1, { rz: Math.PI + 1.65, ry: -0.7 });
 
   // --- THE BROKEN HALO ----------------------------------------------------
   // Two arcs of a ring behind the hood with a bite missing; a faint second
@@ -134,11 +139,13 @@ export function build_sancturne(kit = kitDefault) {
   // --- Tendrils pouring back into the urn ---------------------------------
   // Three wisp chains from the torso's skirt, posed to drape DOWN toward the
   // urn mouth — the visible binding.
-  const tendrilDefs = [[0.07, 0.02, -0.3], [-0.07, 0.0, -0.5], [0, -0.05, -0.7]];
+  // Short chains that CURL as they fall, ending well above the urn's mouth —
+  // straight full-length drops read as stool legs, not smoke.
+  const tendrilDefs = [[0.06, 0.02, -0.35], [-0.06, 0.0, -0.55], [0, -0.04, -0.75]];
   const tendrils = tendrilDefs.map(([x, z, bend], i) => {
-    const chain = kit.tailChain(5, wispMat, { segLen: 0.06, startR: 0.036, endR: 0.005 });
-    kit.at(body, chain, x, -0.16, z, { rx: -Math.PI / 2 + bend });
-    chain.pivots.forEach((p, j) => { if (j > 0) p.rotation.x = 0.22; });
+    const chain = kit.tailChain(4, wispMat, { segLen: 0.045, startR: 0.032, endR: 0.005 });
+    kit.at(body, chain, x, -0.14, z, { rx: -Math.PI / 2 + bend });
+    chain.pivots.forEach((p, j) => { if (j > 0) { p.rotation.x = 0.4; p.rotation.y = (i - 1) * 0.15; } });
     return chain;
   });
 
