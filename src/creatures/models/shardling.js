@@ -16,7 +16,7 @@ import * as kitDefault from '../kit.js';
 export function build_shardling(kit = kitDefault) {
   const pal = kit.palette(['terra', 'lumen']);
   const stone = kit.mat(0x8a7a5c, { rough: 0.6 });
-  const gemMat = kit.mat(0xf0e2b0, { rough: 0.12, metal: 0.08, transparent: true, opacity: 0.88, emissive: 0xc09a3e, emissiveIntensity: 0.5 });
+  const gemMat = kit.mat(0xf0dc9a, { rough: 0.1, metal: 0.06, transparent: true, opacity: 0.9, emissive: 0xd8a028, emissiveIntensity: 0.75 });
 
   const root = new THREE.Group();
 
@@ -51,7 +51,8 @@ export function build_shardling(kit = kitDefault) {
     { x: 0.075, z: -0.01, ry: 0.95 }, { x: -0.075, z: -0.01, ry: -0.95 },
     { x: 0.06, z: -0.06, ry: 1.4 }, { x: -0.06, z: -0.06, ry: -1.4 },
   ];
-  const legs = legSpots.map(({ x, z, ry }) => kit.at(thorax, kit.leg(0.11, stone, { thighR: 0.014, shinR: 0.01, footLen: 0.03 }), x, 0.09, z, { ry }));
+  const legMat = kit.mat(0x655640, { rough: 0.6 }); // darker than the gem so the prize stays the bright thing
+  const legs = legSpots.map(({ x, z, ry }) => kit.at(thorax, kit.leg(0.11, legMat, { thighR: 0.014, shinR: 0.01, footLen: 0.03 }), x, 0.09, z, { ry }));
 
   const legParts = legs.map((l) => ({ hip: l.hip, knee: l.knee, foot: l.foot }));
 

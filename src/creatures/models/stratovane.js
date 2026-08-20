@@ -97,14 +97,16 @@ export function build_stratovane(kit = kitDefault) {
     const spar = paint(kit.capsule(0.02, 0.4, cloudV, { capSeg: 3, radSeg: 6 }), 117, 0x262a38, 0x767c92);
     spar.geometry.rotateZ(Math.PI / 2);               // genuine crossbar — the one right use
     kit.at(w.bones[0], spar, 0.21, 0.02, 0.015);
-    // Lightning veins across the mid and outer cards. The membrane cards are
-    // rotated ~-76° about X inside each bone, so the vein group gets the SAME
-    // rx to lie flat ON the card, plus rz 90° so the zigzag runs spanwise.
-    const cardTilt = -Math.PI * 0.42 + 0.08 * 0.3;
+    // Lightning veins across the mid and outer cards. Attached to the CARD
+    // MESH itself (so they inherit its exact tilt and lie flat on the
+    // membrane), rotated 90° so the zigzag runs spanwise, floated a hair
+    // proud of the surface.
+    const card1 = w.bones[1].children.find((c) => c.isMesh);
+    const card2 = w.bones[2].children.find((c) => c.isMesh);
     const v1 = lightningVein(kit, 0.26, 6, 200 + (side > 0 ? 0 : 10));
-    kit.at(w.bones[1], v1, 0.02, 0.02, -0.02, { rx: cardTilt, rz: Math.PI / 2 });
+    if (card1) kit.at(card1, v1, 0.01, 0.02, 0.012, { rz: Math.PI / 2 });
     const v2 = lightningVein(kit, 0.18, 5, 201 + (side > 0 ? 0 : 10));
-    kit.at(w.bones[2], v2, 0.02, 0.02, -0.02, { rx: cardTilt, rz: Math.PI / 2 });
+    if (card2) kit.at(card2, v2, 0.01, 0.02, 0.012, { rz: Math.PI / 2 });
     veins.push(v1, v2);
   }
 

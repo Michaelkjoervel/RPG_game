@@ -71,8 +71,8 @@ export function build_reverbane(kit = kitDefault) {
 
   const head = paint(kit.blob(0.07, furV, { seed: 53, squash: { x: 0.95, y: 0.9, z: 1.1 } }), 54);
   kit.at(body, head, 0, 0.05, 0.18);
-  const eyeL = kit.at(head, kit.eye(0.026, { irisColor: 0xd8cfff, scleraColor: 0x18121e, skinColor: furHex, glintSize: 0.011 }), 0.04, 0.008, 0.055, { ry: 0.35 });
-  const eyeR = kit.at(head, kit.eye(0.026, { irisColor: 0xd8cfff, scleraColor: 0x18121e, skinColor: furHex, glintSize: 0.011 }), -0.04, 0.008, 0.055, { ry: -0.35 });
+  const eyeL = kit.at(head, kit.eye(0.021, { irisColor: 0xd8cfff, scleraColor: 0x18121e, skinColor: furHex, glintSize: 0.009, irisScale: 1.2 }), 0.038, 0.008, 0.056, { ry: 0.35 });
+  const eyeR = kit.at(head, kit.eye(0.021, { irisColor: 0xd8cfff, scleraColor: 0x18121e, skinColor: furHex, glintSize: 0.009, irisScale: 1.2 }), -0.038, 0.008, 0.056, { ry: -0.35 });
   // Tiny fangs under a dark nose.
   kit.at(head, kit.orb(0.016, kit.mat(0x241e38, { rough: 0.5 }), { sy: 0.7 }), 0, -0.02, 0.075);
   const fangMat = kit.mat(0xe8e2f2, { rough: 0.3 });

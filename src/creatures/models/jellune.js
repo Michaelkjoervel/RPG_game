@@ -33,10 +33,9 @@ export function build_jellune(kit = kitDefault) {
   // THE CRESCENT — a moon-phase marking glowing on the bell's crown, the
   // species' namesake readable from any angle above.
   const crescent = new THREE.Mesh(new THREE.TorusGeometry(0.085, 0.014, 5, 20, Math.PI * 1.2), moonMat);
-  crescent.rotation.x = -Math.PI / 2;
+  crescent.rotation.x = -1.05;                      // tipped toward the camera, not flat
   crescent.rotation.z = 0.5;
-  kit.at(bell, crescent, 0, 0.135, -0.01);
-  crescent.scale.y = 0.35;                          // hug the dome
+  kit.at(bell, crescent, 0, 0.11, 0.06);
 
   // Frilled fringe skirting the bell's rim.
   const fringe = kit.orb(0.195, fringeMat, { sx: 1, sy: 0.16, sz: 1 });

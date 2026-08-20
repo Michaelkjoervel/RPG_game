@@ -24,7 +24,7 @@ export function build_nimbis(kit = kitDefault) {
   const pal = kit.palette(['gale']);
   // A kitten-sized cumulus: rain-gray flat bottom rising to sunlit white
   // crowns, with extra cloud lobes piled on so it reads as WEATHER.
-  const skin = kit.mat(0xffffff, { vertexColors: true, rough: 0.5, transparent: true, opacity: 0.96 });
+  const skin = kit.mat(0xffffff, { vertexColors: true, rough: 0.5 });
   const skinDark = kit.mat(0x9fb2bc, { rough: 0.45 });
 
   const root = new THREE.Group();
@@ -72,8 +72,8 @@ export function build_nimbis(kit = kitDefault) {
   const tearDrop = kit.teardrop(kit.mat(0xbfe0f8, { unlit: true, transparent: true, opacity: 0.85 }), { height: 0.028, width: 0.011, segments: 6 });
   kit.at(body, tearDrop, 0.062, -0.02, 0.15, { rx: Math.PI });
 
-  const spark = kit.heartspark(0.026, pal.eye, { seed: 102 });
-  kit.at(body, spark, 0, 0.01, 0.05);
+  const spark = kit.heartspark(0.024, pal.eye, { seed: 102 });
+  kit.at(body, spark, 0, -0.045, 0.13);
 
   return {
     group: kit.groundPlant(root),
