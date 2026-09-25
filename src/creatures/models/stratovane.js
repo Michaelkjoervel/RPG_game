@@ -3,140 +3,139 @@
 // "Manta of storm-cloud, lightning veins, thunder on wingbeat." (Design
 // Bible §4)
 // =============================================================================
-// Visual-overhaul rebuild — the old model was authored so small it rescaled
-// into a featureless blob at this species' size (2.0). Now:
-//   1. A REAL STORM-FRONT BODY: a manta hull with a cumulonimbus stack of
-//      gradient-painted cloud lobes (lobedMass) boiling over its back —
-//      anvil-dark below, sun-lit above.
-//   2. BROAD MANTA WINGS: 3-boned membranes swept wide with a solid leading
-//      edge, carrying jagged LIGHTNING VEINS that flash on a rolling thunder
-//      pulse (signature detail, visible at any distance when it fires).
-//   3. Storm accessories that read at 64px: volt-yellow eyes under a heavy
-//      brow, twin cephalic horns, a long vane tail, and a drizzle of rain
-//      motes falling out of its own underside.
-// Proportion note: registry.js rescales by measured HEIGHT — the cloud stack
-// and raised wingtips buy height, keeping raw width:height near 2:1.
+// Visual pass v2 (soft stylized). A real manta: a broad, flat, rounded hull
+// (anvil-dark slate on top, a pale storm-grey belly) whose two great soft
+// wings sweep back to pointed, up-curled tips; curled cephalic horn-fins
+// frame a wide mouth and volt-yellow eyes; a long whip tail. Nimbis's cloud
+// still rides it: a soft cumulonimbus of puffs boils up over its back. The
+// signature: LIGHTNING VEINS running across both wings that flash with a
+// rolling thunder pulse (and flicker between beats); a drizzle of rain falls
+// from its underside. Proportions: the cloud stack and the raised wing tips
+// buy height, so registry's height rescale doesn't blow up the wingspan.
 
 import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
 import * as S from './soft.js';
-import { seededRandom } from '../../core/rng.js';
-import { applyVertexGradient, jitterGeometry, lobedMass } from '../../gfx/materials.js';
 
-function lightningVein(kit, len, segCount, seed) {
-  const group = new THREE.Group(); group.name = 'lightningVein';
-  const rng = seededRandom(seed);
-  const m = kit.mat(0xffe94f, { unlit: true, transparent: true, opacity: 0.35 });
-  const segs = [];
-  let x = 0, y = 0;
-  for (let i = 0; i < segCount; i++) {
-    const segLen = len / segCount;
-    const dx = (rng() - 0.5) * segLen * 1.5;
-    const s = kit.box(0.016, segLen, 0.01, m);
-    s.position.set(x + dx * 0.5, y - segLen * 0.5, 0.004);
-    s.rotation.z = Math.atan2(dx, -segLen) * 0.6;
-    group.add(s);
-    segs.push(s);
-    x += dx; y -= segLen;
+const SLATE_LO = 0x262a3a, SLATE = 0x3e4458, SLATE_HI = 0x6a7290, BELLY = 0xb4bccf, CLOUD_LO = 0x464c64, CLOUD_HI = 0xc4cadc, VOLT = 0xffe94f;
+
+// Zigzag bolts laid on a wing's top surface (one merged mesh per wing).
+function veinGeo(wingGeo, len, sweep, seed) {
+  const geos = [];
+  for (const [z0, n] of [[-0.05, 7], [-0.14, 6]]) {
+    const pts = [];
+    for (let i = 0; i <= n; i++) {
+      const t = 0.08 + (i / n) * 0.8;
+      const x = t * len;
+      const z = -sweep * len * t * t + z0 * (1 - t * 0.6) + (i % 2 ? 1 : -1) * 0.014 * Math.sin(seed + i * 1.7);
+      pts.push(new THREE.Vector3(...S.surface(wingGeo, [0, 1, 0], { from: [x, 0, z], inset: -0.002 })));
+    }
+    const g = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.05), n * 3, 0.006, 3, false);
+    g.deleteAttribute('uv');
+    geos.push(S.paint(g, 0xffffff));
   }
-  return { group, mat: m, segs };
+  return S.merge(geos);
 }
 
 export function build_stratovane(kit = kitDefault) {
   const pal = kit.palette(['gale', 'volt']);
-  const cloudV = kit.mat(0xffffff, { vertexColors: true, rough: 0.6 });
-  const HULL_LO = 0x2c3040, HULL_HI = 0x767c92;
-  const wingV = kit.mat(0xffffff, { vertexColors: true, rough: 0.55, side: THREE.DoubleSide });
-  const voltGlow = kit.mat(0xffe94f, { unlit: true, transparent: true, opacity: 0.8 });
-
-  const paint = (mesh, seed, lo = HULL_LO, hi = HULL_HI, jit = 0) => {
-    if (jit) jitterGeometry(mesh.geometry, jit, seed);
-    applyVertexGradient(mesh.geometry, { from: lo, to: hi, noise: 0.05, seed });
-    return mesh;
-  };
+  const skin = S.vcMat(kit, { rough: 0.55 });
+  const cloudMat = S.vcMat(kit, { rough: 0.8 });
+  const veinMat = kit.mat(VOLT, { unlit: true, transparent: true, opacity: 0.4 });
+  veinMat.depthWrite = false;
+  const veinBase = veinMat.color.clone();
 
   const root = new THREE.Group();
 
-  // --- Manta hull ----------------------------------------------------------
-  const body = kit.blob(0.3, cloudV, { seed: 110, noise: 0.14, squash: { x: 1.0, y: 0.6, z: 1.15 } });
-  paint(body, 110);
-  root.add(body);
-  body.position.y = 0.66;
-
-  // Cumulonimbus stack boiling over the back — storm-dark, only the crowns lit.
-  const stack = lobedMass({ lobes: 5, radius: 0.22, spread: 0.7, squash: 0.75, from: 0x272b3c, to: 0x7c8398, seed: 111, jitter: 0.2 });
-  kit.at(body, stack, 0, 0.22, -0.04);
-  const stack2 = lobedMass({ lobes: 3, radius: 0.15, spread: 0.66, squash: 0.75, from: 0x2c3044, to: 0x9aa2b8, seed: 112, jitter: 0.22 });
-  kit.at(body, stack2, 0.05, 0.44, -0.1);
-
-  // Storm-lit face: heavy brow shelf, volt eyes, twin cephalic horns.
-  const brow = paint(kit.orb(0.16, cloudV, { sy: 0.5, sz: 0.7 }), 113, 0x262a38, 0x5e6478);
-  kit.at(body, brow, 0, 0.12, 0.26);
-  const eyeL = kit.at(body, S.eye(kit, 0.058, { irisColor: 0xffe94f, scleraColor: 0x181a24, skinColor: 0x3e4254, glintSize: 0.021 }), 0.1, 0.05, 0.3, { ry: 0.25 });
-  const eyeR = kit.at(body, S.eye(kit, 0.058, { irisColor: 0xffe94f, scleraColor: 0x181a24, skinColor: 0x3e4254, glintSize: 0.021 }), -0.1, 0.05, 0.3, { ry: -0.25 });
-  const hornL = paint(kit.horn(0.24, cloudV, { baseR: 0.04, tipR: 0.01, bend: 0.5 }), 114, 0x262a38, 0x6e7488);
-  const hornR = paint(kit.horn(0.24, cloudV, { baseR: 0.04, tipR: 0.01, bend: -0.5 }), 115, 0x262a38, 0x6e7488);
-  const hornLAt = kit.at(body, hornL, 0.15, 0.1, 0.28, { rx: 1.2, rz: -0.35 });
-  const hornRAt = kit.at(body, hornR, -0.15, 0.1, 0.28, { rx: 1.2, rz: 0.35 });
-  // Mouth slot on the leading edge.
-  kit.at(body, kit.box(0.16, 0.02, 0.04, kit.mat(0x14161e, { rough: 0.9 })), 0, -0.05, 0.34);
-
-  // --- Broad manta wings ---------------------------------------------------
-  const veins = [];
-  const wings = [];
-  for (const side of [1, -1]) {
-    const w = kit.wing(0.46, wingV, { style: 'membrane', bones: 3, width: 0.32, droop: 0.08 });
-    // Paint every membrane card: pale storm-gray at the root, anvil-dark tips.
-    w.group.traverse((n) => {
-      if (n.isMesh && n.geometry) {
-        applyVertexGradient(n.geometry, { from: 0x565e78, to: 0x2c3042, axis: 'x', noise: 0.04, seed: 116 });
-      }
-    });
-    kit.at(body, w, side * 0.16, 0.06, 0.0, { rx: -0.06, ry: side * -0.1, rz: side * 0.35, sx: side < 0 ? -1 : 1 });
-    wings.push(w);
-    // Solid leading-edge spar so the wing survives a silhouette test.
-    const spar = paint(kit.capsule(0.02, 0.4, cloudV, { capSeg: 3, radSeg: 6 }), 117, 0x262a38, 0x767c92);
-    spar.geometry.rotateZ(Math.PI / 2);               // genuine crossbar — the one right use
-    kit.at(w.bones[0], spar, 0.21, 0.02, 0.015);
-    // Lightning veins across the mid and outer cards. Attached to the CARD
-    // MESH itself (so they inherit its exact tilt and lie flat on the
-    // membrane), rotated 90° so the zigzag runs spanwise, floated a hair
-    // proud of the surface.
-    const card1 = w.bones[1].children.find((c) => c.isMesh);
-    const card2 = w.bones[2].children.find((c) => c.isMesh);
-    const v1 = lightningVein(kit, 0.26, 6, 200 + (side > 0 ? 0 : 10));
-    if (card1) kit.at(card1, v1, 0.01, 0.02, 0.012, { rz: Math.PI / 2 });
-    const v2 = lightningVein(kit, 0.18, 5, 201 + (side > 0 ? 0 : 10));
-    if (card2) kit.at(card2, v2, 0.01, 0.02, 0.012, { rz: Math.PI / 2 });
-    veins.push(v1, v2);
-  }
-
-  // --- Vane tail -----------------------------------------------------------
-  const tail = kit.at(body, kit.tailChain(5, cloudV, { segLen: 0.07, startR: 0.045, endR: 0.012 }), 0, -0.02, -0.28);
-  tail.pivots.forEach((p, i) => {
-    for (const c of p.children) if (c.isMesh && c.geometry && c.geometry.attributes) paint(c, 118 + i);
+  // --- Manta hull: broad, flat, rounded; pale belly; wide mouth. ------------------
+  const hull = S.spindle({
+    len: 0.62, r: 0.23, sx: 1.25, sy: 0.55, pTail: 0.8, pNose: 1.25, radial: 18, rings: 12, belly: 0.25,
+    profile: (t) => 0.55 + 0.45 * Math.sin(Math.PI * Math.min(1, t * 0.8 + 0.12)),
+    arch: (t) => 0.03 * S.bump(t, 0.55, 0.35),
   });
-  const tailVane = kit.at(tail.pivots[tail.pivots.length - 1], kit.fin(0.14, kit.mat(0x8990a8, { rough: 0.5, side: THREE.DoubleSide }), { width: 0.07 }), 0, 0, -0.04, { rz: Math.PI / 2 });
+  S.paint(hull, { from: SLATE_LO, to: SLATE_HI, axis: 'y', noise: 0.015, seed: 110 });
+  S.overlayN(hull, BELLY, (nx, ny, nz) => S.sstep(-0.1, -0.6, ny));
+  const mouth = S.paint(S.groove(hull, [[-0.55, -0.35], [-0.2, -0.45], [0.2, -0.45], [0.55, -0.35]], { from: [0, 0, 0.18], radius: 0.01, lift: -0.002 }), 0x14161e);
+  const body = S.bake([hull, mouth], skin, 'body');
+  root.add(body);
+  body.position.y = 0.5;
 
-  // --- Thunder + weather ---------------------------------------------------
+  const eyeOpts = { irisColor: VOLT, pupilColor: 0x2a2408, scleraColor: 0x181a24, skinColor: 0x3e4458, glintSize: 0.018 };
+  const eyeL = S.seatEye(kit, body, hull, 0.048, 0.62, 0.35, eyeOpts, { sink: 0.4, front: 0.6, from: [0, 0, 0.14] });
+  const eyeR = S.seatEye(kit, body, hull, 0.048, -0.62, 0.35, eyeOpts, { sink: 0.4, front: 0.6, from: [0, 0, 0.14] });
+
+  // Curled cephalic horn-fins (accents).
+  const horns = [1, -1].map((sd) => {
+    const g = S.taper(0.2, 0.04, { r1: 0.01, curve: -0.7, radial: 7, rings: 6, sx: 0.55 });
+    S.paint(g, { from: SLATE, to: SLATE_HI, axis: 'y' });
+    g.rotateX(Math.PI / 2 - 0.35); // grow forward, curling up
+    g.rotateY(-sd * 0.25);
+    const m = new THREE.Mesh(g, skin);
+    m.name = 'cephalicFin';
+    const at = S.surface(hull, [sd * 0.75, -0.1, 1], { from: [0, 0, 0.12], inset: 0.02 });
+    kit.at(body, m, at[0], at[1], at[2]);
+    return m;
+  });
+
+  // --- The cumulonimbus riding its back (an accent: it billows). --------------------
+  const cloud = new THREE.Group(); cloud.name = 'cloudStack';
+  const c1 = S.puff(0.19, { count: 7, spread: 0.9, seed: 111, sy: 0.75, radial: 9, rings: 6 });
+  const c2 = S.puff(0.13, { count: 5, spread: 0.75, seed: 112, sy: 0.85, radial: 8, rings: 6 });
+  c2.translate(0.04, 0.15, -0.06);
+  const cg = S.merge([c1, c2]);
+  S.paint(cg, { from: CLOUD_LO, to: CLOUD_HI, axis: 'y', noise: 0.02, seed: 113 });
+  cloud.add(new THREE.Mesh(cg, cloudMat));
+  const ca = S.surface(hull, [0, 1, 0], { from: [0, 0, -0.04], inset: 0.04 });
+  kit.at(body, cloud, ca[0], ca[1], ca[2]);
+
+  // --- The great soft manta wings with lightning veins. ----------------------------
+  const veinMeshes = [];
+  const wings = [1, -1].map((side) => {
+    const len = 0.56, sweep = 0.55;
+    const w = S.openWing(len, skin, {
+      width: 0.48, thick: 0.2, sweep, lift: 0.1, radial: 14, rings: 10,
+      chord: (t) => Math.pow(Math.sin(Math.PI * Math.min(1, 0.5 + t * 0.52)), 0.75) * (1 - 0.25 * t),
+      color: { root: SLATE, tip: SLATE_LO },
+    });
+    const wm = w.group.children[0];
+    S.overlayN(wm.geometry, BELLY, (nx, ny, nz) => S.sstep(-0.15, -0.7, ny) * 0.9);
+    S.overlay(wm.geometry, SLATE_HI, (x, y, z) => (y > 0 ? S.bump(x / len, 0.25, 0.2) * 0.35 : 0));
+    const vm = new THREE.Mesh(veinGeo(wm.geometry, len, sweep, side > 0 ? 1 : 4), veinMat);
+    vm.name = 'lightningVeins';
+    w.group.add(vm);
+    veinMeshes.push(vm);
+    const at = S.surface(hull, [side, 0.1, 0], { from: [0, 0, 0.0], inset: 0.06 });
+    kit.at(body, w, at[0], at[1], at[2], { rz: side * 0.15, ry: 0, sx: side < 0 ? -1 : 1 });
+    return w;
+  });
+
+  // --- Long whip tail. ------------------------------------------------------------------
+  const tail = S.softTail(5, skin, { segLen: 0.085, startR: 0.03, endR: 0.007, curl: 0.06, radial: 7, color: (t) => S.mixHex(SLATE, SLATE_LO, t) });
+  kit.at(body, tail, 0, 0.0, -0.28);
+  const vaneGeo = S.spindle({ len: 0.08, r: 0.026, sx: 1, sy: 0.14, p: 0.6, radial: 8, rings: 6, profile: (t) => 0.2 + 0.8 * Math.sin(Math.PI * t) });
+  vaneGeo.translate(0, 0, -0.04);
+  S.paint(vaneGeo, { from: SLATE_HI, to: VOLT, axis: 'z' });
+  const tailVane = new THREE.Mesh(vaneGeo, skin);
+  tailVane.name = 'tailVane';
+  kit.at(tail.tipAnchor, tailVane, 0, 0, 0);
+
+  // --- Thunder: the veins flash on a rolling beat and flicker between. -----------
   let thunderT = 0;
   const thunder = {
     update(dt) {
       thunderT += dt;
-      const period = 2.6;
-      const local = thunderT % period;
+      const local = thunderT % 2.6;
       const flash = local < 0.14 ? 1 - local / 0.14 : (local < 0.3 ? 0.5 * (1 - (local - 0.14) / 0.16) : 0);
-      for (const v of veins) v.mat.opacity = 0.35 + flash * 0.65;
+      const flicker = Math.max(0, Math.sin(thunderT * 23.1) * Math.sin(thunderT * 7.3)) * 0.25;
+      veinMat.opacity = 0.35 + Math.min(0.65, flash * 0.65 + flicker);
+      veinMat.color.copy(veinBase).multiplyScalar(1 + flash * 0.8);
     },
   };
-  // Rain falling out of its own underside; charge motes about the crown.
-  const rain = kit.mote(9, { color: 0xaec6e0, size: 0.016, radius: 0.3, height: 0.45, speed: 0.7, seed: 119 });
-  kit.at(body, rain, 0, -0.4, 0);
-  const charge = kit.mote(8, { color: 0xffe94f, size: 0.02, radius: 0.4, height: 0.3, speed: 0.4, seed: 112 });
-  kit.at(body, charge, 0, 0.3, -0.05);
-
-  const spark = kit.heartspark(0.045, pal.eye, { seed: 113 });
-  kit.at(body, spark, 0, -0.08, 0.3);
+  const rain = kit.mote(9, { color: 0xaec6e0, size: 0.014, radius: 0.28, height: 0.4, speed: 0.7, seed: 119 });
+  kit.at(body, rain, 0, -0.35, 0);
+  const spark = kit.heartspark(0.035, pal.eye, { seed: 113 });
+  const sp = S.surface(hull, [0, -0.3, 1], { from: [0, 0, 0.08], inset: 0.01 });
+  kit.at(body, spark, sp[0], sp[1], sp[2]);
 
   return {
     group: kit.groundPlant(root),
@@ -145,8 +144,8 @@ export function build_stratovane(kit = kitDefault) {
       eyelids: [eyeL.getObjectByName('eyelid'), eyeR.getObjectByName('eyelid')],
       tail: tail.pivots,
       wings: wings.map((w) => w.bones),
-      accents: [hornLAt, hornRAt, stack, stack2, tailVane],
-      fx: [thunder, rain, charge, spark],
+      accents: [...horns, cloud, tailVane],
+      fx: [thunder, rain, spark, S.variantFx(root)],
     },
     hints: {
       personality: 'heavy',

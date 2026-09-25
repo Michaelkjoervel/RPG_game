@@ -616,6 +616,26 @@ export function batWing(len, material, sparMat, {
 }
 
 /**
+ * A cut gem (brilliant): pavilion (point down to -h1) + crown + table (top at
+ * +h2), `facets`-fold, NON-indexed with one colour per facet from `colors`
+ * (a prism scatter) — meant for a { flat: true } material: crystals are the
+ * one place facets belong.
+ */
+export function brilliant(r, h1, h2, colors, { seed = 0, facets = 8 } = {}) {
+  const g = new THREE.LatheGeometry([new THREE.Vector2(0, -h1), new THREE.Vector2(r, 0), new THREE.Vector2(r * 0.62, h2), new THREE.Vector2(0, h2)], facets).toNonIndexed();
+  g.deleteAttribute('uv');
+  g.computeVertexNormals();
+  const n = g.attributes.position.count;
+  const col = new Float32Array(n * 3);
+  for (let f = 0; f < n / 3; f++) {
+    _c.setHex(colors[(f * 7 + seed) % colors.length]);
+    for (let k = 0; k < 3; k++) { col[(f * 3 + k) * 3] = _c.r; col[(f * 3 + k) * 3 + 1] = _c.g; col[(f * 3 + k) * 3 + 2] = _c.b; }
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  return g;
+}
+
+/**
  * A tapered tail as a chain of pivots — same contract as kit.tailChain():
  * `group` is the root pivot (attach to the body), the chain extends toward
  * local -Z, `pivots` is root->tip. Each segment is a ball-jointed tapered

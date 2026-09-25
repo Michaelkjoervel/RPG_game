@@ -18,21 +18,7 @@ import * as S from './soft.js';
 const STONE_LO = 0x5e5140, STONE = 0x8c7c60, STONE_HI = 0xc0b08a, LEG = 0x4a4034, LEG_HI = 0x7a6c56, TIP = 0xf8e6b0;
 const PRISM = [0xffb020, 0xff5a8a, 0x3fd0a0, 0x4a90ff, 0xffe060, 0xb060ff];
 
-// A cut brilliant: pavilion + crown + table, 8-fold, flat facets with a
-// prismatic colour per facet. Non-indexed (crisp facets), normal +Y up.
-function brilliant(r, h1, h2, seed = 0) {
-  const g = new THREE.LatheGeometry([new THREE.Vector2(0, -h1), new THREE.Vector2(r, 0), new THREE.Vector2(r * 0.62, h2), new THREE.Vector2(0, h2)], 8).toNonIndexed();
-  g.deleteAttribute('uv');
-  g.computeVertexNormals();
-  const n = g.attributes.position.count;
-  const col = new Float32Array(n * 3), c = new THREE.Color();
-  for (let f = 0; f < n / 3; f++) {
-    c.setHex(PRISM[(f * 7 + seed) % PRISM.length]);
-    for (let k = 0; k < 3; k++) { col[(f * 3 + k) * 3] = c.r; col[(f * 3 + k) * 3 + 1] = c.g; col[(f * 3 + k) * 3 + 2] = c.b; }
-  }
-  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  return g;
-}
+const brilliant = (r, h1, h2, seed = 0) => S.brilliant(r, h1, h2, PRISM, { seed });
 
 export function build_shardling(kit = kitDefault) {
   const pal = kit.palette(['terra', 'lumen']);

@@ -3,92 +3,122 @@
 // "Blind pale cave eel, lure of faint shadowlight. Sings in the dark."
 // (Design Bible §4)
 // =============================================================================
-// A genuinely long serpent (see tidelorn.js for the pattern this follows):
-// `parts.body` is a short torso segment just behind the head, `parts.tail`
-// is a long tailChain the animator undulates for `locomotion:'serpent'`.
-// Its signature feature is an anglerfish-style lure — a curved stalk rising
-// from the crown, tipped with a slow-pulsing shadowlight glow — which
-// deliberately adds HEIGHT rather than length, keeping this model's
-// length:height ratio close to tidelorn's own (~2.2:1 here) so registry.js's
-// uniform height-based rescale never balloons its body length. Eyes are
-// present (every Kindred needs a readable face) but small, filmed-over and
-// barely used — it hunts and "sings" by shadowlight, not sight.
+// Visual pass v2 (soft stylized). A long, soft, cave-pale eel: one smooth
+// body that flows from a rounded head into a tapering tail laid in a lazy S
+// (so its length shows to a 3/4 camera), bone-pale on top shading to cool
+// violet-grey beneath, with a translucent violet fin ribbon running along
+// the spine and a small tail fin. A gentle, wide face with pale filmed-over
+// eyes (it is blind) and frilly gill fans. The signature: an anglerfish LURE
+// arcing up from its crown and forward over the face, tipped with a glowing
+// bead of blue shadowlight; faint motes of its "song" drift around it.
 
 import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
 import * as S from './soft.js';
-import { applyVertexGradient, jitterGeometry } from '../../gfx/materials.js';
+
+const SKIN_LO = 0x8a88a2, SKIN = 0xc8c8d6, SKIN_HI = 0xf2f2f6, BELLY = 0x9e9ab8, FIN = 0x9a8cd8, LURE = 0x8fb8ff;
 
 export function build_gloomel(kit = kitDefault) {
   const pal = kit.palette(['umbra', 'tide']);
-  // Cave-pale eel: cool violet-gray shadow under, bone-pale top — a thing
-  // that has never seen the sun but still shades as a volume.
-  const skin = kit.mat(0xffffff, { vertexColors: true, rough: 0.38 });
-  const SKIN_LO = 0x8b8aa0, SKIN_HI = 0xf0f2f4;
-  const paint = (mesh, seed) => {
-    applyVertexGradient(mesh.geometry, { from: SKIN_LO, to: SKIN_HI, noise: 0.035, seed });
-    return mesh;
-  };
-  const belly = kit.mat(0xf4f6f6, { rough: 0.55 });
-  const lureMat = kit.mat(0x9fb0e0, { unlit: true, transparent: true, opacity: 0.85 });
-  const finMat = kit.mat(0x8fa0d0, { rough: 0.3, transparent: true, opacity: 0.6, side: THREE.DoubleSide, emissive: 0x4a5a94, emissiveIntensity: 0.5 });
+  const skin = S.vcMat(kit, { rough: 0.36 });
+  const finMat = kit.mat(FIN, { rough: 0.3, transparent: true, opacity: 0.62, side: THREE.DoubleSide, emissive: 0x3a3a8a, emissiveIntensity: 0.5 });
+  const lureMat = kit.mat(LURE, { unlit: true });
 
   const root = new THREE.Group();
 
-  // Eel torso running nose-to-tail along Z — bake the capsule's axis swing
-  // about X. (About Z would swing it onto the X axis and lay the eel sideways
-  // across the view, with its tail sprouting from one flank.)
-  const body = kit.capsule(0.075, 0.22, skin, { capSeg: 4, radSeg: 9 });
-  body.geometry.rotateX(Math.PI / 2);
-  paint(body, 72);
+  // --- Body: the front of the eel (the tail chain carries the rest). ------------
+  const torso = S.spindle({ len: 0.3, r: 0.075, sx: 0.92, sy: 1.0, p: 0.6, radial: 14, rings: 10, profile: (t) => 0.92 + 0.1 * t });
+  S.paint(torso, { from: SKIN_LO, to: SKIN_HI, axis: 'y', noise: 0.012, seed: 72 });
+  S.overlay(torso, BELLY, (x, y, z) => S.sstep(-0.025, -0.06, y) * 0.7);
+  const body = S.bake([torso], skin, 'body');
   root.add(body);
-  body.position.y = 0.15;
+  body.position.y = 0.11;
 
-  // Pale underbelly stripe — same axis as the torso it hugs.
-  const bellyStripe = kit.capsule(0.045, 0.2, belly, { capSeg: 4, radSeg: 6 });
-  bellyStripe.geometry.rotateX(Math.PI / 2);
-  bellyStripe.scale.set(0.66, 0.44, 1);
-  kit.at(body, bellyStripe, 0, -0.055, 0);
+  // --- Head: wide, gentle, blind; gill frills. -----------------------------------
+  const headGeo = S.spindle({
+    len: 0.2, r: 0.085, sx: 1.12, sy: 0.9, pTail: 1, pNose: 1.25, radial: 16, rings: 12, belly: 0.1,
+    profile: (t) => (t < 0.4 ? 1 : S.lerp(1, 0.72, S.sstep(0.4, 1, t))),
+  });
+  S.paint(headGeo, { from: SKIN_LO, to: SKIN_HI, axis: 'y', noise: 0.01, seed: 73 });
+  S.overlay(headGeo, BELLY, (x, y, z) => S.sstep(-0.02, -0.05, y) * 0.7);
+  const mouth = S.paint(S.groove(headGeo, [[-0.45, -0.25], [-0.2, -0.33], [0, -0.35], [0.2, -0.33], [0.45, -0.25]], { radius: 0.006, lift: -0.001 }), 0x5a5470);
+  const head = S.bake([headGeo, mouth], skin, 'head');
+  kit.at(body, head, 0, 0.01, 0.17);
+  const eyeOpts = { irisColor: 0xdfe6ee, pupil: false, scleraColor: 0xc9ccd8, skinColor: 0xc8c8d6, glintSize: 0.009 };
+  const eyeL = S.seatEye(kit, head, headGeo, 0.024, 0.62, 0.25, eyeOpts, { sink: 0.45, front: 0.5 });
+  const eyeR = S.seatEye(kit, head, headGeo, 0.024, -0.62, 0.25, eyeOpts, { sink: 0.45, front: 0.5 });
+  const gills = [1, -1].map((sd) => {
+    const g = S.spindle({ len: 0.08, r: 0.035, sx: 0.12, sy: 1, radial: 8, rings: 6, profile: (t) => Math.pow(Math.sin(Math.PI * Math.min(1, 0.05 + t * 0.95)), 0.7) });
+    g.translate(0, 0, 0.04);
+    const m = new THREE.Mesh(g, finMat);
+    m.name = 'gillFrill';
+    const at = S.surface(headGeo, [sd, 0, -0.4], { inset: 0.01 });
+    kit.at(head, m, at[0], at[1], at[2], { ry: sd * 2.3, rz: sd * 0.2 });
+    return m;
+  });
 
-  const head = kit.at(body, paint(kit.blob(0.088, skin, { seed: 72, squash: { x: 0.85, y: 0.8, z: 1.2 } }), 73), 0, 0.04, 0.18);
+  // THE LURE: a slender stalk arcing up from the crown and over the face,
+  // tipped with a bead of shadowlight (an accent: it bobs).
+  const lure = new THREE.Group(); lure.name = 'lure';
+  const stalk = S.tubeAlong([[0, 0, 0], [0, 0.1, -0.01], [0, 0.18, 0.04], [0, 0.2, 0.12], [0, 0.17, 0.18]], (t) => S.lerp(0.012, 0.005, t), { radial: 6, tubular: 14 });
+  S.paint(stalk, { from: SKIN, to: 0xb8c8f0, axis: 'y' });
+  lure.add(new THREE.Mesh(stalk, skin));
+  const bead = new THREE.Mesh(S.ball(0.026, { radial: 10, rings: 7 }), lureMat);
+  bead.name = 'lureBead';
+  bead.position.set(0, 0.145, 0.185);
+  lure.add(bead);
+  const beadGlow = S.glow(LURE, 0.26, 0.6);
+  beadGlow.position.copy(bead.position);
+  lure.add(beadGlow);
+  const la = S.surface(headGeo, S.dirYP(0, 1.1), { inset: 0.006 });
+  kit.at(head, lure, la[0], la[1], la[2]);
+  let lt = 0;
+  const lurePulse = {
+    update(dt) {
+      lt += dt;
+      const k = 0.5 + 0.5 * Math.sin(lt * 1.6);
+      beadGlow.material.opacity = 0.35 + 0.45 * k;
+      beadGlow.scale.setScalar(0.22 + 0.08 * k);
+    },
+  };
 
-  // Small, filmed-over, nearly vestigial eyes — present for readability, not function.
-  const eyeL = kit.at(head, S.eye(kit, 0.024, { irisColor: 0xdfe6ee, pupil: false, scleraColor: 0xc9ccd4, skinColor: 0xc4c8d0, glintSize: 0.008 }), 0.055, 0.01, 0.075, { ry: 0.4 });
-  const eyeR = kit.at(head, S.eye(kit, 0.024, { irisColor: 0xdfe6ee, pupil: false, scleraColor: 0xc9ccd4, skinColor: 0xc4c8d0, glintSize: 0.008 }), -0.055, 0.01, 0.075, { ry: -0.4 });
-
-  // Anglerfish-style lure: a curved stalk rising from the crown, tipped
-  // with a slow-pulsing shadowlight glow.
-  const lureStalk = paint(kit.horn(0.26, skin, { baseR: 0.016, tipR: 0.006, bend: -0.15, segments: 6 }), 74);
-  const lure = kit.at(head, lureStalk, 0, 0.06, 0.05, { rx: -0.25 });
-  const lureGlow = kit.heartspark(0.042, 0x8fb8ff, { seed: 73 });
-  kit.at(lure, lureGlow, 0, 0.255, 0);
-
-  // Small barbel fins at the jaw, and a continuous dorsal fin-ribbon that
-  // runs the whole spine — the eel's one flourish, catching every undulation.
-  const finL = kit.at(head, kit.fin(0.06, finMat, { width: 0.035 }), 0.07, -0.02, 0.06, { rx: -0.2, ry: 0.7 });
-  const finR = kit.at(head, kit.fin(0.06, finMat, { width: 0.035 }), -0.07, -0.02, 0.06, { rx: -0.2, ry: -0.7 });
-  const dorsal = kit.at(body, kit.fin(0.1, finMat, { width: 0.2, curve: 0.3 }), 0, 0.06, 0.02, { rz: Math.PI / 2, rx: -0.3 });
-
-  // Long tapering tail — most of the visible body length, POSED in a lazy
-  // horizontal S so the length shows itself to a 3/4 camera.
-  const tail = kit.at(body, kit.tailChain(7, skin, { segLen: 0.1, startR: 0.07, endR: 0.012 }), 0, -0.01, -0.11);
-  const YAW = [0, -0.22, -0.3, -0.16, 0.1, 0.28, 0.3];
+  // --- The long tail in a lazy S, with a fin ribbon along the spine. ---------------
+  const N = 7;
+  const YAW = [0, -0.26, -0.32, -0.12, 0.16, 0.32, 0.3];
+  const tail = S.softTail(N, skin, {
+    segLen: 0.1, startR: 0.074, endR: 0.012, rootPitch: -0.04, radial: 9, taperExp: 1.3,
+    curl: 0.0, yaw: (i) => YAW[i + 1] ?? 0,
+    color: (t) => S.mixHex(SKIN, SKIN_LO, t * 0.5),
+  });
+  kit.at(body, tail, 0, 0, -0.09);
   tail.pivots.forEach((p, i) => {
-    p.rotation.y = YAW[i] ?? 0;
-    for (const c of p.children) if (c.isMesh && c.geometry && c.geometry.attributes) paint(c, 80 + i);
-    if (i > 0 && i < 6) {
-      const f = kit.fin(0.07 * (1 - i / 8), finMat, { width: 0.14, curve: 0.3 });
-      kit.at(p, f, 0, 0.05 * (1 - i / 8) + 0.015, -0.05, { rz: Math.PI / 2, rx: -0.3 });
+    const seg = p.children.find((c) => c.name === 'tailSeg');
+    const r = S.lerp(0.072, 0.012, i / N);
+    if (seg) S.overlay(seg.geometry, BELLY, (x, y, z) => S.sstep(-r * 0.3, -r * 0.7, y) * 0.7);
+    if (i < N - 1) {
+      const h = 0.07 * (1 - i / N) + 0.02;
+      const g = S.spindle({ len: 0.12, r: h * 0.5, sx: 0.1, sy: 1, radial: 8, rings: 6, profile: (t) => Math.pow(Math.sin(Math.PI * Math.min(1, t * 0.9 + 0.05)), 0.8) });
+      const m = new THREE.Mesh(g, finMat);
+      m.name = 'dorsalFin';
+      m.position.set(0, r * 0.85 + h * 0.3, -0.05);
+      m.rotation.x = -0.2;
+      p.add(m);
     }
   });
-  const tailFin = kit.at(tail.pivots[tail.pivots.length - 1], kit.fin(0.09, finMat, { width: 0.06 }), 0, 0, -0.03, { ry: Math.PI / 2 });
+  const tfG = S.spindle({ len: 0.1, r: 0.05, sx: 0.1, sy: 1, radial: 8, rings: 6, pNose: 0.8, profile: (t) => Math.pow(Math.sin(Math.PI * Math.min(1, 0.05 + t * 0.95)), 0.6) * (0.5 + 0.5 * (1 - t)) });
+  tfG.translate(0, 0, -0.04);
+  const tailFin = new THREE.Mesh(tfG, finMat);
+  tailFin.name = 'tailFin';
+  kit.at(tail.tipAnchor, tailFin, 0, 0, 0);
 
-  // Faint shadowlight motes drifting along the flank — its wordless "song" made visible.
-  const song = kit.mote(9, { color: 0x8fa8e0, size: 0.018, radius: 0.55, height: 0.14, speed: 0.28, seed: 74 });
-  kit.at(body, song, 0, -0.02, -0.2);
+  // Its song: faint shadowlight motes drifting along the flank.
+  const song = kit.mote(7, { color: 0x8fa8e0, size: 0.014, radius: 0.45, height: 0.12, speed: 0.28, seed: 74 });
+  kit.at(body, song, 0, 0.02, -0.25);
+  const spark = kit.heartspark(0.026, pal.eye, { seed: 75 });
+  const sp = S.surface(torso, [0, -0.4, 1], { inset: 0.01 });
+  kit.at(body, spark, sp[0], sp[1], sp[2]);
 
-  const spark = kit.heartspark(0.036, pal.eye, { seed: 75 });
-  kit.at(body, spark, 0, 0.02, 0.05);
+  root.add(kit.shadowDisc(0.3, 0.3));
 
   return {
     group: kit.groundPlant(root),
@@ -97,8 +127,8 @@ export function build_gloomel(kit = kitDefault) {
       head,
       eyelids: [eyeL.getObjectByName('eyelid'), eyeR.getObjectByName('eyelid')],
       tail: tail.pivots,
-      accents: [finL, finR, dorsal, tailFin, lure],
-      fx: [song, spark, lureGlow],
+      accents: [...gills, tailFin, lure],
+      fx: [song, spark, lurePulse, S.variantFx(root)],
     },
     hints: {
       personality: 'calm',
