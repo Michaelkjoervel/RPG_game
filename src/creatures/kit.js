@@ -104,9 +104,10 @@
 //   - eye(): finer spheres, sclera gets a whisper of self-light so eyes stay
 //     bright in shade; eyes are excluded from the creature ink outline
 //     (registry.js adds outlines to every creature — see addOutline). The
-//     iris rim/iris/pupil caps are one mesh ('eyeIris') and both catchlights
-//     one mesh ('eyeGlint') — same look, fewer draws. 'eyeSclera' and the
-//     blinkable 'eyelid' are unchanged.
+//     iris rim/iris/pupil caps AND both catchlights are one unlit
+//     vertex-coloured mesh ('eyeIris'; a pupil-less eye keeps a separate
+//     'eyeGlint') — same look, fewer draws. 'eyeSclera' and the blinkable
+//     'eyelid' are unchanged.
 //   - Outlines skip transparent/unlit/glowing parts automatically; flag any
 //     other part with `mesh.userData.noOutline = true` to keep it ink-free.
 //   - GOTCHA for hand-built geometry: THREE.LatheGeometry faces point OUTWARD
@@ -523,8 +524,9 @@ export function furFan(count, len, m, opts = {}) {
 // ---------------------------------------------------------------- Face parts
 
 /**
- * A big, readable creature eye: white sclera, a colored iris facing +Z, a
- * small unlit "glint" highlight (named 'eyeGlint') and a skin-colored
+ * A big, readable creature eye: white sclera, a colored iris facing +Z with
+ * a small unlit catchlight baked in ('eyeIris'; 'eyeGlint' when pupil:false)
+ * and a skin-colored
  * 'eyelid' mesh whose Y-scale controls openness (~0.06 = open, ~1 = closed).
  * The bible calls for big readable eyes with a specular highlight on every
  * species — this is the one true way to build one.
@@ -560,6 +562,7 @@ export function eye(r = 0.05, opts = {}) {
   const sclera = new THREE.Mesh(new THREE.SphereGeometry(r, 12, 9), scleraM);
   sclera.name = 'eyeSclera';
   group.add(sclera);
+  let irisParts = null;
   if (pupil) {
     // AUTO-ENLIVEN: most pre-overhaul models pass a near-black irisColor and
     // expect a "dot" — that read as dead. If the requested iris is dark, keep
@@ -592,23 +595,29 @@ export function eye(r = 0.05, opts = {}) {
       geo.rotateX(Math.PI / 2); // cap pole from +Y onto +Z
       return [solidColor(geo, color)];
     };
-    const iris = new THREE.Mesh(bakeParts([
+    irisParts = [
       cap(r * 1.025, Math.min(capTheta * 1.18, 1.5), pupilC.getHex(), 14),
       cap(r * 1.05, capTheta, irisC.getHex(), 14),
       cap(r * 1.075, capTheta * 0.52, pupilC.getHex(), 12),
-    ]), mat(0xffffff, { unlit: true, vertexColors: true, glow: 1 }));
-    iris.name = 'eyeIris';
-    group.add(iris);
+    ];
   }
-  // Main catchlight (+ the tiny secondary one, baked into the same mesh):
-  // floored so no model ends up with an invisible speck — the always-on
-  // specular highlight is what makes an eye read as ALIVE.
+  // Main catchlight (+ the tiny secondary one): floored so no model ends up
+  // with an invisible speck — the always-on specular highlight is what makes
+  // an eye read as ALIVE. With an iris, the glints are baked (white vertex
+  // color) into the same unlit 'eyeIris' mesh: one draw fewer per eye.
   const gR = Math.max(glintSize, r * 0.26);
   const glintParts = [[new THREE.SphereGeometry(gR, 7, 5), { p: [r * 0.3, r * 0.34, r * 0.8] }]];
   if (microGlint) glintParts.push([new THREE.SphereGeometry(gR * 0.45, 5, 3), { p: [-r * 0.28, -r * 0.22, r * 0.92] }]);
-  const glint = new THREE.Mesh(bakeParts(glintParts), mat(0xffffff, { unlit: true, glow: 1 }));
-  glint.name = 'eyeGlint';
-  group.add(glint);
+  if (irisParts) {
+    for (const [g] of glintParts) solidColor(g, 0xffffff);
+    const iris = new THREE.Mesh(bakeParts([...irisParts, ...glintParts]), mat(0xffffff, { unlit: true, vertexColors: true, glow: 1 }));
+    iris.name = 'eyeIris';
+    group.add(iris);
+  } else {
+    const glint = new THREE.Mesh(bakeParts(glintParts), mat(0xffffff, { unlit: true, glow: 1 }));
+    glint.name = 'eyeGlint';
+    group.add(glint);
+  }
   // Eyelid: slightly darker than the skin so a blink reads as a lid, not a
   // glitch. Y-scale = openness (0.06 open sliver .. ~1 closed).
   const lidC = new THREE.Color(skinColor).multiplyScalar(0.82);

@@ -34,14 +34,14 @@ export function build_thalassyr(kit = kitDefault) {
 
   const root = new THREE.Group();
   const spotsA = [], spotsB = [];
-  const spot = (list, p, r) => list.push(S.paint(S.ball(r, { radial: 7, rings: 5 }).translate(p[0], p[1], p[2]), 0xffffff));
+  const spot = (list, p, r) => { const g = new THREE.OctahedronGeometry(r * 1.15, 0); g.deleteAttribute('uv'); list.push(S.paint(g.translate(p[0], p[1], p[2]), 0xffffff)); };
 
   // --- Torso + reared S-neck ---------------------------------------------------
   const torso = S.spindle({ len: 0.95, r: 0.34, sx: 0.95, sy: 1.0, p: 0.9, radial: 20, rings: 14, profile: (t) => 0.8 + 0.22 * S.bump(t, 0.62, 0.4) });
   S.paint(torso, { from: SKIN_LO, to: SKIN_HI, axis: 'y', noise: 0.015, seed: 81 });
   S.overlay(torso, BELLY, (x, y, z) => S.sstep(-0.14, -0.24, y) * 0.9);
   const neckPts = [[0, 0.04, 0.36], [0, 0.26, 0.64], [0, 0.66, 0.74], [0, 1.06, 0.7], [0, 1.28, 0.84]];
-  const neck = S.tubeAlong(neckPts, (t) => S.lerp(0.3, 0.2, t), { radial: 16, tubular: 24 });
+  const neck = S.tubeAlong(neckPts, (t) => S.lerp(0.3, 0.2, t), { radial: 14, tubular: 16 });
   S.paint(neck, { from: SKIN, to: SKIN_HI, axis: 'y', noise: 0.015, seed: 82 });
   S.overlayN(neck, BELLY, (nx, ny, nz) => S.sstep(0.25, 0.65, nz - ny * 0.4) * 0.85);
   const body = S.bake([torso, neck], skin, 'body');
@@ -113,7 +113,7 @@ export function build_thalassyr(kit = kitDefault) {
   S.paint(jawG, { from: 0x1d2e48, to: 0x2e4468, axis: 'y' });
   const fangs = [];
   for (const sd of [1, -1]) for (const [z, len] of [[0.46, 0.1], [0.34, 0.085], [0.2, 0.07]]) {
-    const f = S.taper(len, 0.024, { r1: 0.004, radial: 6, rings: 4 });
+    const f = S.taper(len, 0.024, { r1: 0.004, radial: 5, rings: 3, capSeg: 1 });
     S.paint(f, 0xdcecf4);
     fangs.push(S.pose(f, [sd * 0.13, 0.05, z], [0, 0, sd * 0.08]));
   }
@@ -122,7 +122,7 @@ export function build_thalassyr(kit = kitDefault) {
   const fangMesh = new THREE.Mesh(S.merge(fangs), fangMat);
   fangMesh.name = 'fangs';
   jaw.add(fangMesh);
-  const gum = S.tubeAlong([[0.14, 0.07, 0.08], [0.12, 0.08, 0.4], [0, 0.08, 0.52], [-0.12, 0.08, 0.4], [-0.14, 0.07, 0.08]], () => 0.016, { radial: 6, tubular: 24 });
+  const gum = S.tubeAlong([[0.14, 0.07, 0.08], [0.12, 0.08, 0.4], [0, 0.08, 0.52], [-0.12, 0.08, 0.4], [-0.14, 0.07, 0.08]], () => 0.016, { radial: 5, tubular: 16 });
   const gumMesh = new THREE.Mesh(S.paint(gum, 0xffffff), glowB);
   gumMesh.name = 'jawGlow';
   jaw.add(gumMesh);
@@ -130,7 +130,7 @@ export function build_thalassyr(kit = kitDefault) {
 
   // the dream-lure arcing forward over the snout
   const lurePts = [[0, 0.2, -0.02], [0, 0.44, 0.1], [0, 0.5, 0.34], [0, 0.34, 0.5]];
-  const stalk = new THREE.Mesh(S.paint(S.tubeAlong(lurePts, (t) => S.lerp(0.03, 0.012, t), { radial: 8, tubular: 18 }), 0x1a2a44), skin);
+  const stalk = new THREE.Mesh(S.paint(S.tubeAlong(lurePts, (t) => S.lerp(0.03, 0.012, t), { radial: 6, tubular: 12 }), 0x1a2a44), skin);
   stalk.name = 'lureStalk';
   head.add(stalk);
   const lure = kit.crystal(0.08, glowA.clone(), { coreColor: 0xffffff, detail: 0 });
@@ -147,7 +147,7 @@ export function build_thalassyr(kit = kitDefault) {
   const YAW = [0, -0.14, -0.19, -0.22, -0.2, -0.12, 0.0, 0.12, 0.19, 0.2, 0.16, 0.1];
   const PITCH = [-0.06, -0.14, -0.04, 0.14, 0.18, 0.08, -0.1, -0.18, -0.12, 0.04, 0.14, 0.14];
   const tail = S.softTail(N, skin, {
-    segLen: 0.3, startR: 0.32, endR: 0.06, rootPitch: -0.06, radial: 11,
+    segLen: 0.3, startR: 0.32, endR: 0.06, rootPitch: -0.06, radial: 10,
     curl: (i) => PITCH[i] ?? 0, yaw: (i) => YAW[i + 1] ?? 0,
     color: (t) => S.mixHex(SKIN, SKIN_LO, t * 0.45),
   });

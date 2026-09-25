@@ -24,7 +24,7 @@ export function build_briarback(kit = kitDefault) {
 
   // --- Body: stocky barrel, shoulder hump, head end lower. -----------------
   const bodyGeo = S.spindle({
-    len: 0.62, r: 0.2, sx: 1.0, sy: 1.0, p: 0.92, radial: 20, rings: 14, belly: 0.18,
+    len: 0.62, r: 0.2, sx: 1.0, sy: 1.0, p: 0.92, radial: 18, rings: 12, belly: 0.18,
     profile: (t) => 0.8 + 0.1 * S.bump(t, 0.2, 0.3) + 0.2 * S.bump(t, 0.66, 0.32),
     arch: (t) => 0.05 * S.bump(t, 0.62, 0.22) - 0.03 * S.sstep(0.8, 1, t),
   });
@@ -35,18 +35,18 @@ export function build_briarback(kit = kitDefault) {
   // woven vines: arcs over the back
   for (let i = 0; i < 5; i++) {
     const z = 0.2 - i * 0.1;
-    mantle.push(S.paint(S.groove(bodyGeo, [[-1.3, 0.25], [-0.7, 0.8], [0, 1.2], [0.7, 0.8], [1.3, 0.25]], { from: [0, 0, z], radius: 0.018, lift: 0.004, radial: 5 }), i % 2 ? VINE : VINE_HI));
+    mantle.push(S.paint(S.groove(bodyGeo, [[-1.3, 0.25], [-0.7, 0.8], [0, 1.2], [0.7, 0.8], [1.3, 0.25]], { from: [0, 0, z], radius: 0.018, lift: 0.004, radial: 4, seg: 12 }), i % 2 ? VINE : VINE_HI));
   }
   mantle.push(S.paint(S.grooveTop(bodyGeo, [[0.02, 0.26], [-0.03, 0.1], [0.03, -0.06], [-0.02, -0.22]], { radius: 0.02, lift: 0.006, radial: 5 }), VINE));
   // thorns: Thistlit's quills, hardened — violet with pale tips
   let n = 0;
-  for (let row = 0; row < 5; row++) for (let k = 0; k < 5; k++) {
-    const u = k / 4 - 0.5;
+  for (let row = 0; row < 5; row++) for (let k = 0; k < 4; k++) {
+    const u = (k + (row % 2) * 0.5) / 3.5 - 0.5;
     const yaw = u * 2.4, pitch = 1.1 - Math.abs(u) * 0.9;
     const at = capAt(yaw, pitch, 0.22 - row * 0.1, 0.004);
     const nrm = S.dirYP(yaw, pitch);
     const len = 0.07 + ((n * 7919) % 11) / 11 * 0.035;
-    const g = S.taper(len, 0.018, { r1: 0.002, curve: -0.2, radial: 5, rings: 4 });
+    const g = S.taper(len, 0.018, { r1: 0.002, curve: -0.2, radial: 5, rings: 3, capSeg: 1 });
     S.paint(g, { from: THORN, to: THORN_TIP, axis: 'y', exp: 2 });
     S.aim(g, [nrm[0], nrm[1], nrm[2] - 0.5]);
     mantle.push(S.pose(g, at));
@@ -55,12 +55,12 @@ export function build_briarback(kit = kitDefault) {
   // leaves and berry clusters tucked into the vines
   for (const [yaw, pitch, z, bs] of [[0.6, 0.85, 0.12, 1], [-0.7, 0.8, -0.02, 1], [0.3, 1.15, -0.2, 0], [-0.25, 1.05, 0.22, 0], [0.9, 0.5, -0.15, 1]]) {
     const at = capAt(yaw, pitch, z, -0.006);
-    const leaf = S.spindle({ len: 0.07, r: 0.022, sx: 1, sy: 0.25, radial: 8, rings: 5, pNose: 1.4 });
+    const leaf = S.spindle({ len: 0.07, r: 0.022, sx: 1, sy: 0.25, radial: 6, rings: 4, pNose: 1.4 });
     leaf.translate(0, 0, 0.03);
     S.paint(leaf, { from: 0x3f7a30, to: LEAF, axis: 'z' });
     mantle.push(S.pose(leaf, at, [-0.4, yaw + 0.8, 0]));
     if (bs) for (let b = 0; b < 3; b++) {
-      const be = S.ball(0.018, { radial: 8, rings: 6 });
+      const be = S.ball(0.018, { radial: 6, rings: 4 });
       S.paint(be, { from: 0x901828, to: BERRY, axis: 'y' });
       mantle.push(S.pose(be, [at[0] + (b - 1) * 0.02, at[1] + 0.012 + (b === 1 ? 0.012 : 0), at[2] + 0.015]));
     }

@@ -1296,6 +1296,7 @@ export async function buildArena(biomeOrKind, particles, opts = {}) {
   let lightMult = 1;
   const baseRim = rim.intensity;
   const _v = new THREE.Vector3(), _rd = new THREE.Vector3(), UPV = new THREE.Vector3(0, 1, 0);
+  const rimArgs = { rimDir: _rd }; // reused: no per-frame allocation
   function update(dt, t, camera) {
     if (rig) {
       try { rig.sky.update(dt, dayTime); } catch (e) { /* sky mid-edit: keep last frame */ }
@@ -1305,7 +1306,7 @@ export async function buildArena(biomeOrKind, particles, opts = {}) {
         // the sky aims the shared rim light along ITS sun; ours is rotated
         if (typeof MAT.setLookParams === 'function') {
           _rd.copy(rig.sky.sunDir).applyAxisAngle(UPV, rig.holder.rotation.y).lerp(UPV, 0.35).normalize();
-          try { MAT.setLookParams({ rimDir: _rd }); } catch (e) { /* optional */ }
+          try { MAT.setLookParams(rimArgs); } catch (e) { /* optional */ }
         }
       }
       key.intensity *= lightMult * (stage.keyMul ?? 1);

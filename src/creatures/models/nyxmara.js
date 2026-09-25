@@ -96,7 +96,8 @@ function starfield(kit, panel, count, span, chord, up, t0, t1, seed) {
   for (let i = 0; i < count; i++) {
     const t = t0 + (t1 - t0) * (0.05 + rng() * 0.9);
     const [hi, lo] = chordAt(t, chord, up, 1 - up);
-    const g = S.ball(0.009 + rng() * 0.012, { radial: 4, rings: 3 });
+    const g = new THREE.OctahedronGeometry(0.011 + rng() * 0.013, 0); // 8 tris a star
+    g.deleteAttribute('uv');
     g.translate(span * (t - t0), -lo * 0.8 + rng() * (hi + lo) * 0.8, 0);
     geos.push(S.paint(g, 0xffffff));
   }
@@ -148,7 +149,7 @@ export function build_nyxmara(kit = kitDefault) {
   const LEG = 0.52;
   const hipY = -0.15;
   const bodyGeo = S.spindle({
-    len: 1.22, r: 0.2, sx: 0.95, sy: 1.06, p: 0.9, radial: 22, rings: 18,
+    len: 1.22, r: 0.2, sx: 0.95, sy: 1.06, p: 0.9, radial: 18, rings: 14,
     profile: (t) => 0.82 + 0.16 * S.bump(t, 0.2, 0.26) + 0.3 * S.bump(t, 0.76, 0.3),
     belly: (t) => 0.06 + 0.3 * S.bump(t, 0.45, 0.28),
     arch: (t) => 0.03 * S.sstep(0.5, 1, t),
@@ -173,7 +174,7 @@ export function build_nyxmara(kit = kitDefault) {
 
   // --- Head: a broad panther wedge, dark brow, moth antennae ---------------
   const headGeo = S.spindle({
-    len: 0.4, r: 0.2, sx: 1.0, sy: 1.0, pTail: 1.0, pNose: 1.1, radial: 20, rings: 16, belly: 0.1,
+    len: 0.4, r: 0.2, sx: 1.0, sy: 1.0, pTail: 1.0, pNose: 1.1, radial: 18, rings: 13, belly: 0.1,
     profile: (t) => (t < 0.5 ? 1.0 : S.lerp(1.0, 0.62, S.sstep(0.5, 0.78, t))) - 0.1 * S.sstep(0.8, 1, t),
     syAt: (t) => S.lerp(0.86, 0.66, S.sstep(0.45, 0.8, t)),
     arch: (t) => -0.05 * S.sstep(0.45, 0.85, t),
@@ -218,9 +219,9 @@ export function build_nyxmara(kit = kitDefault) {
   // soft feathered vane — reads MOTH before the wings even register.
   const antennae = [];
   for (const sd of [1, -1]) {
-    const stalk = S.taper(0.36, 0.014, { r1: 0.005, curve: -0.5, radial: 6, rings: 7 });
+    const stalk = S.taper(0.36, 0.014, { r1: 0.005, curve: -0.5, radial: 6, rings: 5 });
     S.paint(stalk, 0x3c355e);
-    const vane = S.spindle({ len: 0.26, r: 0.045, sx: 1, sy: 0.14, radial: 10, rings: 10, pNose: 1.3, profile: (t) => Math.pow(Math.sin(Math.PI * Math.min(1, 0.05 + t * 0.95)), 0.6) * (0.5 + 0.5 * t) });
+    const vane = S.spindle({ len: 0.26, r: 0.045, sx: 1, sy: 0.14, radial: 8, rings: 8, pNose: 1.3, profile: (t) => Math.pow(Math.sin(Math.PI * Math.min(1, 0.05 + t * 0.95)), 0.6) * (0.5 + 0.5 * t) });
     vane.rotateX(-Math.PI / 2);
     vane.translate(0, 0.2, 0);
     const vp = vane.attributes.position;
@@ -286,7 +287,7 @@ export function build_nyxmara(kit = kitDefault) {
       // wing read as a real shape in a black-on-white silhouette test. This is
       // the one place rotateZ is the RIGHT axis (kit.js's capsule note): a
       // spar is a genuine left-right crossbar, not a nose-to-tail body.
-      const spar = new THREE.Mesh(new THREE.CapsuleGeometry(0.017, span * 0.5, 3, 7), sparMat);
+      const spar = new THREE.Mesh(new THREE.CapsuleGeometry(0.017, span * 0.5, 2, 6), sparMat);
       spar.geometry.rotateZ(Math.PI / 2);
       kit.at(panel, spar, span * 0.25, 0, 0.012);
       wingFx.push(starfield(kit, panel, i === 0 ? 13 : 9, span, chord, UP, t0, t1, seed + i));
@@ -297,9 +298,9 @@ export function build_nyxmara(kit = kitDefault) {
       const spot = new THREE.Group();
       spot.position.set(span * 0.3, chord * 0.12, 0.009);
       panels[0].add(spot);
-      kit.at(spot, new THREE.Mesh(S.ball(chord * 0.19, { sz: 0.04, radial: 20, rings: 6 }), paleMat), 0, 0, 0);
-      kit.at(spot, new THREE.Mesh(S.ball(chord * 0.12, { sz: 0.04, radial: 18, rings: 6 }), wingMat), 0, 0, 0.006);
-      kit.at(spot, new THREE.Mesh(S.ball(chord * 0.05, { sz: 0.06, radial: 12, rings: 5 }), glowMat.clone()), 0, 0, 0.012);
+      kit.at(spot, new THREE.Mesh(S.ball(chord * 0.19, { sz: 0.04, radial: 14, rings: 5 }), paleMat), 0, 0, 0);
+      kit.at(spot, new THREE.Mesh(S.ball(chord * 0.12, { sz: 0.04, radial: 12, rings: 5 }), wingMat), 0, 0, 0.006);
+      kit.at(spot, new THREE.Mesh(S.ball(chord * 0.05, { sz: 0.06, radial: 8, rings: 4 }), glowMat.clone()), 0, 0, 0.012);
       wingAccents.push(spot);
     }
     wingBones.push(bones);
@@ -324,12 +325,12 @@ export function build_nyxmara(kit = kitDefault) {
   ];
   const legs = legDefs.map(([x, y, z, bend, thighR]) => kit.at(body, S.softLeg(LEG, pelt, {
     thighR, shinR: 0.058, kneeR: 0.066, ankleR: 0.05, pawR: 0.07, pawLen: 1.25, toes: 3,
-    bend, split: 0.5, bulge: 0.3, color: 0x51477a, shinColor: 0x463d6c, pawColor: 0x3a3360, radial: 9,
+    bend, split: 0.5, bulge: 0.3, color: 0x51477a, shinColor: 0x463d6c, pawColor: 0x3a3360, radial: 8,
   }), x, y, z));
 
   // --- Long heavy tail, carried in a slow rising curve ---------------------
   const tail = S.softTail(7, pelt, {
-    segLen: 0.14, startR: 0.066, endR: 0.03, rootPitch: 0.42, radial: 10,
+    segLen: 0.14, startR: 0.066, endR: 0.03, rootPitch: 0.42, radial: 8,
     curl: (i) => (i < 3 ? 0.05 : -0.07), yaw: 0.06,
     color: (t) => S.mixHex(0x51477a, 0x3c355e, t),
   });

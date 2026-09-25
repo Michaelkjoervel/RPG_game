@@ -395,11 +395,9 @@ function buildHuman(spec) {
   if (capeHex != null) {
     tparts.push([paint(ringGeo(0.13 * wide, 0.03, 3, 12, Math.PI * 1.3), capeHex, { down: 0.04, up: 0.06, seed: 27 }), { p: [0, TL * 0.94, -0.015] }]);
   }
+  // belt buckle in the accent colour (baked in: one draw fewer per person)
+  tparts.push([solidColor(new THREE.BoxGeometry(0.05 * wide, 0.042, 0.014), spec.accent ?? GOLD), { p: [0, TL * 0.37, 0.126 * wide * taperZ(TL * 0.37) + 0.012] }]);
   torso.add(mesh(bake(tparts), bodyM));
-  const buckle = noInk(mesh(new THREE.BoxGeometry(0.05 * wide, 0.042, 0.014), accentM, false));
-  buckle.geometry.userData.lfOwned = true;
-  buckle.position.set(0, TL * 0.37, 0.126 * wide * taperZ(TL * 0.37) + 0.012);
-  torso.add(buckle);
 
   /* arms — shoulder cap, sleeve with an elbow (or rolled to the elbow over a
      bare forearm), cuff, rounded mitt hand + a thumb that reads */

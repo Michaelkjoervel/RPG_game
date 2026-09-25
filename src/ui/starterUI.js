@@ -155,10 +155,8 @@ async function buildScene(game) {
 
   // Focus framing per plinth: the creature right of center (the info panel
   // owns the left), camera low enough that it looks a little heroic.
-  const camFor = (i) => {
-    const [px, pz] = PLINTHS[i];
-    return { pos: new THREE.Vector3(px - 1.3, 1.42, pz + 4.1), look: new THREE.Vector3(px - 0.78, 0.66, pz) };
-  };
+  const CAMS = PLINTHS.map(([px, pz]) => ({ pos: new THREE.Vector3(px - 1.3, 1.42, pz + 4.1), look: new THREE.Vector3(px - 0.78, 0.66, pz) }));
+  const camFor = (i) => CAMS[i]; // precomputed: never allocate per frame
 
   const rigs = [];
   for (let i = 0; i < STARTERS.length; i++) {

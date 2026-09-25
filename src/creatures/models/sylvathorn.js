@@ -28,7 +28,7 @@ export function build_sylvathorn(kit = kitDefault) {
   // --- Body: deep chest, tucked waist, strong haunch. -----------------------
   const LEG = 0.72, hipY = -0.16;
   const bodyGeo = S.spindle({
-    len: 1.0, r: 0.22, sx: 0.88, sy: 1.08, p: 0.9, radial: 20, rings: 16,
+    len: 1.0, r: 0.22, sx: 0.88, sy: 1.08, p: 0.9, radial: 18, rings: 13,
     profile: (t) => 0.72 + 0.2 * S.bump(t, 0.2, 0.26) + 0.36 * S.bump(t, 0.74, 0.3),
     belly: (t) => 0.06 + 0.3 * S.bump(t, 0.42, 0.28),
     arch: (t) => 0.05 * S.sstep(0.45, 1, t),
@@ -40,7 +40,7 @@ export function build_sylvathorn(kit = kitDefault) {
   // bark plates over shoulders and spine
   const plates = [];
   const plate = (at, dir, w, h, seed) => {
-    const g = S.pebble(w, { sx: 1, sy: 0.32, sz: h / w, seed, noise: 0.08, radial: 12, rings: 8 });
+    const g = S.pebble(w, { sx: 1, sy: 0.32, sz: h / w, seed, noise: 0.08, radial: 10, rings: 6 });
     S.paint(g, { from: BARK_LO, to: BARK_HI, axis: 'y', noise: 0.03, seed });
     // bark grain: darker stripes along the plate
     S.overlay(g, 0x1e1810, (x, y, z) => (Math.abs(Math.sin(x * 70 + seed)) > 0.93 ? 0.7 : 0));
@@ -59,7 +59,7 @@ export function build_sylvathorn(kit = kitDefault) {
   const moss = [];
   for (const [z, r, seed] of [[0.18, 0.15, 61], [-0.05, 0.14, 62], [-0.26, 0.12, 63]]) {
     const at = S.surface(bodyGeo, [0, 1, 0], { from: [0, 0, z], inset: 0.02 });
-    const g = S.puff(r, { count: 6, spread: 0.8, seed, sy: 0.55, blend: 0.8, flat: 0.5 });
+    const g = S.puff(r, { count: 5, spread: 0.8, seed, sy: 0.55, blend: 0.8, flat: 0.5, radial: 8, rings: 5 });
     S.pose(g, [at[0], at[1] + 0.02, at[2]], null, [1.25, 1, 1.1]);
     S.paint(g, { from: MOSS_LO, to: MOSS_HI, axis: 'y', noise: 0.03, seed });
     moss.push(g);
@@ -108,12 +108,12 @@ export function build_sylvathorn(kit = kitDefault) {
   const antlers = [], buds = [];
   for (const sd of [1, -1]) {
     const beamLen = 0.52;
-    const beam = S.taper(beamLen, 0.05, { r1: 0.018, curve: -0.35, radial: 8, rings: 8 });
+    const beam = S.taper(beamLen, 0.05, { r1: 0.018, curve: -0.35, radial: 7, rings: 6 });
     S.paint(beam, { from: BARK_LO, to: 0x7a6a4a, axis: 'y', noise: 0.02 });
     const parts = [beam];
     const tipsLocal = [[0, beamLen, -0.35 * beamLen]];
     for (const [t, len, splay] of [[0.35, 0.22, 0.9], [0.6, 0.2, 0.55], [0.82, 0.14, 0.3]]) {
-      const tine = S.taper(len, 0.024, { r1: 0.008, curve: -0.25, radial: 6, rings: 5 });
+      const tine = S.taper(len, 0.024, { r1: 0.008, curve: -0.25, radial: 5, rings: 4, capSeg: 1 });
       S.paint(tine, { from: BARK_LO, to: 0x7a6a4a, axis: 'y' });
       const base = [0, t * beamLen, -0.35 * beamLen * t * t];
       S.pose(tine, base, [0.25, 0, -splay]);
@@ -126,7 +126,7 @@ export function build_sylvathorn(kit = kitDefault) {
     kit.at(head, m, at[0], at[1], at[2], { rz: -sd * 0.55, rx: -0.25 });
     if (sd < 0) m.scale.x = -1;
     antlers.push(m);
-    const bg = tipsLocal.map((p) => S.paint(S.ball(0.026, { radial: 8, rings: 6 }).translate(p[0], p[1], p[2]), 0xffffff));
+    const bg = tipsLocal.map((p) => S.paint(S.ball(0.026, { radial: 6, rings: 4 }).translate(p[0], p[1], p[2]), 0xffffff));
     const budMesh = new THREE.Mesh(S.merge(bg), glowMat);
     budMesh.name = 'antlerBuds';
     m.add(budMesh);

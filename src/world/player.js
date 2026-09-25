@@ -119,7 +119,6 @@ function buildWarden() {
     hair: M(0xffffff, { rough: 0.62, vc: true }),
     eye: M(0xffffff, { rough: 0.3, vc: true, emissive: 0xffffff, ei: 0.08, rim: 0.4 }),
     face: M(0xffffff, { rough: 0.7, vc: true }),
-    belt: M(P.belt, { rough: 0.7 }),
     gold: M(P.gold, { rough: 0.38, metal: 0.35, emissive: 0xffe9b0, ei: 0.14 }),
   };
   const mesh = (geo, mat, shadow = true) => { const m = new THREE.Mesh(geo, mat); m.castShadow = shadow; return m; };
@@ -213,29 +212,27 @@ function buildWarden() {
   chest.scale.set(1.15, 1, 0.92);
   chest.userData.ownShell = true; // breathes (animated scale) — keeps its own ink shell
   torso.add(chest);
-  const beltG = new THREE.TorusGeometry(0.146, 0.021, 3, 18);
-  beltG.rotateX(Math.PI / 2);
-  beltG.scale(1.05, 1.45, 0.86);
-  const belt = noInk(mesh(beltG, mats.belt));
-  belt.position.y = 0.205;
-  torso.add(belt);
+  /* belt + the charm pouch on the left hip (where the Charms live) + its
+     bead: one ink-free vertex-coloured mesh (three draws -> one) */
+  {
+    const beltG = new THREE.TorusGeometry(0.146, 0.021, 3, 18);
+    beltG.rotateX(Math.PI / 2);
+    beltG.scale(1.05, 1.45, 0.86);
+    const pouchG = bakeParts([
+      [grad(new THREE.SphereGeometry(0.056, 8, 6), P.satchel, { seed: 13 }), { s: [1.0, 1.08, 0.74] }],
+      [grad(new RoundedBoxGeometry(0.086, 0.042, 0.058, 1, 0.014), shade(P.satchel, -0.08), { seed: 14 }), { p: [0, 0.052, 0] }],
+      [solidColor(new THREE.SphereGeometry(0.014, 6, 4), P.gold), { p: [0, 0.02, 0.044] }],
+    ]);
+    torso.add(noInk(mesh(bakeParts([
+      [solidColor(beltG, P.belt), { p: [0, 0.205, 0] }],
+      [pouchG, { p: [-0.15, 0.135, 0.085], r: [0, 0.35, 0] }],
+    ]), mats.cloth)));
+  }
   /* gold bits on the torso (buckle + collar clasp): one mesh */
   torso.add(noInk(mesh(bakeParts([
     [new THREE.BoxGeometry(0.058, 0.048, 0.02), { p: [0, 0.205, 0.143] }],
     [new THREE.SphereGeometry(0.026, 8, 6), { p: [0, 0.47, 0.13] }],
   ]), mats.gold)));
-  /* charm pouch on the left hip — where the Charms live */
-  const pouch = new THREE.Group();
-  pouch.position.set(-0.15, 0.135, 0.085);
-  pouch.rotation.y = 0.35;
-  const pouchBody = noInk(mesh(bakeParts([
-    [grad(new THREE.SphereGeometry(0.056, 8, 6), P.satchel, { seed: 13 }), { s: [1.0, 1.08, 0.74] }],
-    [grad(new RoundedBoxGeometry(0.086, 0.042, 0.058, 1, 0.014), shade(P.satchel, -0.08), { seed: 14 }), { p: [0, 0.052, 0] }],
-  ]), mats.cloth));
-  const pouchBead = noInk(mesh(new THREE.SphereGeometry(0.014, 6, 4), mats.gold, false));
-  pouchBead.position.set(0, 0.02, 0.044);
-  pouch.add(pouchBody, pouchBead);
-  torso.add(pouch);
   /* satchel on the right hip + strap across the chest — signature silhouette bit */
   const satchel = new THREE.Group();
   satchel.position.set(0.19, 0.10, -0.03);
@@ -266,17 +263,16 @@ function buildWarden() {
     const cuffG = new THREE.TorusGeometry(0.047, 0.015, 4, 12);
     cuffG.rotateX(Math.PI / 2);
     cuffG.scale(1, 1.5, 1);
-    shoulder.add(mesh(bakeParts([   // shoulder cap + bent sleeve + cuff (cuff in belt colour)
+    // shoulder cap + bent sleeve + cuff + rounded mitt hand with a thumb that
+    // reads (angled out and forward): ONE vertex-coloured mesh per arm
+    const hy = e.y + fy * 0.042, hz = e.z + fz * 0.042;
+    shoulder.add(mesh(bakeParts([
       [grad(new THREE.SphereGeometry(0.068, 10, 7), P.tunic, { seed: 18 }), { p: [0, -0.012, 0], s: [1.08, 0.78, 1.0] }], // stays under the capelet
       [grad(sleeve.geometry, P.tunic, { down: 0.11, seed: 19 }), { p: [0, SLEEVE_Y, 0] }],
       [solidColor(cuffG, P.belt), { p: [0, e.y - fy * 0.012, e.z - fz * 0.012], r: [-b, 0, 0] }],
+      [solidColor(new THREE.SphereGeometry(0.05, 9, 7), P.skin), { p: [0, hy, hz], r: [-b, 0, 0], s: [0.9, 1.08, 0.96] }],
+      [solidColor(new THREE.CapsuleGeometry(0.019, 0.026, 2, 6), P.skin), { p: [-sgn * 0.036, hy + 0.01, hz + 0.026], r: [0.35 - b, 0, sgn * 0.62] }],
     ]), mats.cloth));
-    // hand: rounded mitt + a thumb that actually reads (angled out and forward)
-    const hy = e.y + fy * 0.042, hz = e.z + fz * 0.042;
-    shoulder.add(mesh(bakeParts([
-      [new THREE.SphereGeometry(0.05, 9, 7), { p: [0, hy, hz], r: [-b, 0, 0], s: [0.9, 1.08, 0.96] }],
-      [new THREE.CapsuleGeometry(0.019, 0.026, 2, 6), { p: [-sgn * 0.036, hy + 0.01, hz + 0.026], r: [0.35 - b, 0, sgn * 0.62] }],
-    ]), mats.skin));
     shoulder.rotation.z = sgn * 0.16;
     torso.add(shoulder);
     return shoulder;
@@ -285,9 +281,6 @@ function buildWarden() {
   const armR = buildArm(0.205);
 
   /* head + stylized face */
-  const neck = noInk(mesh(taperCapsule(0.047, 0.054, 0.04, 8, 2), mats.skin));
-  neck.position.y = 0.53;
-  torso.add(neck);
   const head = new THREE.Group();
   head.position.y = 0.56;
   torso.add(head);
@@ -296,7 +289,8 @@ function buildWarden() {
     [new THREE.SphereGeometry(0.03, 7, 5), { p: [-0.153, 0.088, 0.004], s: [0.62, 1, 0.82] }],
     [new THREE.SphereGeometry(0.03, 7, 5), { p: [0.153, 0.088, 0.004], s: [0.62, 1, 0.82] }],
   ]), mats.skin));
-  /* face details (nose, cheeks, smile, brows, lash lines) — one vertex-coloured mesh */
+  const hairTie = () => { const t = new THREE.TorusGeometry(0.024, 0.009, 3, 8); t.rotateX(Math.PI / 2 - 0.5); return t; };
+  /* face details (nose, cheeks, smile, brows, lash lines) + neck + hair tie — one vertex-coloured, ink-free mesh */
   {
     const lash = (sx) => { const g = new THREE.TorusGeometry(0.026, 0.0042, 3, 8, Math.PI * 0.62); g.rotateZ(Math.PI * 0.19); return g; };
     head.add(noInk(mesh(bakeParts([
@@ -308,6 +302,8 @@ function buildWarden() {
       [solidColor(new THREE.CapsuleGeometry(0.0075, 0.036, 1, 5), shade(P.hair, -0.14)), { p: [0.06, 0.155, 0.149], r: [0, 0, Math.PI / 2 - 0.12] }],
       [solidColor(lash(-1), 0x3a2418), { p: [-0.06, 0.106, 0.16], r: [0, -0.1, 0] }],
       [solidColor(lash(1), 0x3a2418), { p: [0.06, 0.106, 0.16], r: [0, 0.1, 0] }],
+      [solidColor(taperCapsule(0.047, 0.054, 0.04, 8, 2), shade(P.skin, -0.04)), { p: [0, -0.03, 0] }], // neck (rides the head)
+      [solidColor(hairTie(), P.scarf), { p: [0, 0.028, -0.176] }],                                      // the tail's tie
     ]), mats.face, false)));
   }
 
@@ -363,11 +359,6 @@ function buildWarden() {
       return [f];
     });
     head.add(mesh(bakeParts([[shell], [tail], ...flicks]), mats.hair));
-    const tie = new THREE.TorusGeometry(0.024, 0.009, 3, 8);
-    tie.rotateX(Math.PI / 2 - 0.5);
-    const tieM = noInk(mesh(solidColor(tie, P.scarf), mats.face, false));
-    tieM.position.set(0, 0.028, -0.176);
-    head.add(tieM);
   }
   /* springy cowlick (animated): one big swept curl + a small flick */
   const hairTuft = new THREE.Group();
