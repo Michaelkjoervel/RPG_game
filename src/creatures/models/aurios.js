@@ -32,135 +32,96 @@
 
 import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
-import { applyVertexGradient, jitterGeometry } from '../../gfx/materials.js';
+
+import * as S from './soft.js';
 
 export function build_aurios(kit = kitDefault) {
-  // Three coat tones, not one: warm ivory body, pale belly/ruff, tan legs.
-  // A single near-white value over the whole animal is what made the earlier
-  // passes read as moulded plastic rather than a creature of morning light.
-  // Visual-overhaul pass: the main coat masses are vertex-gradient painted
-  // (warm tan under-body -> ivory top, faint mottle) so the barrel shades as
-  // a lit volume instead of one flat swatch; a touch of seeded jitter takes
-  // the CNC-perfect curve off the big orbs.
+  // Visual pass v2 (soft stylized): the barrel, chest, haunch, neck and dawn
+  // saddle are ONE sculpted, vertex-painted stag form (warm tan under-body ->
+  // ivory top, a warm gold saddle along the spine, a radiant pale belly); the
+  // head is a single wedge (skull flowing into a long muzzle); the legs are
+  // slender tapered deer legs with real joints and glowing gold hooves. The
+  // crown, rays, dawn mane and light pools keep the Firstborn design below.
   const coatHex = 0xefe0bd;
-  const coat = kit.mat(coatHex, { rough: 0.45, metal: 0.04 });
-  const coatV = kit.mat(0xffffff, { vertexColors: true, rough: 0.45, metal: 0.04 });
-  const COAT_LO = 0xcfae7e, COAT_HI = 0xfff6e2;
-  const paintCoat = (mesh, seed, jit = 0) => {
-    if (jit) jitterGeometry(mesh.geometry, jit, seed);
-    applyVertexGradient(mesh.geometry, { from: COAT_LO, to: COAT_HI, noise: 0.035, seed });
-    return mesh;
-  };
-  const coatWarm = kit.mat(0xdcc396, { rough: 0.55 });        // legs / shaded tone
-  const coatPale = kit.mat(0xfffaf0, { rough: 0.32 });        // ruff, belly, tail flash
-  // Antler beams are SOLID (they must read as a black shape in a silhouette
-  // test), warm gold, self-lit enough to feel like dawn without going unlit.
-  // Metalness stays low: there is no env map in this game, and a high-metal
-  // standard material simply renders black.
+  const coat = S.vcMat(kit, { rough: 0.45, metal: 0.04 });
+  const COAT_LO = 0xcfae7e, COAT_HI = 0xfff6e2, PALE = 0xfffaf0, SADDLE = 0xdcae63, LEGC = 0xdcc396, HOOF = 0xf0b860;
+  const coatPale = kit.mat(PALE, { rough: 0.32 });
   const antlerMat = kit.mat(0xffc978, { rough: 0.3, metal: 0.12, emissive: 0xff9c34, emissiveIntensity: 0.8 });
   const antlerTip = kit.mat(0xffe9bb, { rough: 0.25, metal: 0.1, emissive: 0xffbe58, emissiveIntensity: 1.1 });
-  // Rays are a warmer, deeper gold than the antler beams and much warmer than
-  // the coat: against a near-white animal a pale ray simply disappears, and
-  // the sunburst has to still be gold at 64px.
-  // Deeper than they look on paper: the renderer's ACES tone mapping washes
-  // bright saturated unlit colours toward cream, so a "gold" ray authored at
-  // 0xffd782 comes out white. Author them a stop or two down and they land on
-  // warm dawn-gold on screen.
+  // Rays are authored a stop or two down: ACES tone mapping washes bright
+  // saturated unlit colours toward cream, and the sunburst must stay gold.
   const rayMat = kit.mat(0xf09520, { unlit: true, transparent: true, opacity: 0.92 });
   const rayCore = kit.mat(0xffcf6a, { unlit: true, transparent: true, opacity: 0.95 });
   const maneMat = kit.mat(0xf5a832, { unlit: true, transparent: true, opacity: 0.8, side: THREE.DoubleSide });
-  const hoofMat = kit.mat(0xf0c377, { rough: 0.35, metal: 0.1, emissive: 0xd9832a, emissiveIntensity: 0.6 });
-  const poolMat = kit.mat(0xffe9b0, { unlit: true, additive: true, opacity: 0.34 });
-  const poolSoft = kit.mat(0xffca7a, { unlit: true, additive: true, opacity: 0.18 });
 
   const root = new THREE.Group();
 
-  // --- Stag barrel -------------------------------------------------------
-  // Nose-to-tail along Z: the capsule's axis swing is baked about X (about Z
-  // would swing it onto the X axis and lay the Dawnhart sideways across the
-  // view). Bake it into the GEOMETRY, not body.rotation — `body` is the
-  // attachment frame for every part below.
-  const body = kit.capsule(0.21, 0.58, coatV, { capSeg: 5, radSeg: 11 });
-  body.geometry.rotateX(Math.PI / 2);
-  paintCoat(body, 61, 0.006);
-  root.add(body);
-
-  // Hooves float; the light pool underneath is what touches the ground.
+  // --- Stag body: barrel + deep chest + round haunch + raised neck ---------
   const HOVER = 0.13;
-  const LEG = 0.84, THIGH_R = 0.075, SHIN_R = 0.048;
-  // kit.leg(len) drops 0.92*len + 0.25*thighR + 0.925*shinR from hip to sole.
-  const legDrop = 0.92 * LEG + 0.25 * THIGH_R + 0.925 * SHIN_R;   // ≈ 0.836
-  const hipY = -0.185;                                            // just inside the belly line
-  body.position.y = HOVER + legDrop - hipY;                       // ≈ 1.151
-
-  // Deep chest and tucked flanks: a stag is not a sausage. The chest orb is
-  // wider than the barrel and sits under the shoulder; the haunch orb behind
-  // it is high and round, and the waist between them stays narrow.
-  const chest = kit.at(body, paintCoat(kit.orb(0.235, coatV, { sy: 1.06, sz: 0.9 }), 62, 0.008), 0, -0.04, 0.28);
-  const haunch = kit.at(body, paintCoat(kit.orb(0.215, coatV, { sy: 1.08, sz: 0.95 }), 63, 0.008), 0, -0.02, -0.3);
-  // Radiant underside — lit from within, brightest along the belly.
-  const bellyGlow = kit.capsule(0.12, 0.52, coatPale, { capSeg: 4, radSeg: 8 });
-  bellyGlow.geometry.rotateX(Math.PI / 2);
-  bellyGlow.scale.set(0.78, 0.5, 1);
-  kit.at(body, bellyGlow, 0, -0.14, 0.02);
-  // A warm "dawn saddle" along the spine. An all-over near-white animal has no
-  // value structure at all and reads as plastic; this puts a warm mid-tone on
-  // top, pale below, so the barrel has a light direction of its own.
-  const saddle = kit.capsule(0.11, 0.5, kit.mat(0xdcae63, { rough: 0.5, emissive: 0x8a5c18, emissiveIntensity: 0.4 }), { capSeg: 4, radSeg: 8 });
-  saddle.geometry.rotateX(Math.PI / 2);
-  saddle.scale.set(1.3, 0.8, 1);
-  kit.at(body, saddle, 0, 0.135, -0.02);
-
-  // --- Raised neck + noble head ------------------------------------------
-  // The neck leans FORWARD-up: for a +Y capsule, a positive rotation about X
-  // tips its top toward +Z. It carries no children, so rotating the mesh
-  // transform (rather than the geometry) is safe here.
+  const bodyGeo = S.spindle({
+    len: 1.12, r: 0.23, sx: 0.86, sy: 1.08, p: 0.9, radial: 22, rings: 18,
+    profile: (t) => 0.72 + 0.18 * S.bump(t, 0.2, 0.26) + 0.3 * S.bump(t, 0.74, 0.3),
+    belly: (t) => 0.08 + 0.3 * S.bump(t, 0.42, 0.3),
+    arch: (t) => 0.05 * S.sstep(0.45, 1, t) - 0.015 * S.bump(t, 0.4, 0.3),
+  });
+  S.paint(bodyGeo, { from: COAT_LO, to: COAT_HI, axis: 'y', exp: 0.9, noise: 0.012, seed: 61 });
+  S.overlay(bodyGeo, SADDLE, (x, y, z) => S.sstep(0.12, 0.24, y) * (1 - S.sstep(0.05, 0.14, Math.abs(x))) * 0.75);
+  S.overlay(bodyGeo, PALE, (x, y, z) => S.sstep(-0.1, -0.2, y) * 0.9);
   const NECK_TILT = 0.58;
-  const NECK_R = 0.115, NECK_LEN = 0.34;
-  const neckHalf = NECK_LEN * 0.5 + NECK_R;                       // 0.285
-  const nDirY = Math.cos(NECK_TILT), nDirZ = Math.sin(NECK_TILT);
-  const neckBaseY = 0.12, neckBaseZ = 0.4;
-  const neck = kit.capsule(NECK_R, NECK_LEN, coatV, { capSeg: 4, radSeg: 9 });
-  paintCoat(neck, 65);
-  kit.at(body, neck, 0, neckBaseY + neckHalf * nDirY, neckBaseZ + neckHalf * nDirZ, { rx: NECK_TILT });
-  // A mane of dawn light along the crest of the neck: thin emissive strands
-  // rising and sweeping back. It breaks the neck's tube, and it carries a
-  // second stroke of warm gold down from the crown into the body so the
-  // colour design doesn't live entirely in the antlers.
+  const neckGeo = S.spindle({ len: 0.62, r: 0.125, sx: 0.9, sy: 1.08, p: 0.9, radial: 16, rings: 12, profile: (t) => 1.1 - 0.28 * t });
+  const nDir = [0, Math.cos(NECK_TILT), Math.sin(NECK_TILT)];
+  const neckBase = [0, 0.14, 0.4];
+  S.pose(neckGeo, [0, neckBase[1] + nDir[1] * 0.26, neckBase[2] + nDir[2] * 0.26], [-(Math.PI / 2 - NECK_TILT), 0, 0]);
+  S.paint(neckGeo, { from: COAT_LO, to: COAT_HI, axis: 'y', noise: 0.012, seed: 65 });
+  S.overlay(neckGeo, SADDLE, (x, y, z) => S.sstep(0.02, 0.1, y - (z - 0.5) * 0.9) * (1 - S.sstep(0.03, 0.1, Math.abs(x))) * 0.6);
+  // pale ruff where neck meets chest
+  const ruffGeo = S.puff(0.11, { count: 6, spread: 0.7, seed: 66, sy: 1.1, blend: 0.72 });
+  S.pose(ruffGeo, [0, 0.06, 0.5], [0.4, 0, 0], [1.2, 1.1, 0.7]);
+  S.paint(ruffGeo, { from: 0xf2e6cc, to: PALE, axis: 'y', noise: 0.015 });
+  const body = S.bake([bodyGeo, neckGeo, ruffGeo], coat, 'body');
+  root.add(body);
+  const LEG = 0.84;
+  const hipY = -0.16;
+  body.position.y = HOVER + LEG - hipY;
+
+  // A mane of dawn light along the crest of the neck (flat light blades,
+  // face turned sideways so they read against the sky).
   const maneAccents = [];
   for (let i = 0; i < 7; i++) {
-    const t = 0.06 + i * 0.145;
+    const t = 0.06 + i * 0.13;
     const len = 0.28 - Math.abs(i - 2.5) * 0.03;
     const strand = kit.leafBlade(len, maneMat, { width: len * 0.3 });
-    // The strand is a flat blade, so it only reads if its FACE points at the
-    // camera: turn it about Y so the face looks sideways (out along ±X), then
-    // pitch it about X to sweep the blade up and back along the neck.
-    maneAccents.push(kit.at(body, strand,
-      (i % 2 ? 0.022 : -0.022),
-      neckBaseY + t * 2 * neckHalf * nDirY + NECK_R * 0.7,
-      neckBaseZ + t * 2 * neckHalf * nDirZ - NECK_R * 0.45,
-      { ry: Math.PI / 2, rx: 0.95 + i * 0.05 }));
+    const c = [0, neckBase[1] + nDir[1] * 0.56 * t * 1.1 + 0.1, neckBase[2] + nDir[2] * 0.56 * t * 1.1 - 0.06];
+    maneAccents.push(kit.at(body, strand, (i % 2 ? 0.022 : -0.022), c[1], c[2], { ry: Math.PI / 2, rx: 0.95 + i * 0.05 }));
   }
-  // A pale ruff where neck meets chest — mass at the junction, and it catches
-  // the key light like a mane.
   const ruffAccents = [];
-  for (const [x, y, z, r] of [[0.1, 0.14, 0.43, 0.055], [-0.1, 0.14, 0.43, 0.055], [0, 0.04, 0.47, 0.06]]) {
-    ruffAccents.push(kit.at(body, kit.fluffTuft(r, coatPale, { count: 4, seed: Math.round(x * 100 + z * 10 + 7) }), x, y, z));
-  }
 
-  const headY = neckBaseY + 2 * neckHalf * nDirY - 0.02;
-  const headZ = neckBaseZ + 2 * neckHalf * nDirZ + 0.02;
-  const head = kit.at(body, paintCoat(kit.blob(0.155, coatV, { seed: 170, squash: { x: 0.82, y: 0.88, z: 1.42 } }), 64), 0, headY, headZ, { rx: -0.18 });
-  // Long stag muzzle, tapering to a soft pale nose.
-  const muzzle = kit.at(head, kit.capsule(0.062, 0.1, coat, { capSeg: 3, radSeg: 8 }), 0, -0.05, 0.17, { rx: Math.PI / 2 });
-  const nose = kit.at(head, kit.orb(0.055, coatPale, { sy: 0.8, sz: 0.9 }), 0, -0.06, 0.25);
-
-  // Side-set stag eyes, warm gold iris on a dark sclera so the shardlight in
-  // them reads at any distance (Design Bible §8: big readable eyes).
-  const eyeL = kit.at(head, kit.eye(0.05, { irisColor: 0xffe9a8, scleraColor: 0x33270f, pupil: true, skinColor: coatHex, glintSize: 0.02 }), 0.105, 0.035, 0.1, { ry: 0.55 });
-  const eyeR = kit.at(head, kit.eye(0.05, { irisColor: 0xffe9a8, scleraColor: 0x33270f, pupil: true, skinColor: coatHex, glintSize: 0.02 }), -0.105, 0.035, 0.1, { ry: -0.55 });
-  const earL = kit.at(head, kit.ear(0.16, coat, { width: 0.09 }), 0.11, 0.07, -0.07, { rz: 0.62, rx: -0.3 });
-  const earR = kit.at(head, kit.ear(0.16, coat, { width: 0.09 }), -0.11, 0.07, -0.07, { rz: -0.62, rx: -0.3 });
+  // --- Head: one noble wedge — skull flowing into a long stag muzzle -------
+  const headY = neckBase[1] + nDir[1] * 0.56 + 0.02;
+  const headZ = neckBase[2] + nDir[2] * 0.56 + 0.06;
+  const headGeo = S.spindle({
+    len: 0.44, r: 0.13, sx: 0.84, sy: 1.0, pTail: 1.0, pNose: 1.1, radial: 20, rings: 16, belly: 0.08,
+    profile: (t) => (t < 0.38 ? 1.0 : S.lerp(1.0, 0.56, S.sstep(0.38, 0.72, t))) - 0.1 * S.sstep(0.75, 1, t),
+    syAt: (t) => S.lerp(0.92, 0.74, S.sstep(0.4, 0.75, t)),
+    arch: (t) => -0.05 * S.sstep(0.35, 0.8, t),
+  });
+  S.paint(headGeo, { from: COAT_LO, to: COAT_HI, axis: 'y', noise: 0.01, seed: 64 });
+  S.overlay(headGeo, PALE, (x, y, z) => S.sstep(0.13, 0.2, z) * 0.85);
+  const noseGeo = S.ball(0.04, { sx: 1.25, sy: 0.8, radial: 10, rings: 7 });
+  S.pose(noseGeo, S.surface(headGeo, [0, 0.2, 1], { from: [0, -0.05, 0.1], inset: 0.02 }));
+  S.paint(noseGeo, 0xe8d2b0);
+  const head = S.bake([headGeo, noseGeo], coat, 'head');
+  kit.at(body, head, 0, headY, headZ, { rx: 0.05 });
+  const SK = [0, 0.0, -0.1];
+  const eyeOpts = { irisColor: 0xffe9a8, scleraColor: 0x33270f, pupil: true, skinColor: coatHex, glintSize: 0.02 };
+  const eyeL = S.seatEye(kit, head, headGeo, 0.048, 0.72, 0.2, eyeOpts, { sink: 0.45, front: 0.45, from: SK });
+  const eyeR = S.seatEye(kit, head, headGeo, 0.048, -0.72, 0.2, eyeOpts, { sink: 0.45, front: 0.45, from: SK });
+  const mkEar = () => new THREE.Mesh(S.ear(0.17, 0.095, { color: 0xe8d4ac, inner: 0xf4c8a8, tip: 1.2, cup: 0.5, depth: 0.32 }), coat);
+  const earL = mkEar(), earR = mkEar();
+  earL.name = earR.name = 'ear';
+  const ea = S.surface(headGeo, S.dirYP(0.8, 0.6), { from: SK, inset: 0.012 });
+  kit.at(head, earL, ea[0], ea[1], ea[2] - 0.02, { rz: -1.0, ry: 0.4, rx: -0.2 });
+  kit.at(head, earR, -ea[0], ea[1], ea[2] - 0.02, { rz: 1.0, ry: -0.4, rx: -0.2 });
 
   // --- THE SUNBURST CROWN -------------------------------------------------
   // Everything hangs off one crown point just behind the brow, so the whole
@@ -169,10 +130,10 @@ export function build_aurios(kit = kitDefault) {
   // sway, which makes the crown shimmer rather than sit dead.
   const crownAccents = [];
   const crown = new THREE.Group(); crown.name = 'sunburstCrown';
-  kit.at(head, crown, 0, 0.14, -0.04);
+  kit.at(head, crown, 0, 0.12, -0.12);
   // The sun core the rays spring from.
-  kit.at(crown, kit.orb(0.075, rayCore.clone(), { sz: 0.55 }), 0, 0.02, -0.01);
-  kit.at(crown, kit.orb(0.13, poolMat.clone(), { sz: 0.35 }), 0, 0.02, -0.02);
+  kit.at(crown, new THREE.Mesh(S.ball(0.075, { sz: 0.55, radial: 14, rings: 8 }), rayCore.clone()), 0, 0.02, -0.01);
+  kit.at(crown, S.glow(0xffd070, 0.42, 0.7), 0, 0.02, -0.05);
 
   // 1a. Two solid antler beams, each with three tines. FEW AND THICK: the
   //     first pass used thin beams plus eleven thin rays and the whole crown
@@ -198,7 +159,7 @@ export function build_aurios(kit = kitDefault) {
     }
     // A small bright bead at the beam tip, so the crown terminates in light
     // (kept modest — a fat bead on a curved beam reads as a claw).
-    kit.at(beamAt, kit.orb(0.022, antlerTip), BEAM_BEND * BEAM_LEN * side, BEAM_LEN, 0);
+    kit.at(beamAt, new THREE.Mesh(S.ball(0.024, { radial: 10, rings: 7 }), antlerTip), BEAM_BEND * BEAM_LEN * side, BEAM_LEN, 0);
   }
 
   // 1b. The rising-sun ray fan, sitting BEHIND the beams (z −0.12) so the two
@@ -214,53 +175,34 @@ export function build_aurios(kit = kitDefault) {
     crownAccents.push(rayAt);
   }
 
-  // --- Legs: long, fine-boned, a legendary's stride ----------------------
-  // Hip Y is local to the barrel; fore/hind pairs stand under the shoulders
-  // and haunches of the 0.5 half-length, not bunched at the middle.
+  // --- Legs: long, slender, real deer joints; glowing gold hooves --------
   const legDefs = [
-    [0.155, hipY, 0.3], [-0.155, hipY, 0.3],
-    [0.16, hipY, -0.31], [-0.16, hipY, -0.31],
+    [0.13, hipY, 0.3, -0.08, 0.075], [-0.13, hipY, 0.3, -0.08, 0.075],
+    [0.13, hipY + 0.02, -0.33, 0.42, 0.095], [-0.13, hipY + 0.02, -0.33, 0.42, 0.095],
   ];
-  // Legs in the warmer, slightly darker coat tone: an all-over near-white
-  // animal has no value structure at all, and the legs are where a deer's
-  // darker stockings naturally live.
-  const legs = legDefs.map(([x, y, z]) => kit.at(body, kit.leg(LEG, coatWarm, {
-    thighR: THIGH_R, shinR: SHIN_R, footLen: 0.12, footMat: hoofMat,
+  const legs = legDefs.map(([x, y, z, bend, thighR]) => kit.at(body, S.softLeg(LEG + (y - hipY), coat, {
+    thighR, shinR: 0.034, kneeR: 0.042, ankleR: 0.028, pawR: 0.042, pawLen: 1.15, pawH: 0.05, toes: 0,
+    bend, split: 0.48, bulge: 0.34, color: 0xe6d0a8, shinColor: LEGC, pawColor: HOOF, radial: 10,
   }), x, y, z));
-  // A stag stands square but never stiff: the hind pair carries a shade more
-  // angle at hip and hock than the fore pair (the rest pose IS the idle
-  // baseline the animator offsets from).
-  legs[0].hip.rotation.x = -0.05;
-  legs[1].hip.rotation.x = -0.05;
-  for (const l of [legs[2], legs[3]]) { l.hip.rotation.x = 0.13; l.knee.rotation.x = 0.14; }
-  // Shoulder/haunch mass at the hip and a hock bulge at the knee: without
-  // them a kit.leg() reads as a dowel, which is what makes a long-legged
-  // animal look like a toy.
-  for (const l of legs) {
-    kit.at(l.hip, kit.orb(0.088, coat, { sy: 1.25, sz: 1.05 }), 0, -0.04, 0);
-    kit.at(l.knee, kit.orb(0.048, coatWarm, { sy: 1.2, sz: 1.1 }), 0, 0.01, -0.005);
-    // Warm dawn cuff just above each hoof — a small gold accent that ties the
-    // legs to the crown and stops them reading as bare dowels.
-    kit.at(l.knee, kit.orb(0.052, hoofMat, { sy: 0.45 }), 0, -LEG * 0.42 - SHIN_R * 0.5 + 0.045, 0);
-  }
-
   // Each hoof stands on its own small disc of light...
   for (const l of legs) {
-    const d1 = kit.at(l.foot, kit.orb(0.1, poolMat.clone(), { sy: 0.1, wSeg: 16 }), 0, -0.035, 0.0);
-    const d2 = kit.at(l.foot, kit.orb(0.16, poolSoft.clone(), { sy: 0.06, wSeg: 16 }), 0, -0.05, 0.0);
-    d1.name = 'lightPool'; d2.name = 'lightPool';
+    l.foot.geometry.computeBoundingBox();
+    const bb = l.foot.geometry.boundingBox;
+    kit.at(l.knee, S.lightPool(0xffe2a0, 0.13, 0.75), 0, bb.min.y - 0.035, (bb.min.z + bb.max.z) / 2);
+    const hg = S.glow(0xffc870, 0.2, 0.55);
+    hg.position.set(0, bb.min.y + 0.03, bb.max.z - 0.03);
+    l.knee.add(hg);
   }
-  // ...and the whole animal stands over one wide pool. This is the ONLY part
-  // of the model that reaches y=0, so groundPlant() plants the pool and the
-  // hooves keep their HOVER gap — "walks above the ground on light."
-  const poolY = -(HOVER + legDrop - hipY) + 0.02;                 // world y ≈ 0.02
-  const groundPool = kit.at(body, kit.orb(0.52, poolMat.clone(), { sy: 0.03, sz: 1.35, wSeg: 24, hSeg: 10 }), 0, poolY, -0.02);
-  const groundHalo = kit.at(body, kit.orb(0.85, poolSoft.clone(), { sy: 0.014, sz: 1.3, wSeg: 24, hSeg: 10 }), 0, poolY - 0.006, -0.02);
-  groundPool.name = 'lightPool'; groundHalo.name = 'lightPool';
+  // ...and the whole animal stands over one wide pool — the ONLY part that
+  // reaches y=0, so groundPlant() plants the light, not the hooves.
+  const poolY = -(HOVER + LEG - hipY) + 0.02;
+  kit.at(body, S.lightPool(0xffe9b0, 0.62, 0.8, 1.35), 0, poolY, -0.02);
+  kit.at(body, S.lightPool(0xffca7a, 1.0, 0.45, 1.3), 0, poolY - 0.002, -0.02);
 
-  // Short upright deer tail with a bright pale flash underneath.
-  const tail = kit.at(body, kit.tailChain(3, coat, { segLen: 0.085, startR: 0.05, endR: 0.018 }), 0, 0.14, -0.44, { rx: 0.6 });
-  kit.at(tail.pivots[tail.pivots.length - 1], kit.fluffTuft(0.038, coatPale, { count: 5, seed: 9 }), 0, -0.02, -0.05);
+  // Short upright deer tail with a bright pale flash.
+  const tail = S.softTail(3, coat, { segLen: 0.085, startR: 0.055, endR: 0.035, curl: 0.25, rootPitch: 0.55, color: (t) => S.mixHex(0xe6cfa2, PALE, t) });
+  kit.at(body, tail, 0, 0.14, -0.53);
+  kit.at(tail.tipAnchor, new THREE.Mesh(S.paint(S.puff(0.045, { count: 5, seed: 9, sy: 1.1 }), PALE), coat), 0, 0.0, 0.0);
 
   // --- Dawn light ---------------------------------------------------------
   // Two mote layers at different hues give a real dawn-sky gradient rather
@@ -276,7 +218,8 @@ export function build_aurios(kit = kitDefault) {
   // The heartspark rides ON the chest surface — the chest orb (r 0.235 at
   // z 0.28) reaches z ≈ 0.52, and anything set deeper is simply swallowed.
   const spark = kit.heartspark(0.06, 0xfff2c8, { seed: 173 });
-  kit.at(body, spark, 0, -0.06, 0.5);
+  const spk = S.surface(bodyGeo, S.dirYP(0, -0.1), { from: [0, 0, 0.3], inset: 0.01 });
+  kit.at(body, spark, spk[0], spk[1], spk[2] + 0.04);
 
   return {
     group: kit.groundPlant(root),
@@ -287,7 +230,7 @@ export function build_aurios(kit = kitDefault) {
       tail: tail.pivots,
       legs: legs.map((l) => ({ hip: l.hip, knee: l.knee, foot: l.foot })),
       accents: [earL, earR, ...crownAccents, ...maneAccents, ...ruffAccents],
-      fx: [dawnGold, dawnRose, dawnRise, spark],
+      fx: [dawnGold, dawnRose, dawnRise, spark, S.variantFx(root)],
     },
     hints: {
       personality: 'regal',

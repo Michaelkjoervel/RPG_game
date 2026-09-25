@@ -46,6 +46,12 @@ export const bump = (t, c, w) => { const d = (t - c) / w; return Math.exp(-d * d
 /** Smoothstep. */
 export const sstep = (a, b, t) => { const x = clamp01((t - a) / (b - a)); return x * x * (3 - 2 * x); };
 
+/** Crack-free smooth normals in place (materials.smoothGeometry sugar). */
+export function smooth(geo, creaseAngle = 0) {
+  if (geo.attributes.uv) geo.deleteAttribute('uv');
+  return smoothGeometry(geo, { creaseAngle });
+}
+
 // ------------------------------------------------------------------ Material
 
 /**
@@ -76,7 +82,7 @@ export function smoothMat(kit, color, opts = {}) {
  */
 export function spindle({
   len = 1, r = 0.25, radial = 18, rings = 14, p = 0.85, pTail = null, pNose = null,
-  profile = null, sx = 1, sy = 1, arch = null, belly = 0, back = 0, shift = null,
+  profile = null, sx = 1, sy = 1, arch = null, belly = 0, back = 0, shift = null, syAt = null,
 } = {}) {
   const geo = new THREE.SphereGeometry(1, radial, rings);
   geo.deleteAttribute('uv');
@@ -92,7 +98,7 @@ export function spindle({
     const prof = profile ? profile(t) : 1;
     // (x, y, z) -> (x, -z, y) is a proper rotation: +Y pole becomes +Z nose.
     const X = x * k * r * prof * sx + (shift ? shift(t) : 0);
-    let Y = -z * k * r * prof * sy;
+    let Y = -z * k * r * prof * sy * (syAt ? syAt(t) : 1);
     if (Y < 0 && belly) Y *= 1 - (typeof belly === 'function' ? belly(t) : belly);
     if (Y > 0 && back) Y *= 1 - back;
     if (arch) Y += arch(t);
@@ -204,7 +210,7 @@ export function flame3d(kit, height = 0.2, { colors = [0xd8380f, 0xff8a2e, 0xffe
     const k = i / Math.max(1, n - 1);
     const h = height * (1 - k * 0.42), w = width * (1 - k * 0.45);
     const g = spindle({
-      len: h, r: w * 0.5, radial: 10, rings: 8, pTail: 0.9, pNose: 1.6,
+      len: h, r: w * 0.5, radial: 9, rings: 7, pTail: 0.9, pNose: 1.6,
       profile: (t) => Math.pow(Math.sin(Math.PI * Math.min(1, t * 0.82 + 0.02)), 0.7) * (1.05 - 0.55 * t),
     });
     g.rotateX(-Math.PI / 2); // nose (+Z) -> up (+Y)
@@ -239,8 +245,8 @@ export function flame3d(kit, height = 0.2, { colors = [0xd8380f, 0xff8a2e, 0xffe
  * Tapered horn/spike/claw: straight or curved cone with a rounded tip.
  * Base at origin, grows +Y, curves toward +Z by `curve` (fraction of len).
  */
-export function taper(len, r0, { r1 = r0 * 0.12, curve = 0, radial = 8, rings = 7, sx = 1, sz = 1, p = 0.7 } = {}) {
-  const geo = limb(len, r0, r1, { radial, capSeg: 3, shaftSeg: Math.max(3, rings - 4), sx, sz });
+export function taper(len, r0, { r1 = r0 * 0.12, curve = 0, radial = 8, rings = 7, sx = 1, sz = 1, p = 0.7, capSeg = 2 } = {}) {
+  const geo = limb(len, r0, r1, { radial, capSeg, shaftSeg: Math.max(3, rings - 4), sx, sz });
   geo.rotateX(Math.PI); // hang down -> grow up
   if (curve) {
     const pos = geo.attributes.position;
@@ -419,8 +425,8 @@ export function softWing(len, material, {
   for (let i = 0; i < feathers; i++) {
     const u = feathers === 1 ? 0 : i / (feathers - 1) - 0.5;
     const f = mk(len * (0.34 - Math.abs(u) * 0.12), width * 0.26, (t) => 0.4 + 0.6 * Math.sin(Math.PI * Math.min(1, t * 1.1)));
-    f.rotateX(u * 0.5);
-    f.translate(0, u * width * 0.55, -len * 0.38);
+    f.rotateX(u * 0.22);
+    f.translate(side * 0.0, u * width * 0.3, -len * 0.4);
     orient(f);
     paint(f, tips ?? (typeof color === 'number' ? color : color.from));
     pieces.push(f);
@@ -435,6 +441,42 @@ export function softWing(len, material, {
   return { group: root, bones: [root, bone] };
 }
 function S_bumpish(t) { return Math.sin(Math.PI * Math.min(1, t * 1.05)); }
+
+/**
+ * An open insect/moth wing — kit.wing() convention: spans local +X from the
+ * root, chord along Z, flapping = rotation about the bone's local Z. Rigid
+ * (one bone: { group, bones:[group] }), felt-soft (a thin smooth spindle, not
+ * a paper sheet), painted root->tip with optional eye-spots. Mirror the right
+ * wing with group.scale.x = -1 exactly like kit.wing (three.js flips the
+ * winding for negative scale; the animator mirrors the flap).
+ *   chord(t)  : chord-width profile along the span (t 0 root .. 1 tip)
+ *   sweep     : how far the tip trails back (fraction of len)
+ *   spots     : [{ t, v, r, ring, core }] eye-spots at span t, chord offset v
+ */
+export function openWing(len, material, {
+  width = len * 0.6, thick = 0.07, sweep = 0.3, chord = null, color = { root: 0x999999, tip: 0x666666 },
+  edge = null, spots = [], radial = 16, rings = 12, lift = 0,
+} = {}) {
+  const root = new THREE.Group(); root.name = 'wingRoot';
+  const prof = chord ?? ((t) => Math.pow(Math.sin(Math.PI * Math.min(1, 0.12 + t * 0.9)), 0.7) * (0.55 + 0.45 * t));
+  const g = spindle({
+    len, r: width * 0.5, sx: 1, sy: thick, radial, rings, p: 0.85, pTail: 0.6,
+    profile: prof, shift: (t) => sweep * len * t * t, arch: (t) => lift * len * t * t,
+  });
+  g.rotateY(Math.PI / 2); // span +X, chord along -Z
+  g.translate(len * 0.5, 0, 0);
+  paint(g, { from: color.root, to: color.tip, axis: 'x', noise: 0.015 });
+  if (edge != null) overlay(g, edge, (x, y, z) => sstep(-0.01, 0.02, z + sweep * len * (x / len) * (x / len) - width * 0.18));
+  for (const sp of spots) {
+    const cx = sp.t * len, cz = -sweep * len * sp.t * sp.t - (sp.v ?? 0) * width * 0.5;
+    if (sp.ring != null) blush(g, [cx, 0, cz], sp.r, sp.ring, 1);
+    if (sp.core != null) blush(g, [cx, 0, cz], sp.r * 0.55, sp.core, 1);
+  }
+  const m = new THREE.Mesh(g, material);
+  m.name = 'wingMesh';
+  root.add(m);
+  return { group: root, bones: [root] };
+}
 
 /**
  * A tapered tail as a chain of pivots — same contract as kit.tailChain():
@@ -454,19 +496,19 @@ function S_bumpish(t) { return Math.sin(Math.PI * Math.min(1, t * 1.05)); }
  */
 export function softTail(n, material, {
   segLen = 0.12, startR = 0.05, endR = 0.015, curl = 0, rootPitch = null, yaw = 0, color = 0x888888,
-  radial = 8, capSeg = 3, sx = 1, sy = 1, taperExp = 1,
+  radial = 8, capSeg = 3, sx = 1, sy = 1, taperExp = 1, radiusFn = null,
 } = {}) {
   const root = new THREE.Group(); root.name = 'tailRoot';
   const pivots = [root];
   let parent = root;
   const colAt = typeof color === 'function' ? color : () => color;
   const curlAt = typeof curl === 'function' ? curl : () => curl;
-  const rAt = (t) => lerp(startR, endR, Math.pow(t, taperExp));
+  const rAt = radiusFn ?? ((t) => lerp(startR, endR, Math.pow(t, taperExp)));
   let pitch = rootPitch ?? curlAt(0) * 0.5;
   root.rotation.x = pitch;
   for (let i = 0; i < n; i++) {
     const t0 = i / n, t1 = (i + 1) / n;
-    const r0 = rAt(t0), r1 = rAt(t1) * (i < n - 1 ? 0.97 : 1);
+    const r0 = rAt(t0), r1 = rAt(t1); // equal joint spheres: no ridge at the joints
     const phi = curlAt(i);
     const g = limb(segLen, r0, r1, { radial, capSeg, shaftSeg: 2, sx, sz: sy });
     g.rotateX(Math.PI / 2); // hang -Y -> trail -Z  ((0,-1,0) -> (0,0,-1))
@@ -776,6 +818,15 @@ export function surface(geo, dir, { from = [0, 0, 0], inset = 0, nearest = false
   return [from[0] + _ray.direction.x * d, from[1] + _ray.direction.y * d, from[2] + _ray.direction.z * d];
 }
 
+/** Rotate a geometry so its local +Y axis points along `dir` (build-time). */
+export function aim(geo, dir) {
+  _v.set(dir[0], dir[1], dir[2]).normalize();
+  _q.setFromUnitVectors(_UP, _v);
+  geo.applyQuaternion(_q);
+  return geo;
+}
+const _UP = new THREE.Vector3(0, 1, 0);
+
 /** Direction helper: yaw (around Y, + toward +X) and pitch (+ up) in radians -> unit [x,y,z] facing +Z at 0,0. */
 export function dirYP(yaw, pitch) {
   return [Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch)];
@@ -830,6 +881,21 @@ export function glow(color, size = 0.2, opacity = 0.5) {
   sp.scale.set(size, size, 1);
   sp.renderOrder = 3;
   return sp;
+}
+
+/**
+ * A soft pool of light lying flat on the ground (a radial-falloff decal,
+ * additive): 2 triangles, never a hard-edged disc. Named 'lightPool'.
+ */
+export function lightPool(color, radius = 0.3, opacity = 0.5, sz = 1) {
+  const m = new THREE.MeshBasicMaterial({ map: glowTexture(), color, transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false });
+  const g = new THREE.PlaneGeometry(radius * 2, radius * 2 * sz);
+  g.rotateX(-Math.PI / 2);
+  const mesh = new THREE.Mesh(g, m);
+  mesh.name = 'lightPool';
+  mesh.renderOrder = 2;
+  mesh.userData.noOutline = true;
+  return mesh;
 }
 
 // ------------------------------------------------------------ Variant repair

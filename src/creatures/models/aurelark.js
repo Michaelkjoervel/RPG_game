@@ -52,8 +52,9 @@ export function build_aurelark(kit = kitDefault) {
   // --- Head: round, gold, beak lifted. -------------------------------------
   const headGeo = S.spindle({ len: 0.136, r: 0.062, sx: 0.95, sy: 0.95, p: 1, radial: 18, rings: 12, profile: (t) => 0.9 + 0.12 * S.bump(t, 0.45, 0.4) });
   S.paint(headGeo, { from: 0xf5a24a, to: GOLD_HI, axis: 'y', noise: 0.01, seed: 74 });
-  // a dusk eye-stripe sweeping back from the eye — a lark's mark
-  S.overlay(headGeo, 0x6a4c86, (x, y, z) => S.sstep(0.022, 0.034, Math.abs(x)) * S.bump(y - (-z * 0.18), 0.012, 0.018) * S.sstep(0.03, -0.02, z) * 0.85);
+  // richer gold crown, rosy cheeks
+  S.overlay(headGeo, 0xf09a3a, (x, y, z) => S.sstep(0.02, 0.06, y) * 0.55);
+  for (const s of [1, -1]) S.blush(headGeo, S.surface(headGeo, S.dirYP(s * 0.8, -0.3)), 0.028, 0xf08a8a, 0.7);
   const head = S.bake([headGeo], plume, 'head');
   kit.at(body, head, 0, 0.13, 0.175, { rx: -0.14 });
 

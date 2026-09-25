@@ -3,105 +3,138 @@
 // "Static-furred fox kit, sparks between ear tips. Zoomies incarnate."
 // (Design Bible §4)
 // =============================================================================
-// A small, wiry fox built for the 'eager' personality's fastest settings —
-// short legs but a tightly-coiled, ready-to-bolt posture. "Sparks between
-// ear tips" is a bespoke fx object (kit.js has no arc/lightning primitive):
-// a thin jagged strip stretched between the ear tips that flickers opacity
-// on a fast, irregular clock, wired into parts.fx alongside the usual
-// heartspark.
+// Visual pass v2 (soft stylized): a chubby fox kit — round orange bean,
+// cream chest and muzzle, dark socks, a huge fluffy tail curling up with a
+// cream tip, big head with tall dark-tipped ears and static-fluffed cheek and
+// crown tufts standing on end. The signature: a live zigzag spark arcing
+// between the ear tips (a 3D bolt that reads from every angle, flickering).
 
 import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
+import * as S from './soft.js';
 
-// A short, jagged static-arc strip stretched between two world points,
-// flickering rapidly and irregularly — the bespoke "spark" kit.js doesn't
-// provide a primitive for.
-function sparkArc(m, opts = {}) {
-  const { points = 5, width = 0.006, seed = 1 } = opts;
+const FOX_LO = 0xa8451c, FOX = 0xd8672c, FOX_HI = 0xf29a50, CREAM = 0xf6ead0, SOCK = 0x3a2418, TIP = 0x2e1c14;
+
+// A jagged 3D bolt between two points, flickering (a { group, update } fx).
+function sparkBolt(a, b, material, glowColor, { jags = 6, amp = 0.02, radius = 0.0085, seed = 1 } = {}) {
   const group = new THREE.Group(); group.name = 'sparkArc';
-  // Built centered on local x in [-0.5, 0.5] so attaching it at the
-  // midpoint between two anchor points and scaling x by their separation
-  // lines the ends up naturally, no per-use offset math needed.
-  const shape = new THREE.Shape();
-  const jag = (i) => (i % 2 === 0 ? 1 : -1) * width * 1.4;
-  shape.moveTo(-0.5, 0);
-  for (let i = 1; i <= points; i++) {
-    const t = -0.5 + i / points;
-    shape.lineTo(t, jag(i));
+  const pts = [];
+  const A = new THREE.Vector3(...a), B = new THREE.Vector3(...b);
+  for (let i = 0; i <= jags; i++) {
+    const t = i / jags;
+    const p = A.clone().lerp(B, t);
+    if (i > 0 && i < jags) { p.y += (i % 2 ? 1 : -1) * amp * (1 - Math.abs(t - 0.5)); p.z += Math.sin(i * 2.3 + seed) * amp * 0.6; }
+    p.y += Math.sin(Math.PI * t) * amp * 1.6; // bows upward
+    pts.push(p);
   }
-  for (let i = points; i >= 0; i--) {
-    const t = -0.5 + i / points;
-    shape.lineTo(t, jag(i) - width);
-  }
-  const mesh = new THREE.Mesh(new THREE.ShapeGeometry(shape), m);
+  const curve = new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.05);
+  const geo = new THREE.TubeGeometry(curve, jags * 4, radius, 4, false);
+  geo.deleteAttribute('uv');
+  const mesh = new THREE.Mesh(geo, material);
   mesh.name = 'sparkMesh';
   group.add(mesh);
-  const phase = (seed * 7919) % 100;
-  let t = 0;
+  const halo = S.glow(glowColor, A.distanceTo(B) * 1.3, 0.6);
+  halo.position.copy(A).lerp(B, 0.5);
+  group.add(halo);
+  let t = seed;
   function update(dt) {
     t += dt;
-    const flicker = Math.random() < 0.12 ? 1 : 0.35 + 0.4 * Math.abs(Math.sin(t * 23 + phase));
-    mesh.material.opacity = flicker;
-    mesh.scale.y = 0.7 + Math.random() * 0.6;
+    const on = Math.sin(t * 17.3) + Math.sin(t * 29.1 + 1.3) > -0.6;
+    mesh.visible = on;
+    mesh.scale.y = 0.6 + 0.8 * Math.abs(Math.sin(t * 41));
+    halo.material.opacity = on ? 0.35 + 0.25 * Math.abs(Math.sin(t * 23)) : 0.12;
   }
   return { group, update };
 }
 
 export function build_fulmin(kit = kitDefault) {
   const pal = kit.palette(['volt']);
-  const skin = kit.mat(0xd8672c, { rough: 0.6 });       // fox-orange fur
-  const cream = kit.mat(0xf3e6c8, { rough: 0.6 });      // cream chest/muzzle
-  const sparkMat = kit.mat(pal.primary, { unlit: true, additive: true, opacity: 0.9, transparent: true });
+  const fur = S.vcMat(kit, { rough: 0.66 });
+  const boltMat = kit.mat(0xfff2a0, { unlit: true });
 
   const root = new THREE.Group();
 
-  const body = kit.blob(0.14, skin, { seed: 110, noise: 0.1, squash: { x: 0.95, y: 0.92, z: 1.2 } });
-  kit.paint(body, { from: 0xa8451c, to: 0xf08840, noise: 0.06, seed: 110 });
-  root.add(body);
-  body.position.y = 0.19;
-
-  kit.at(body, kit.orb(0.075, cream, { sy: 0.65, sx: 0.8 }), 0, -0.05, 0.09);
-
-  const head = kit.at(body, kit.orb(0.095, skin, { sz: 1.1, sy: 0.9 }), 0, 0.08, 0.14);
-  kit.paint(head, { from: 0xb54e20, to: 0xf08840, noise: 0.05, seed: 111 });
-  // Cream cheek-fluff fans — the fox-kit face shape without extra head geo.
-  const cheekMat = kit.mat(0xf3e6c8, { rough: 0.6, side: THREE.DoubleSide });
-  kit.at(head, kit.furFan(3, 0.045, cheekMat, { width: 0.015, spread: 0.8, curl: 0.1, seed: 110 }), 0.085, -0.02, 0.03, { rz: -1.25 });
-  kit.at(head, kit.furFan(3, 0.045, cheekMat, { width: 0.015, spread: 0.8, curl: 0.1, seed: 111 }), -0.085, -0.02, 0.03, { rz: 1.25 });
-  // Small cream muzzle + dark nose.
-  kit.at(head, kit.snout(0.06, cream.clone(), { r: 0.032, taper: 0.4, up: 0.15 }), 0, -0.028, 0.075);
-  kit.at(head, kit.orb(0.011, kit.mat(0x2a1c14, { rough: 0.4 })), 0, -0.008, 0.132);
-  const eyeL = kit.at(head, kit.eye(0.042, { irisColor: 0x2a1c08, skinColor: 0xd8672c, glintSize: 0.016 }), 0.062, 0.02, 0.078, { ry: 0.24 });
-  const eyeR = kit.at(head, kit.eye(0.042, { irisColor: 0x2a1c08, skinColor: 0xd8672c, glintSize: 0.016 }), -0.062, 0.02, 0.078, { ry: -0.24 });
-
-  // Static-charged fur streaks — thin volt-yellow strips along the back,
-  // echoing charvane's magma-crack technique with a livelier color.
-  for (const [x, y, z, len] of [[0, 0.11, 0.06, 0.045], [0.02, 0.115, -0.02, 0.04], [-0.02, 0.11, -0.06, 0.045]]) {
-    kit.at(body, kit.box(0.008, 0.006, len, sparkMat.clone()), x, y, z, { rx: (Math.random() - 0.5) * 0.2 });
+  // --- Body: a chubby fox-kit bean. ----------------------------------------
+  const bodyGeo = S.spindle({ len: 0.3, r: 0.13, sx: 0.96, sy: 0.95, p: 0.95, radial: 20, rings: 14, belly: 0.18, profile: (t) => 0.9 + 0.12 * S.bump(t, 0.6, 0.45) });
+  S.paint(bodyGeo, { from: FOX_LO, to: FOX_HI, axis: 'y', noise: 0.012, seed: 110 });
+  S.overlay(bodyGeo, CREAM, (x, y, z) => S.sstep(0.0, 0.12, z - y * 0.5 - 0.02) * S.sstep(0.06, -0.02, y));
+  // static-fluffed back tufts
+  const back = [];
+  for (let i = 0; i < 3; i++) {
+    const g = S.taper(0.05, 0.018, { r1: 0.003, curve: -0.3, radial: 6, rings: 5, sx: 1.4, sz: 0.6 });
+    S.paint(g, { from: FOX, to: FOX_HI, axis: 'y' });
+    back.push(S.pose(g, S.surface(bodyGeo, [0, 1, 0], { from: [0, 0, 0.06 - i * 0.06], inset: 0.012 }), [-0.5, 0, (i - 1) * 0.3]));
   }
+  const body = S.bake([bodyGeo, ...back], fur, 'body');
+  root.add(body);
+  body.position.y = 0.15;
 
-  // Big alert ears — the spark's two anchor points.
-  const earL = kit.at(head, kit.ear(0.09, skin), 0.075, 0.09, -0.01, { rz: 0.22 });
-  const earR = kit.at(head, kit.ear(0.09, skin), -0.075, 0.09, -0.01, { rz: -0.22 });
+  // --- Head: big and round, pointed cream muzzle, static cheek tufts. -------
+  const headGeo = S.spindle({ len: 0.19, r: 0.095, sx: 1.08, sy: 0.92, p: 1, radial: 20, rings: 14, profile: (t) => 0.92 + 0.1 * S.bump(t, 0.4, 0.45) });
+  S.paint(headGeo, { from: FOX_LO, to: FOX_HI, axis: 'y', noise: 0.01, seed: 111 });
+  const muzzle = S.spindle({ len: 0.09, r: 0.036, sx: 1.05, sy: 0.85, p: 0.95, pNose: 1.2, radial: 12, rings: 8, profile: (t) => 1 - 0.45 * t });
+  const mz = S.surface(headGeo, S.dirYP(0, -0.25), { inset: 0.03 });
+  S.pose(muzzle, [mz[0], mz[1], mz[2] + 0.02], [0.12, 0, 0]);
+  S.paint(muzzle, CREAM);
+  const nose = S.ball(0.012, { sx: 1.3, sy: 0.85, radial: 8, rings: 5 });
+  S.pose(nose, S.surface(muzzle, [0, 0.35, 1], { from: [mz[0], mz[1], mz[2] + 0.02], inset: 0.005 }));
+  S.paint(nose, 0x2a1c14);
+  S.overlay(headGeo, CREAM, (x, y, z) => S.sstep(0.03, 0.07, z) * S.sstep(0.0, -0.05, y));
+  const cheeks = [];
+  for (const s of [1, -1]) for (let i = 0; i < 3; i++) {
+    const g = S.taper(0.045 - i * 0.006, 0.016, { r1: 0.003, curve: 0.2, radial: 6, rings: 4, sx: 1.4, sz: 0.6 });
+    S.paint(g, { from: FOX_HI, to: CREAM, axis: 'y' });
+    cheeks.push(S.pose(g, S.surface(headGeo, S.dirYP(s * 1.25, -0.3 + i * 0.22), { inset: 0.012 }), [0, 0, -s * (1.6 - i * 0.25)]));
+  }
+  const crown = [];
+  for (let i = 0; i < 3; i++) {
+    const g = S.taper(0.05, 0.016, { r1: 0.003, curve: 0.35 - i * 0.2, radial: 6, rings: 5, sx: 1.4, sz: 0.6 });
+    S.paint(g, { from: FOX, to: FOX_HI, axis: 'y' });
+    crown.push(S.pose(g, S.surface(headGeo, S.dirYP((i - 1) * 0.3, 1.2), { inset: 0.01 }), [-0.2, 0, (i - 1) * -0.45]));
+  }
+  const head = S.bake([headGeo, muzzle, nose, ...cheeks, ...crown], fur, 'head');
+  kit.at(body, head, 0, 0.1, 0.15, { rz: 0.1, rx: -0.06 });
 
-  // Sparks arcing between the ear tips — the bible's signature detail.
-  // Attached at the head's midline, scaled to the ear-tip separation.
-  const spark1 = sparkArc(sparkMat.clone(), { points: 5, width: 0.008, seed: 5 });
-  spark1.group.scale.x = 0.19;
-  kit.at(head, spark1, 0, 0.185, -0.01);
+  const eyeOpts = { irisColor: 0x2a1c08, skinColor: 0xd8672c, glintSize: 0.016 };
+  const eyeL = S.seatEye(kit, head, headGeo, 0.04, 0.46, 0.14, eyeOpts, { sink: 0.42, front: 0.55 });
+  const eyeR = S.seatEye(kit, head, headGeo, 0.04, -0.46, 0.14, eyeOpts, { sink: 0.42, front: 0.55 });
 
-  // --- Legs: four short, quick legs — a kit coiled to bolt. ---
-  const legDefs = [
-    [0.09, 0.09, 0.09], [-0.09, 0.09, 0.09],
-    [0.09, 0.09, -0.08], [-0.09, 0.09, -0.08],
-  ];
-  const legs = legDefs.map(([x, y, z]) => kit.at(body, kit.leg(0.15, skin, { thighR: 0.04, shinR: 0.03, footLen: 0.055 }), x, y, z));
+  // --- Tall dark-tipped ears; the spark arcs between their tips. -----------
+  const mkEar = () => {
+    const g = S.ear(0.11, 0.075, { color: FOX, inner: CREAM, tip: 1.4, cup: 0.5, depth: 0.38 });
+    S.overlay(g, TIP, (x, y, z) => S.sstep(0.07, 0.1, y));
+    return new THREE.Mesh(g, fur);
+  };
+  const earL = mkEar(), earR = mkEar();
+  earL.name = earR.name = 'ear';
+  const ea = S.surface(headGeo, S.dirYP(0.55, 0.85), { inset: 0.012 });
+  kit.at(head, earL, ea[0], ea[1], ea[2] - 0.01, { rz: -0.35, ry: 0.3, rx: -0.1 });
+  kit.at(head, earR, -ea[0], ea[1], ea[2] - 0.01, { rz: 0.35, ry: -0.3, rx: -0.1 });
+  // ear tips in head space (ear local tip (0, 0.105, 0) through the ear rotation)
+  const tipOf = (ear) => { ear.updateMatrix(); return new THREE.Vector3(0, 0.105, 0).applyMatrix4(ear.matrix).toArray(); };
+  const spark1 = sparkBolt(tipOf(earL), tipOf(earR), boltMat, pal.primary, { seed: 5 });
+  head.add(spark1.group);
 
-  // Bushy tail, straight out behind (never still).
-  const tail = kit.at(body, kit.tailChain(4, skin, { segLen: 0.075, startR: 0.05, endR: 0.02, tipTuft: true, tipMat: cream }), 0, 0.04, -0.15, { rx: 0.15 });
+  // --- Stubby legs with dark socks. -----------------------------------------
+  const legs = [[0.07, -0.07, 0.09], [-0.07, -0.07, 0.09], [0.07, -0.06, -0.08], [-0.07, -0.06, -0.08]].map(([x, y, z]) => {
+    const l = S.softLeg(0.09, fur, { stubby: true, thighR: 0.035, kneeR: 0.028, pawR: 0.031, pawLen: 1.3, toes: 3, color: FOX, shinColor: SOCK, pawColor: SOCK, radial: 8 });
+    kit.at(body, l, x, y, z, { rz: Math.sign(x) * 0.08 });
+    return l;
+  });
 
-  const zap = kit.heartspark(0.033, pal.eye, { seed: 111 });
-  kit.at(body, zap, 0, 0, 0.15);
+  // --- The big fluffy tail, curling up, cream tip. --------------------------
+  const tail = S.softTail(5, fur, {
+    segLen: 0.07, startR: 0.05, endR: 0.06, curl: 0.3, rootPitch: 0.4, taperExp: 0.6,
+    color: (t) => (t < 0.72 ? S.mixHex(FOX, FOX_HI, t) : S.mixHex(FOX_HI, CREAM, S.sstep(0.72, 0.85, t))),
+  });
+  kit.at(body, tail, 0, 0.03, -0.14);
+  const tipPuff = new THREE.Mesh(S.paint(S.puff(0.055, { count: 4, spread: 0.5, seed: 112, sy: 1.1 }), CREAM), fur);
+  tipPuff.name = 'tailTip';
+  kit.at(tail.tipAnchor, tipPuff, 0, 0.0, -0.01);
+
+  const zap = kit.heartspark(0.026, pal.eye, { seed: 111 });
+  const zp = S.surface(bodyGeo, S.dirYP(0, -0.1), { inset: 0.01 });
+  kit.at(body, zap, zp[0], zp[1], zp[2]);
 
   root.add(kit.shadowDisc(0.2, 0.36));
 
@@ -114,7 +147,7 @@ export function build_fulmin(kit = kitDefault) {
       tail: tail.pivots,
       legs: legs.map((l) => ({ hip: l.hip, knee: l.knee, foot: l.foot })),
       accents: [earL, earR],
-      fx: [spark1, zap],
+      fx: [spark1, zap, S.variantFx(root)],
     },
     hints: {
       personality: 'eager',
