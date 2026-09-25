@@ -4,7 +4,30 @@
 //   B = whisperwood, skyreach, starfallglade, sunkenruins
 //   or a comma list of stop ids (e.g. SKY_SET=ml,dmn).
 // Usage: QA_BEAUTY=1 node tools/shoot.mjs tools/drivers/v2-sky-shots.mjs <outDir>
-import { loadIn, goZone } from './integration-a.mjs';
+import { join, resolve } from 'node:path';
+import { loadIn } from './integration-a.mjs';
+
+// Own screenshot helper: heavy zones at full 1600x900 under software GL can
+// take longer than the harness's default 30 s screenshot timeout.
+const OUT = resolve(process.argv[3] ?? 'test-output');
+let shotN = 0;
+async function shot(page, name) {
+  const f = join(OUT, `${String(++shotN).padStart(2, '0')}-${name}.png`);
+  await page.screenshot({ path: f, timeout: 150000 });
+  console.log(`SHOT ${f}`);
+}
+// integration-a's goZone, with the long-timeout shot
+async function goZone(page, h, zone, name, dayTime) {
+  page.evaluate(`(async () => {
+    window.LF.G.calendar.dayTime = ${dayTime ?? 0.5};
+    await window.LF.game.enterOverworld('${zone}');
+  })()`).catch(() => {});
+  await h.waitFor(`window.LF?.game.mode === 'overworld' && window.LF.game.overworld?.zone?.id === '${zone}'`, 90000);
+  await h.sleep(900);
+  for (let i = 0; i < 4; i++) { await h.press('Enter'); await h.sleep(250); }
+  await h.sleep(1500);
+  await shot(page, name);
+}
 
 // Each stop: zone entered at dayTime t (the default gameplay camera is shot on
 // entry), then fixed-camera views [name, camera (x, y-above-ground, z),
@@ -79,7 +102,7 @@ async function camView(page, h, name, pos, look, t) {
     c.updateMatrixWorld();
   })()`);
   await h.sleep(1100);
-  await h.shot(name);
+  await shot(page, name);
 }
 
 export async function run(page, h) {

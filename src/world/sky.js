@@ -899,7 +899,11 @@ export function createSky(zone, scene) {
   const dome = new THREE.Mesh(domeGeo, domeMat);
   dome.name = 'skydome';
   dome.frustumCulled = false;
-  dome.renderOrder = -1000;
+  // Drawn LAST among opaques: it sits at the far plane, so early depth test
+  // skips every pixel terrain/props already covered (usually most of the
+  // frame) instead of shading the full screen first and overdrawing it.
+  // Transparent sky layers (stars, clouds, backdrop) still come after it.
+  dome.renderOrder = 10000;
   dome.matrixAutoUpdate = false; // stays at origin forever
   scene.add(dome);
   skyObjects.push(dome);
