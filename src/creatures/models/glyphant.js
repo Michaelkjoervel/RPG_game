@@ -95,7 +95,7 @@ export function build_glyphant(kit = kitDefault) {
 
   // Trunk: a tail chain turned to face forward — hangs, then curls up.
   const trunk = S.softTail(5, stone, {
-    segLen: 0.052, curl: 0.3, rootPitch: -1.35, radial: 8,
+    segLen: 0.058, curl: (i) => [0.04, 0.1, 0.25, 0.5, 0.65][i], rootPitch: -1.48, radial: 8,
     radiusFn: (t) => S.lerp(0.046, 0.022, t) + 0.006 * S.bump(t, 1, 0.12),
     color: (t) => S.mixHex(STONE, SAND, t * 0.8),
   });

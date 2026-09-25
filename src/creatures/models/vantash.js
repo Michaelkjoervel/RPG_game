@@ -98,23 +98,21 @@ export function build_vantash(kit = kitDefault) {
   });
   kit.at(body, tail, 0, 0.06, -0.3);
   const hook = new THREE.Group(); hook.name = 'hook';
-  const hookGeo = S.taper(0.19, 0.028, { r1: 0.004, curve: 1.15, radial: 7, rings: 8, sx: 0.55 });
+  const hookGeo = S.taper(0.26, 0.036, { r1: 0.004, curve: 1.15, radial: 7, rings: 8, sx: 0.55 });
   hookGeo.rotateX(-Math.PI / 2); // grow on along the tail (-Z), curl up (+Y)
   S.paint(hookGeo, { from: 0x2a2244, to: VOID, axis: 'z' });
   hook.add(new THREE.Mesh(hookGeo, fur));
-  const edgeGeo = S.taper(0.17, 0.009, { r1: 0.002, curve: 1.2, radial: 5, rings: 7, sx: 0.8 });
+  const edgeGeo = S.taper(0.235, 0.011, { r1: 0.002, curve: 1.2, radial: 5, rings: 7, sx: 0.8 });
   edgeGeo.rotateX(-Math.PI / 2);
-  edgeGeo.translate(0, 0.012, 0.004);
+  edgeGeo.translate(0, 0.016, 0.005);
   const edge = new THREE.Mesh(S.paint(edgeGeo, 0xffffff), glowMat);
   edge.name = 'hookEdge';
   hook.add(edge);
-  const hookGlow = S.glow(0x9a70ff, 0.2, 0.35);
-  hookGlow.position.set(0, 0.07, -0.1);
+  const hookGlow = S.glow(0x9a70ff, 0.26, 0.4);
+  hookGlow.position.set(0, 0.09, -0.13);
   hook.add(hookGlow);
   kit.at(tail.tipAnchor, hook, 0, 0, 0.01);
 
-  const wisps = kit.mote(5, { color: 0x4a3a80, size: 0.026, radius: 0.24, height: 0.22, speed: 0.25, seed: 162 });
-  kit.at(body, wisps, 0, 0.06, -0.05);
   const spark = kit.heartspark(0.026, pal.eye, { seed: 161 });
   const sp = S.surface(torso, S.dirYP(0, -0.15), { from: [0, 0, 0.12], inset: 0.01 });
   kit.at(body, spark, sp[0], sp[1], sp[2]);
@@ -130,7 +128,7 @@ export function build_vantash(kit = kitDefault) {
       tail: tail.pivots,
       legs: legs.map((l) => ({ hip: l.hip, knee: l.knee, foot: l.foot })),
       accents: [earL, earR, hook],
-      fx: [wisps, spark, S.variantFx(root)],
+      fx: [spark, S.variantFx(root)],
     },
     hints: {
       personality: 'regal',

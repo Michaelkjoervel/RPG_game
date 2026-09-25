@@ -15,7 +15,7 @@ import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
 import * as S from './soft.js';
 
-const CREAM = 0xfdf2d8, GOLD_LO = 0xd8a04a, KOHAKU = 0xe8502a, LEAD = 0x1c2638;
+const CREAM = 0xfff0cc, GOLD_LO = 0xe09a38, KOHAKU = 0xe8502a, LEAD = 0x1c2638;
 const GLASS = [0x3f7cf0, 0x2fc8b4, 0x9a62f0, 0xffc24a, 0x4fa8ff];
 
 // A stained-glass fin: a flat, slightly cupped pane along +Z (base at 0,
@@ -57,11 +57,11 @@ export function build_finnet(kit = kitDefault) {
 
   // --- Body: a chubby round koi. ------------------------------------------------
   const bodyGeo = S.spindle({
-    len: 0.3, r: 0.1, sx: 0.74, sy: 1.0, pTail: 0.75, pNose: 1.05, radial: 16, rings: 12, belly: 0.06,
-    profile: (t) => 0.34 + 0.66 * Math.pow(Math.sin(Math.PI * Math.min(1, t * 0.68 + 0.2)), 0.8),
+    len: 0.27, r: 0.108, sx: 0.8, sy: 1.0, pTail: 0.8, pNose: 1.0, radial: 16, rings: 12, belly: 0.08,
+    profile: (t) => 0.4 + 0.6 * Math.pow(Math.sin(Math.PI * Math.min(1, t * 0.62 + 0.26)), 0.7),
   });
   S.paint(bodyGeo, { from: GOLD_LO, to: CREAM, axis: 'y', noise: 0.012, seed: 80 });
-  for (const [yaw, pitch, z, r] of [[0.35, 1.0, 0.03, 0.05], [-0.6, 0.8, -0.05, 0.045], [0.9, 0.5, -0.07, 0.035], [0, 1.2, 0.09, 0.035]]) {
+  for (const [yaw, pitch, z, r] of [[0.4, 0.95, 0.03, 0.075], [-0.6, 0.8, -0.05, 0.07], [1.0, 0.4, -0.07, 0.05], [0, 1.25, 0.09, 0.05], [-1.1, 0.35, 0.06, 0.045]]) {
     S.blush(bodyGeo, S.surface(bodyGeo, S.dirYP(yaw, pitch), { from: [0, 0, z] }), r, KOHAKU, 1);
     S.blush(bodyGeo, S.surface(bodyGeo, S.dirYP(yaw, pitch), { from: [0, 0, z] }), r * 0.6, KOHAKU, 1);
   }

@@ -64,25 +64,31 @@ export function build_stormane(kit = kitDefault) {
   const neck = S.spindle({ len: 0.3, r: 0.105, sx: 0.95, sy: 1.08, p: 0.9, radial: 14, rings: 8, profile: (t) => 1.12 - 0.22 * t });
   S.pose(neck, [0, 0.13, 0.3], [-0.85, 0, 0]);
   S.paint(neck, { from: FUR_LO, to: FUR_HI, axis: 'y', noise: 0.012 });
-  // THE THUNDER MANE: spiky pale-gold fur standing on end, brow to shoulders
+  // THE THUNDER MANE: a ruff of spiky pale-gold fur standing on end all round
+  // the neck (a fan of round spikes per ring, swept up and back), brow to withers.
   const mane = [];
   const clump = (at, dir, len, w) => {
-    const g = S.taper(len, w, { r1: w * 0.1, curve: -0.25, radial: 5, rings: 3, capSeg: 1, sx: 1.4, sz: 0.55 });
+    const g = S.taper(len, w, { r1: w * 0.12, curve: -0.3, radial: 5, rings: 3, capSeg: 1 });
     S.paint(g, { from: MANE_LO, to: MANE, axis: 'y', noise: 0.015 });
     S.aim(g, dir);
     return S.pose(g, at);
   };
   const neckAll = S.merge([neck.clone()]);
-  for (let i = 0; i < 6; i++) {
-    const u = i / 5;
-    const from = [0, 0.13 + (u - 0.5) * 0.22 * 0.75, 0.3 + (u - 0.5) * 0.22 * 0.66];
-    const at = S.surface(neckAll, [0, 1, -0.3], { from, inset: 0.012 });
-    mane.push(clump(at, [0, 1, -0.55 + u * 0.2], 0.17 - Math.abs(u - 0.6) * 0.07, 0.05));
-    for (const sd of [1, -1]) mane.push(clump(S.surface(neckAll, [sd, 0.5, -0.1], { from, inset: 0.012 }), [sd * 0.8, 0.7, -0.5], 0.12 - u * 0.02, 0.045));
+  const AX = [0, Math.sin(0.85), Math.cos(0.85)], UPP = [0, Math.cos(0.85), -Math.sin(0.85)];
+  for (let i = 0; i < 5; i++) {
+    const u = i / 4;
+    const from = [0, 0.13 + (u - 0.45) * 0.24 * AX[1], 0.3 + (u - 0.45) * 0.24 * AX[2]];
+    for (let k = -2; k <= 2; k++) {
+      const phi = k * 0.62 + (i % 2 ? 0.3 : 0);
+      const d = [Math.sin(phi), Math.cos(phi) * UPP[1], Math.cos(phi) * UPP[2]];
+      const at = S.surface(neckAll, d, { from, inset: 0.014 });
+      const len = (0.16 - Math.abs(k) * 0.025) * (1.05 - Math.abs(u - 0.4) * 0.5);
+      mane.push(clump(at, [d[0] * 1.2, d[1] + 0.35, d[2] - 0.5], len, 0.048));
+    }
   }
   for (let i = 0; i < 3; i++) {
-    const at = S.surface(torso, [0, 1, 0], { from: [0, 0, 0.18 - i * 0.12], inset: 0.012 });
-    mane.push(clump(at, [0, 1, -0.7], 0.12 - i * 0.03, 0.045));
+    const at = S.surface(torso, [0, 1, 0], { from: [0, 0, 0.16 - i * 0.1], inset: 0.012 });
+    mane.push(clump(at, [0, 1, -0.8], 0.12 - i * 0.025, 0.05));
   }
   const body = S.bake([torso, neck, ...mane], fur, 'body');
   root.add(body);

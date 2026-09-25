@@ -16,7 +16,7 @@ import * as kitDefault from '../kit.js';
 import * as S from './soft.js';
 
 const STONE_LO = 0x5e5140, STONE = 0x8c7c60, STONE_HI = 0xc0b08a, LEG = 0x4a4034, LEG_HI = 0x7a6c56, TIP = 0xf8e6b0;
-const PRISM = [0xffd97a, 0xffc0a8, 0xbff0d0, 0xb8dcff, 0xfff2c8, 0xf0c060];
+const PRISM = [0xffb020, 0xff5a8a, 0x3fd0a0, 0x4a90ff, 0xffe060, 0xb060ff];
 
 // A cut brilliant: pavilion + crown + table, 8-fold, flat facets with a
 // prismatic colour per facet. Non-indexed (crisp facets), normal +Y up.
@@ -37,7 +37,7 @@ function brilliant(r, h1, h2, seed = 0) {
 export function build_shardling(kit = kitDefault) {
   const pal = kit.palette(['terra', 'lumen']);
   const skin = S.vcMat(kit, { rough: 0.7 });
-  const gemMat = kit.mat(0xffffff, { vertexColors: true, flat: true, rough: 0.08, metal: 0.1, transparent: true, opacity: 0.86, emissive: 0x6a4a18, emissiveIntensity: 0.55 });
+  const gemMat = kit.mat(0xffffff, { vertexColors: true, flat: true, rough: 0.12, metal: 0.05, transparent: true, opacity: 0.93, emissive: 0x3a2408, emissiveIntensity: 0.4 });
   const coreMat = kit.mat(0xffe6a0, { unlit: true });
 
   const root = new THREE.Group();
@@ -102,9 +102,9 @@ export function build_shardling(kit = kitDefault) {
     const hip = new THREE.Group(); hip.name = 'legHip';
     hip.position.set(...hipAt);
     body.add(hip);
-    const out = 0.07 + 0.01 * (1 - i % 2), up = 0.06;
+    const out = 0.075 + 0.01 * (1 - i % 2), up = 0.085;
     const K = dir.clone().multiplyScalar(out).setY(up);
-    const F = dir.clone().multiplyScalar(out + 0.06).setY(-(H + hipAt[1]));
+    const F = dir.clone().multiplyScalar(out + 0.05).setY(-(H + hipAt[1]));
     const tg = S.limb(K.length(), 0.013, 0.01, { radial: 7, capSeg: 2, shaftSeg: 2 });
     S.paint(tg, { from: LEG, to: LEG_HI, axis: 'y' });
     S.aim(tg, K.clone().negate().toArray());

@@ -16,7 +16,7 @@ import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
 import * as S from './soft.js';
 
-const FUR_LO = 0x2f3d1c, FUR = 0x4f6334, FUR_HI = 0x7a8f4e, MUZZLE = 0xb8b48a, SHELF = 0xd6c092, BAND = 0x9a7c52, RIM = 0xf4e8cc, GILL = 0x8a4a8a, PAW = 0x2a2418;
+const FUR_LO = 0x2f3d1c, FUR = 0x4f6334, FUR_HI = 0x7a8f4e, MUZZLE = 0xb8b48a, SHELF = 0xc88a48, BAND = 0x7a4a26, RIM = 0xf2dcae, GILL = 0x8a4a8a, PAW = 0x2a2418;
 
 const BAND_C = new THREE.Color(BAND), RIM_C = new THREE.Color(RIM);
 
@@ -34,7 +34,7 @@ function shelfGeo(r, h) {
     const d = Math.hypot(x, z) / r;
     if (y < -0.05 * h) c.setHex(S.mixHex(GILL, 0x5a3050, S.clamp01(1 - d)));
     else {
-      c.setHex(S.mixHex(0xb89a6a, SHELF, d));
+      c.setHex(S.mixHex(0x8a5a30, SHELF, d));
       c.lerp(BAND_C, 0.55 * Math.pow(Math.abs(Math.sin(d * Math.PI * 2.5)), 6));
       c.lerp(RIM_C, S.sstep(0.82, 0.97, d));
     }
@@ -74,10 +74,10 @@ export function build_fungore(kit = kitDefault) {
   // (spine tiers face backward like overlapping plates; flank shelves face out)
   const shelves = [];
   for (const [yaw, pitch, z, r, face] of [
-    [0.0, 1.35, 0.16, 0.12, Math.PI], [0.0, 1.3, -0.03, 0.14, Math.PI], [0.0, 1.2, -0.21, 0.13, Math.PI],
-    [1.0, 0.75, 0.12, 0.12, null], [-1.0, 0.75, 0.08, 0.12, null], [1.05, 0.55, -0.18, 0.1, null], [-1.1, 0.6, -0.15, 0.11, null],
+    [0.0, 1.35, 0.17, 0.16, Math.PI], [0.0, 1.3, -0.03, 0.19, Math.PI], [0.0, 1.2, -0.22, 0.17, Math.PI],
+    [1.0, 0.8, 0.12, 0.16, null], [-1.0, 0.8, 0.06, 0.16, null], [1.05, 0.55, -0.16, 0.14, null], [-1.1, 0.6, -0.16, 0.15, null],
   ]) {
-    const g = shelfGeo(r, r * 0.42);
+    const g = shelfGeo(r, r * 0.5);
     const n = S.dirYP(yaw, pitch);
     g.rotateX(-0.25); // outer edge tips up a little
     g.rotateY(face ?? Math.atan2(n[0], n[2]));
@@ -143,7 +143,7 @@ export function build_fungore(kit = kitDefault) {
   kit.at(body, tail, tp[0], tp[1], tp[2]);
 
   // Spore breath: slow purple-green motes from the mouth.
-  const breath = kit.mote(6, { color: pal.secondary, size: 0.022, radius: 0.06, height: 0.12, speed: 0.35, seed: 132 });
+  const breath = kit.mote(5, { color: 0xd8c8f0, size: 0.013, radius: 0.07, height: 0.14, speed: 0.3, seed: 132 });
   kit.at(jaw, breath, 0, 0.0, 0.06);
   const spark = kit.heartspark(0.04, pal.eye, { seed: 133 });
   const sp = S.surface(torso, S.dirYP(0, -0.2), { from: [0, 0, 0.18], inset: 0.02 });

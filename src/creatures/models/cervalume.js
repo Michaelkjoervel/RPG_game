@@ -16,23 +16,23 @@ import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
 import * as S from './soft.js';
 
-const COAT_LO = 0xa8844e, COAT = 0xd8bc88, COAT_HI = 0xf6ead0, CREAM = 0xfffaf0, HOOF = 0xc8963c;
+const COAT_LO = 0x8a6034, COAT = 0xc4945a, COAT_HI = 0xe6c08a, CREAM = 0xfff4e0, HOOF = 0xd8a040;
 const LIGHT = [0xe88f22, 0xffc850, 0xfff4cc];
 
 // One hard-light antler (left side for sd = +1). Base at the origin.
 function antlerGeo(sd) {
-  const L = 0.34, C = -0.32; // the beam curves back in toward the crown at the top
-  const parts = [S.taper(L, 0.017, { r1: 0.005, curve: C, radial: 6, rings: 7, capSeg: 1 })];
-  for (const [t, len, dx] of [[0.32, 0.11, 0.9], [0.58, 0.12, 0.6], [0.82, 0.08, 0.4]]) {
-    const g = S.taper(len, 0.009, { r1: 0.003, curve: 0.25, radial: 5, rings: 4, capSeg: 1 });
+  const L = 0.42, C = -0.34; // the beam curves back in toward the crown at the top
+  const parts = [S.taper(L, 0.02, { r1: 0.006, curve: C, radial: 6, rings: 7, capSeg: 1 })];
+  for (const [t, len, dx] of [[0.22, 0.12, 1.1], [0.45, 0.15, 0.7], [0.66, 0.13, 0.45], [0.86, 0.09, 0.2]]) {
+    const g = S.taper(len, 0.011, { r1: 0.003, curve: 0.25, radial: 5, rings: 4, capSeg: 1 });
     S.aim(g, [dx, 1, -0.35]);
     parts.push(S.pose(g, [0, t * L, C * L * t * t]));
   }
   const g = S.merge(parts);
   // local +Z (the beam's bend) -> inward; local +X -> forward; then splay out and back
   g.rotateY(-sd * Math.PI / 2);
-  g.rotateZ(-sd * 0.55);
-  g.rotateX(-0.3);
+  g.rotateZ(-sd * 0.62);
+  g.rotateX(-0.6); // (the head is carried nose-down ~0.4)
   g.computeBoundingBox();
   const h = g.boundingBox.max.y;
   S.paint(g, { fn: (x, y, z) => S.clamp01(y / h), from: LIGHT[0], to: LIGHT[2] });
@@ -74,8 +74,8 @@ export function build_cervalume(kit = kitDefault) {
 
   // --- Body + neck: one swept form; dapples on the back. ----------------------
   const bodyGeo = S.spindle({
-    len: 0.54, r: 0.125, sx: 0.84, sy: 1.08, p: 0.92, radial: 16, rings: 12,
-    profile: (t) => 0.76 + 0.14 * S.bump(t, 0.2, 0.28) + 0.26 * S.bump(t, 0.72, 0.32),
+    len: 0.6, r: 0.13, sx: 0.82, sy: 1.12, p: 0.9, radial: 16, rings: 12,
+    profile: (t) => 0.76 + 0.16 * S.bump(t, 0.2, 0.28) + 0.3 * S.bump(t, 0.72, 0.3),
     belly: (t) => 0.06 + 0.3 * S.bump(t, 0.4, 0.28),
     arch: (t) => 0.03 * S.sstep(0.5, 1, t),
   });
@@ -85,17 +85,17 @@ export function build_cervalume(kit = kitDefault) {
     [-0.9, 0.75, 0.06], [-1.1, 0.5, -0.1], [-0.8, 0.8, 0.14], [-0.35, 1.2, -0.12]]) {
     S.blush(bodyGeo, S.surface(bodyGeo, S.dirYP(yaw, pitch), { from: [0, 0, z] }), 0.022, CREAM, 0.95);
   }
-  const neckGeo = S.tubeAlong([[0, 0.02, 0.17], [0, 0.14, 0.245], [0, 0.26, 0.29], [0, 0.34, 0.31]], (t) => S.lerp(0.085, 0.056, t), { radial: 12, tubular: 12 });
+  const neckGeo = S.tubeAlong([[0, 0.03, 0.19], [0, 0.12, 0.27], [0, 0.2, 0.33], [0, 0.26, 0.37]], (t) => S.lerp(0.09, 0.062, t), { radial: 12, tubular: 12 });
   S.paint(neckGeo, { from: COAT, to: COAT_HI, axis: 'y', noise: 0.012 });
   S.overlayN(neckGeo, CREAM, (nx, ny, nz) => S.sstep(0.3, 0.7, nz - ny * 0.3) * 0.9);
   const body = S.bake([bodyGeo, neckGeo], fur, 'body');
   root.add(body);
-  body.position.y = 0.46;
+  body.position.y = 0.47;
 
   // --- Head: gentle, big dark eyes, wide leaf ears, the light crown. ---------
   const headGeo = S.spindle({
-    len: 0.23, r: 0.088, sx: 0.9, sy: 1.0, pTail: 1, pNose: 1.1, radial: 16, rings: 12,
-    profile: (t) => (t < 0.42 ? 1 : S.lerp(1, 0.6, S.sstep(0.42, 0.85, t))),
+    len: 0.27, r: 0.092, sx: 0.9, sy: 1.0, pTail: 1, pNose: 1.1, radial: 16, rings: 12,
+    profile: (t) => (t < 0.38 ? 1 : S.lerp(1, 0.55, S.sstep(0.38, 0.88, t))),
     syAt: (t) => S.lerp(0.98, 0.76, S.sstep(0.4, 0.85, t)),
     arch: (t) => -0.018 * S.sstep(0.4, 0.9, t),
   });
@@ -103,7 +103,7 @@ export function build_cervalume(kit = kitDefault) {
   S.overlay(headGeo, CREAM, (x, y, z) => S.sstep(0.04, 0.1, z) * S.sstep(0.0, -0.04, y) * 0.9);
   const nose = S.pose(S.paint(S.ball(0.013, { sx: 1.3, sy: 0.8, radial: 7, rings: 5 }), 0x3a2a20), S.surface(headGeo, [0, 0.3, 1], { from: [0, -0.01, 0.03], inset: 0.004 }));
   const head = S.bake([headGeo, nose], fur, 'head');
-  kit.at(body, head, 0, 0.38, 0.37, { rx: 0.18 });
+  kit.at(body, head, 0, 0.31, 0.43, { rx: 0.42 });
   const SK = [0, 0, -0.03];
   const eyeOpts = { irisColor: 0x2e1c10, skinColor: 0xd8bc88, glintSize: 0.014 };
   const eyeL = S.seatEye(kit, head, headGeo, 0.038, 0.62, 0.2, eyeOpts, { sink: 0.42, front: 0.5, from: SK });
