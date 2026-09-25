@@ -33,7 +33,9 @@ const ZONES = {
   },
   whisperwood: {
     t: 0.45, set: 'B',
-    views: [['ww-trail', [6, 3, 96], [22, 2, 50]], ['ww-map', [0.1, 200, 16], [0, 0, 0]]],
+    views: [['ww-trail', [6, 3, 96], [22, 2, 50]], ['ww-map', [0.1, 200, 16], [0, 0, 0]],
+      ['ww-chest', [-43.4, 1.5, 26.8], [-46, 0.35, 24]], ['ww-shard', [-3.2, 1.7, 33.6], [-6, 0.95, 30]],
+      ['ww-sparkle', [32.2, 1.2, -2.6], [30, 0.35, -5]]],
     walkTo: [10, 70],
   },
   mirrorlake: {
@@ -41,6 +43,11 @@ const ZONES = {
     views: [['ml-driftmoor', [40, 6, 60], [66, 1.5, 76]], ['ml-map', [0.1, 220, 16], [0, 0, 0]]],
     walkTo: [-42, 50],
   },
+  gloamcavern: { t: 0.5, set: 'C', views: [['gc-map', [0.1, 170, 14], [0, 0, 0]]], walkTo: [0, 0] },
+  skyreach: { t: 0.5, set: 'C', views: [['sr-map', [0.1, 200, 16], [0, 0, 0]]], walkTo: [-30, 80] },
+  sunkenruins: { t: 0.5, set: 'C', views: [['ru-map', [0.1, 190, 16], [0, 0, 0]]], walkTo: [0, 60] },
+  hollowspire: { t: 0.5, set: 'C', views: [['hs-map', [0.1, 160, 14], [0, 0, 0]]], walkTo: [0, 50] },
+  starfallglade: { t: 0.5, set: 'C', views: [['sg-map', [0.1, 130, 12], [0, 0, 0]]], walkTo: [0, 20] },
 };
 
 const SET = process.env.DRESS_SET ?? 'A';
@@ -100,7 +107,9 @@ async function releaseCam(page) {
 }
 
 async function walk(page, h, zone, to) {
-  const pos = () => page.evaluate(`JSON.stringify((() => { const p = window.LF.game.overworld.player.pos; return [+p.x.toFixed(2), +p.z.toFixed(2)]; })())`).then(JSON.parse);
+  // Distance vs GAME time: software GL runs a few fps and dt is clamped, so
+  // wall-clock distance is meaningless; an unobstructed walk covers ~3.2 u/s.
+  const pos = () => page.evaluate(`JSON.stringify((() => { const w = window.LF.game.overworld, p = w.player.pos; return [+p.x.toFixed(2), +p.z.toFixed(2), w._time]; })())`).then(JSON.parse);
   await page.evaluate(`(() => {
     const w = window.LF.game.overworld, p = w.player;
     const f = Math.atan2(${to[0]} - p.pos.x, ${to[1]} - p.pos.z);
@@ -109,11 +118,12 @@ async function walk(page, h, zone, to) {
   })()`);
   await h.sleep(300);
   const a = await pos();
-  await h.hold('ArrowUp', 4000);
-  await h.sleep(300);
+  await h.hold('ArrowUp', +(process.env.WALK_MS ?? 9000));
   const b = await pos();
   const d = Math.hypot(b[0] - a[0], b[1] - a[1]);
-  console.log(`WALK ${zone} from ${JSON.stringify(a)} to ${JSON.stringify(b)} moved ${d.toFixed(2)}m ${d > 4 ? 'OK' : 'FAIL'}`);
+  const gt = b[2] - a[2], ideal = 3.2 * Math.max(0, gt - 0.3);
+  const ratio = ideal > 0 ? d / ideal : 0;
+  console.log(`WALK ${zone} from ${JSON.stringify(a.slice(0, 2))} to ${JSON.stringify(b.slice(0, 2))} moved ${d.toFixed(2)}m in ${gt.toFixed(2)} game-s (${(ratio * 100).toFixed(0)}% of unobstructed) ${d > 3 && ratio > 0.6 ? 'OK' : 'FAIL'}`);
   await h.shot(`${zone}-walked`);
 }
 

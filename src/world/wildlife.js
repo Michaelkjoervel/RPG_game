@@ -25,13 +25,13 @@ function daylight(t) {
 }
 
 const BIOME_AMBIENT = {
-  meadow: { birds: true, butterflies: true, pollen: true, fireflies: 'dusk' },
+  meadow: { birds: true, butterflies: true, pollen: true, fireflies: 'dusk', flock: true },
   forest: { birds: true, butterflies: true, leaves: true, spore: true, fireflies: 'dusk' },
   glade: { butterflies: true, fireflies: 'always', pollen: true },
-  lake: { fish: true, butterflies: true },
-  town: { birds: true, butterflies: true },
+  lake: { fish: true, butterflies: true, flock: true, fireflies: 'dusk' },
+  town: { birds: true, butterflies: true, flock: true, fireflies: 'dusk' },
   cave: { bats: true, dust: true },
-  mountain: { birds: true },
+  mountain: { birds: true, flock: true },
   ruins: { dust: true },
   spire: { ash: true },
 };
@@ -211,30 +211,53 @@ export function createWildlife(zone, world) {
     }
   }
 
-  // ---- butterflies: drift between wander points, flap wings
+  // ---- butterflies: drift between wander points, flap wings. All wings are
+  // ONE InstancedMesh (two instances per butterfly) with per-instance colors,
+  // so a bigger, multi-colored flock costs a single draw call.
   const butterflies = [];
+  let wingIM = null;
+  const _body = new THREE.Object3D(), _wl = new THREE.Object3D(), _wr = new THREE.Object3D();
+  _body.add(_wl, _wr);
+  _wl.position.x = 0.005;                           // wings lie flat either side of
+  _wr.position.x = -0.005; _wr.scale.set(-1, 1, 1); // the body (local +Z = forward)
   if (amb.butterflies) {
-    const wingM = matOwned(pick([0xffd94f, 0xff9fb0, 0xb0a8ff, 0xffffff, 0xffb85c], rng), { rough: 0.6, side: THREE.DoubleSide, emissive: 0x221a10, emissiveIntensity: 0.05 });
-    const wingGeo = geo('butterfly_wing', () => new THREE.CircleGeometry(0.055, 8, 0, Math.PI));
-    const n = Math.max(2, Math.round((4 + Math.floor(rng() * 4)) * qMul));
+    const wingGeo = geo('butterfly_wing2', () => {
+      // forewing (big rounded lobe) + hindwing (small lobe), one flat shape
+      const sh = new THREE.Shape();
+      sh.moveTo(0, 0);
+      sh.bezierCurveTo(0.02, 0.07, 0.085, 0.085, 0.09, 0.03);
+      sh.bezierCurveTo(0.092, 0.005, 0.05, -0.005, 0.03, -0.004);
+      sh.bezierCurveTo(0.06, -0.03, 0.05, -0.065, 0.02, -0.055);
+      sh.bezierCurveTo(0.008, -0.05, 0.002, -0.02, 0, 0);
+      const g = new THREE.ShapeGeometry(sh, 5);
+      g.rotateX(Math.PI / 2); // lie flat: span +X, forewing toward +Z (forward)
+      return g;
+    });
+    const wingM = matOwned(0xffffff, { rough: 0.6, side: THREE.DoubleSide, emissive: 0x2a2014, emissiveIntensity: 0.12, rim: 0.2 });
+    const n = Math.max(3, Math.round((7 + Math.floor(rng() * 5)) * qMul));
+    wingIM = new THREE.InstancedMesh(wingGeo, wingM, n * 2);
+    wingIM.frustumCulled = false;
+    wingIM.castShadow = false;
+    const PALETTE = [0xffd94f, 0xff9fb0, 0xb0a8ff, 0xfff4f0, 0xffb85c, 0x8fd8ff];
+    const col = new THREE.Color();
     for (let i = 0; i < n; i++) {
-      const g = new THREE.Group();
-      const wL = new THREE.Mesh(wingGeo, wingM); wL.rotation.y = Math.PI / 2; wL.position.x = -0.005;
-      const wR = new THREE.Mesh(wingGeo, wingM); wR.rotation.y = -Math.PI / 2; wR.position.x = 0.005;
-      g.add(wL, wR);
+      col.set(PALETTE[Math.floor(rng() * PALETTE.length)]);
+      wingIM.setColorAt(i * 2, col); wingIM.setColorAt(i * 2 + 1, col);
       // seed the flock near the spawn point — the player's first view has life in it
       const a = rng() * TAU, r = 3 + rng() * 11;
       const x = clamp(anchor.x + Math.cos(a) * r, -half, half), z = clamp(anchor.z + Math.sin(a) * r, -half, half);
-      g.position.set(x, heightAt(x, z) + 0.9 + rng() * 0.8, z);
-      scene.add(g);
-      butterflies.push({ group: g, wL, wR, x, z, y: g.position.y, target: null, phase: rng() * TAU, speed: 0.55 + rng() * 0.35 });
+      const y = heightAt(x, z) + 0.9 + rng() * 0.8;
+      butterflies.push({ x, z, y, yaw: rng() * TAU, target: null, phase: rng() * TAU, speed: 0.55 + rng() * 0.35, beat: 9 + rng() * 5 });
     }
+    wingIM.instanceColor.needsUpdate = true;
+    scene.add(wingIM);
+    disposeFns.push(() => { scene.remove(wingIM); wingIM.dispose(); });
   }
   function updateButterflies(dt) {
-    for (const b of butterflies) {
-      b.phase += dt * 11;
+    for (let i = 0; i < butterflies.length; i++) {
+      const b = butterflies[i];
+      b.phase += dt * b.beat;
       const flap = Math.sin(b.phase) * 0.85 + 0.85;
-      b.wL.rotation.z = flap; b.wR.rotation.z = -flap;
       // left far behind the traveling player? rehome into the near annulus
       const pdx = b.x - anchor.x, pdz = b.z - anchor.z;
       if (pdx * pdx + pdz * pdz > 30 * 30) {
@@ -251,13 +274,124 @@ export function createWildlife(zone, world) {
         const tz = clamp(anchor.z + Math.sin(a) * r, -half, half);
         b.target = { x: tx, z: tz, y: heightAt(tx, tz) + 0.7 + rng() * 1.0 };
       }
-      const dx = b.target.x - b.x, dz = b.target.z - b.z, dy = b.target.y - b.y;
+      const dx = b.target.x - b.x, dz = b.target.z - b.z;
       const d = Math.hypot(dx, dz) || 1;
-      b.x += (dx / d) * b.speed * dt + Math.sin(T * 2 + b.phase) * dt * 0.3;
-      b.z += (dz / d) * b.speed * dt + Math.cos(T * 1.7 + b.phase) * dt * 0.3;
-      b.y = damp(b.y, b.target.y, 1.5, dt);
-      b.group.position.set(b.x, b.y, b.z);
-      b.group.rotation.y = damp(b.group.rotation.y, Math.atan2(dx, dz), 3, dt);
+      b.x += (dx / d) * b.speed * dt + Math.sin(T * 2 + b.phase * 0.1) * dt * 0.3;
+      b.z += (dz / d) * b.speed * dt + Math.cos(T * 1.7 + b.phase * 0.1) * dt * 0.3;
+      b.y = damp(b.y, b.target.y + Math.sin(b.phase * 0.35) * 0.08, 1.5, dt);
+      b.yaw = dampAngle(b.yaw, Math.atan2(dx, dz), 3, dt);
+      _body.position.set(b.x, b.y, b.z);
+      _body.rotation.set(0, b.yaw, 0);
+      _wl.rotation.z = flap; _wr.rotation.z = -flap; // both tips lift together
+      _body.updateMatrixWorld(true);
+      wingIM.setMatrixAt(i * 2, _wl.matrixWorld);
+      wingIM.setMatrixAt(i * 2 + 1, _wr.matrixWorld);
+    }
+    if (wingIM) wingIM.instanceMatrix.needsUpdate = true;
+  }
+
+  // ---- a bird flock wheeling high over open country: V silhouettes that
+  // flap in bursts and glide; one instanced draw, orbit follows the player.
+  let flockIM = null;
+  const flock = [];
+  const _fb = new THREE.Object3D(), _fl = new THREE.Object3D(), _fr = new THREE.Object3D();
+  _fb.add(_fl, _fr);
+  _fr.scale.set(-1, 1, 1);
+  if (amb.flock) {
+    const wg = geo('flock_wing', () => {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0.12, 0, 0, -0.1, 0.55, 0.02, -0.02, 0.55, 0.02, -0.02, 0, 0, -0.1, 0, 0, 0.12], 3));
+      g.setAttribute('normal', new THREE.Float32BufferAttribute([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0], 3));
+      return g;
+    });
+    const fm = matOwned(0x3a3a46, { rough: 0.9, side: THREE.DoubleSide, rim: 0 });
+    const n = Math.max(3, Math.round(7 * qMul));
+    flockIM = new THREE.InstancedMesh(wg, fm, n * 2);
+    flockIM.frustumCulled = false;
+    flockIM.castShadow = false;
+    const r0 = 18 + rng() * 8;
+    for (let i = 0; i < n; i++) {
+      flock.push({ ang: rng() * TAU, r: r0 + (rng() - 0.5) * 6, h: 18 + rng() * 7, sp: 0.16 + rng() * 0.05, ph: rng() * TAU, s: 0.8 + rng() * 0.45 });
+    }
+    scene.add(flockIM);
+    disposeFns.push(() => { scene.remove(flockIM); flockIM.dispose(); });
+  }
+  const flockCenter = { x: anchor.x, z: anchor.z };
+  function updateFlock(dt) {
+    flockCenter.x = damp(flockCenter.x, anchor.x + 10, 0.2, dt);
+    flockCenter.z = damp(flockCenter.z, anchor.z - 14, 0.2, dt);
+    const gy = heightAt(flockCenter.x, flockCenter.z);
+    for (let i = 0; i < flock.length; i++) {
+      const f = flock[i];
+      f.ang += dt * f.sp;
+      const x = flockCenter.x + Math.cos(f.ang) * f.r, z = flockCenter.z + Math.sin(f.ang) * f.r;
+      const y = gy + f.h + Math.sin(f.ang * 3 + f.ph) * 0.8;
+      // flap in bursts, then glide with wings slightly raised
+      const burst = Math.sin(T * 0.7 + f.ph) > 0.2;
+      const flap = burst ? Math.sin(T * 9 + f.ph) * 0.55 : 0.12;
+      _fb.position.set(x, y, z);
+      _fb.rotation.set(0, Math.atan2(-Math.sin(f.ang), Math.cos(f.ang)) , -0.25);
+      _fb.scale.setScalar(f.s);
+      _fl.rotation.set(0, 0, flap); _fr.rotation.set(0, 0, -flap);
+      _fb.updateMatrixWorld(true);
+      flockIM.setMatrixAt(i * 2, _fl.matrixWorld);
+      flockIM.setMatrixAt(i * 2 + 1, _fr.matrixWorld);
+    }
+    if (flockIM) flockIM.instanceMatrix.needsUpdate = true;
+  }
+
+  // ---- fish jumps: now and then a little fish arcs out of the water near
+  // the player and drops back in with ripple rings (one reused mesh).
+  let fish = null;
+  if (zone.water) {
+    const fg = geo('fish_body', () => {
+      const body = new THREE.SphereGeometry(1, 10, 6);
+      body.scale(0.05, 0.07, 0.17);
+      const tail = new THREE.ConeGeometry(0.06, 0.1, 4);
+      tail.rotateX(-Math.PI / 2); tail.scale(0.3, 1, 1); tail.translate(0, 0, -0.2);
+      const g = mergeTwo(body, tail);
+      body.dispose(); tail.dispose();
+      return g;
+    });
+    const mesh = new THREE.Mesh(fg, matOwned(0xc8d8e0, { rough: 0.3, metal: 0.4, rim: 0.4 }));
+    mesh.visible = false;
+    scene.add(mesh);
+    disposeFns.push(() => scene.remove(mesh));
+    fish = { mesh, t: 0, wait: 2 + rng() * 3, x: 0, z: 0, dir: 0, active: false };
+  }
+  function updateFish(dt) {
+    const w = zone.water;
+    const wx = w.pos?.[0] ?? 0, wz = w.pos?.[1] ?? 0, wr = (w.size ?? 40) / 2, lvl = w.level ?? 0;
+    if (!fish.active) {
+      fish.wait -= dt;
+      if (fish.wait > 0) return;
+      // pick a deep-enough spot in the water, near the player when possible
+      for (let k = 0; k < 6; k++) {
+        const near = rng() < 0.75;
+        const a = rng() * TAU, r = near ? 6 + rng() * 16 : Math.sqrt(rng()) * wr * 0.85;
+        const x = near ? anchor.x + Math.cos(a) * r : wx + Math.cos(a) * r;
+        const z = near ? anchor.z + Math.sin(a) * r : wz + Math.sin(a) * r;
+        if (Math.abs(x - wx) > wr || Math.abs(z - wz) > wr) continue;
+        if (heightAt(x, z) > lvl - 0.35) continue;
+        fish.active = true; fish.t = 0; fish.x = x; fish.z = z; fish.dir = rng() * TAU;
+        fish.mesh.visible = true;
+        fx.emitRing({ at: { x, y: lvl + 0.02, z }, radius: 0.05, count: 12, speed: 0.8, life: 1.0, size: 0.05, color: 0xe8f6ff, additive: false });
+        break;
+      }
+      fish.wait = 3 + rng() * 5;
+      return;
+    }
+    fish.t += dt / 0.85;
+    const u = Math.min(1, fish.t);
+    const dx = Math.sin(fish.dir), dz = Math.cos(fish.dir);
+    const px = fish.x + dx * u * 0.9, pz = fish.z + dz * u * 0.9;
+    const py = lvl + Math.sin(u * Math.PI) * 0.55 - 0.05;
+    fish.mesh.position.set(px, py, pz);
+    fish.mesh.rotation.set(-Math.cos(u * Math.PI) * 1.0, fish.dir, 0);
+    if (u >= 1) {
+      fish.active = false; fish.mesh.visible = false;
+      fx.emitRing({ at: { x: px, y: lvl + 0.02, z: pz }, radius: 0.06, count: 16, speed: 1.0, life: 1.2, size: 0.055, color: 0xe8f6ff, additive: false });
+      fx.emitBurst?.({ at: { x: px, y: lvl + 0.05, z: pz }, count: 6, color: 0xe8f6ff, size: 0.05, life: 0.45, speed: 0.9, up: 1.2 });
     }
   }
 
@@ -476,7 +610,9 @@ export function createWildlife(zone, world) {
     }
 
     if (amb.birds) updateBirds(dt, ppos);
-    if (amb.butterflies) updateButterflies(dt);
+    if (amb.butterflies && wingIM) updateButterflies(dt);
+    if (flockIM) updateFlock(dt);
+    if (fish) updateFish(dt);
     if (amb.bats) updateBats(dt);
     for (const u of updaters) u(dt, T);
 
@@ -488,7 +624,7 @@ export function createWildlife(zone, world) {
   function dispose() {
     fx.dispose();
     for (const b of birds) scene.remove(b.group);
-    for (const b of butterflies) scene.remove(b.group);
+    for (const f of disposeFns) { try { f(); } catch (e) { /* ignore */ } }
     for (const b of bats) scene.remove(b.group);
     for (const rec of roamers) if (!rec.dead) { scene.remove(rec.group); disposeGroup(rec.group); }
     for (const d of disposables) { d.geo?.dispose?.(); d.mat?.dispose?.(); }
@@ -497,6 +633,18 @@ export function createWildlife(zone, world) {
   }
 
   return { update, dispose };
+}
+
+function mergeTwo(a, b) {
+  const A = a.index ? a.toNonIndexed() : a, B = b.index ? b.toNonIndexed() : b;
+  const g = new THREE.BufferGeometry();
+  for (const name of ['position', 'normal']) {
+    const aa = A.attributes[name].array, bb = B.attributes[name].array;
+    const out = new Float32Array(aa.length + bb.length);
+    out.set(aa, 0); out.set(bb, aa.length);
+    g.setAttribute(name, new THREE.BufferAttribute(out, 3));
+  }
+  return g;
 }
 
 function lerpHex(a, b, t) {

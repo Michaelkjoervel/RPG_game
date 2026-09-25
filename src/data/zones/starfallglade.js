@@ -47,7 +47,7 @@ export const ZONE = {
     { kind: 'crystal_cluster', at: [-14, 27], scale: 1.1 },
     { kind: 'crystal_cluster', at: [34, -22], scale: 0.9 },
     { kind: 'crystal_cluster', at: [-36, -20], scale: 1.0 },
-    { kind: 'crystal_cluster', at: [24, 30], scale: 0.85 }, // beside the entry path — first thing the Warden passes
+    { kind: 'crystal_cluster', at: [24, 35.5], scale: 0.85 }, // beside the entry path — first thing the Warden passes
     // — the glow-tree ring around the crater pool —
     { kind: 'tree_glow', at: [0, -28], scale: 1.1 },
     { kind: 'tree_glow', at: [20, -20], scale: 1.05 },
@@ -75,7 +75,10 @@ export const ZONE = {
     { kind: 'rock_mossy', at: [40, -10] },
     { kind: 'rock_mossy', at: [-38, 12] },
     { kind: 'crystal_cluster', at: [46, 30], scale: 0.8 },
-    { kind: 'fence', at: [52, 52], rot: -Math.PI / 4 },
+    { kind: 'fence', at: [48, 56], rot: -Math.PI / 4 },
+    // — v2: a twilight wood closes the dell; glow-trees light its rim —
+    { kind: 'tree_cluster', border: { inset: 5, step: 10, rows: 2, gap: 14 }, scale: 1.2 },
+    { kind: 'tree_glow', border: { inset: 16, step: 22, rows: 1, gap: 16 } },
   ],
 
   portals: [

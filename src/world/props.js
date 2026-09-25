@@ -17,7 +17,7 @@
 // spherical normal field per canopy so a tree shades like one soft ball, and
 // an albedo-proportional "lift" keeps shaded undersides from ever going black.
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import * as MATS from '../gfx/materials.js';
 import { mat, windSway, jitterGeometry, smoothGeometry, sphericalNormals } from '../gfx/materials.js';
@@ -343,12 +343,21 @@ export function buildProps(zone, heightAt) {
     return g;
   }
 
-  // Merge colored pieces into one cached geometry (key must be variant-unique).
+  // Merge colored pieces into one cached geometry (key must be variant-unique),
+  // then weld it into an INDEXED mesh: pieces are built non-indexed (3 verts
+  // per triangle), and welding shared corners (identical position + normal +
+  // color) cuts vertex-shader work several-fold. UVs are dropped first — no
+  // prop material samples a texture, and they would only block the weld.
   function merged(key, build) {
     return geo(key, () => {
       const pieces = build().filter(Boolean);
-      const g = mergeGeometries(pieces, false) ?? pieces[0];
+      for (const p of pieces) if (p.attributes.uv) p.deleteAttribute('uv');
+      let g = mergeGeometries(pieces, false) ?? pieces[0];
       for (const p of pieces) { if (p !== g) p.dispose(); }
+      if (!g.index) {
+        const w = mergeVertices(g, 1e-4);
+        if (w !== g) { g.dispose(); g = w; }
+      }
       return g;
     });
   }
@@ -489,7 +498,7 @@ export function buildProps(zone, heightAt) {
 
   // Canopy color: vertical ramp + a sun-kissed crown (up-facing normals warm
   // toward `sun`) + per-lobe tone shifts so the mass reads painterly.
-  const CANOPY_TONE = { forest: [0x1c4a36, 0.3, 0x4f8a50, 0.3], glade: [0x1f4a52, 0.2, 0x5a9a8a, 0.2], mountain: [0x24483a, 0.2, 0x5a8a60, 0.2] }[biome] ?? null;
+  const CANOPY_TONE = { forest: [0x183f30, 0.4, 0x4a8450, 0.36], glade: [0x1f4a52, 0.2, 0x5a9a8a, 0.2], mountain: [0x24483a, 0.2, 0x5a8a60, 0.2] }[biome] ?? null;
   function paintCanopy(cn, from, to, { seed = 1, sun = null, lobeVar = 0.07, exp = 1.1 } = {}) {
     if (CANOPY_TONE) {
       from = lerpColorHex(from, CANOPY_TONE[0], CANOPY_TONE[1]);
@@ -2624,7 +2633,7 @@ export function buildProps(zone, heightAt) {
             tr.translate(tx, 0, tz);
             ramp(tr, birch ? 0xc4bdad : 0x684a2f, birch ? 0xf0ebdc : 0x9a7852, 0, 2.1 * sc, { noise: 0.03, seed: vs + t });
             out.push(tr);
-            const cn = canopyPieces(r2, { k: 4, cy: 2.7 * sc, R: 1.4 * sc, spread: 0.78, squash: 0.84, seed: vs + t * 7, detail: 1, amp: 0.18 });
+            const cn = canopyPieces(r2, { k: 3, cy: 2.75 * sc, R: 1.5 * sc, spread: 0.72, squash: 0.86, seed: vs + t * 7, detail: 1, amp: 0.2 });
             for (const c of cn.pieces) c.translate(tx, 0, tz);
             const hue = r2();
             if (birch) paintCanopy(cn, 0x659e44, 0xc8e886, { seed: vs + t, sun: 0xf0f8a4 });
@@ -3628,7 +3637,7 @@ export function buildProps(zone, heightAt) {
   //   border: { inset=6, step=8, rows=1, rowGap=step*0.85, jitter=step*0.3, gap=14 }
   function borderPositions(entry, def, rngS) {
     const b = entry.border;
-    const inset = b.inset ?? 6, step = b.step ?? 8, rows = b.rows ?? 1;
+    const inset = b.inset ?? 6, step = b.step ?? 8, rows = QUALITY === 'low' ? Math.min(1, b.rows ?? 1) : (b.rows ?? 1);
     const rowGap = b.rowGap ?? step * 0.85, jit = b.jitter ?? step * 0.3, gap = b.gap ?? 14;
     const out = [];
     for (let r = 0; r < rows; r++) {

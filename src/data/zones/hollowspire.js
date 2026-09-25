@@ -47,20 +47,20 @@ export const ZONE = {
     { kind: 'fence', at: [40, 32], rot: 0 },
     { kind: 'fence', at: [30, 40], rot: Math.PI / 2 },
     { kind: 'fence', at: [40, 40], rot: Math.PI / 2 },
-    { kind: 'crate', at: [35, 36] },
+    { kind: 'crate', at: [37.5, 38] },
     { kind: 'crate', at: [37, 30], scale: 0.85 },
     { kind: 'spire_wall', density: 0.2, area: [35, 36, 14] },
     // — Lieutenant Vess's arena (frost-touched) —
     { kind: 'spire_wall', density: 0.22, area: [-15, 12, 20] },
     { kind: 'ice_spike', at: [-24, 6], scale: 0.9 },
-    { kind: 'ice_spike', at: [-6, 4], scale: 0.9 },
-    { kind: 'ember_vent', at: [-15, 20], scale: 0.7 },
+    { kind: 'ice_spike', at: [-1, 6], scale: 0.9 },
+    { kind: 'ember_vent', at: [-21, 24], scale: 0.7 },
     { kind: 'banner', at: [-25, 16], rot: Math.PI / 3 },
     // — Lieutenant Dorn's arena (scorched) —
     { kind: 'spire_wall', density: 0.22, area: [15, -38, 20] },
     { kind: 'lava_rock', at: [8, -44], scale: 1.0 },
     { kind: 'lava_rock', at: [24, -34], scale: 0.9 },
-    { kind: 'ember_vent', at: [15, -46] },
+    { kind: 'ember_vent', at: [20, -47] },
     { kind: 'banner', at: [26, -40], rot: -Math.PI / 3 },
     // — Archon Sol's summit sanctum, skylight cracked open above —
     { kind: 'spire_wall', at: [-16, -78], rot: Math.PI / 2, scale: 1.4 },
@@ -74,7 +74,10 @@ export const ZONE = {
     { kind: 'spire_wall', density: 0.14, area: [0, 0, 80] },
     { kind: 'ember_vent', at: [0, 0], scale: 0.7 },
     { kind: 'rock', at: [-6, -15], scale: 0.8 },
-    { kind: 'fence', at: [0, 76], rot: 0 },
+    { kind: 'fence', at: [-6, 77], rot: 0 },
+    { kind: 'fence', at: [6, 77], rot: 0 },
+    // — v2: the fortress curtain wall rings the whole spire —
+    { kind: 'spire_wall', border: { inset: 5, step: 8, rows: 1, gap: 14 } },
   ],
 
   portals: [

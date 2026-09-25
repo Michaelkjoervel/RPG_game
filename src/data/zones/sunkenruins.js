@@ -66,7 +66,7 @@ export const ZONE = {
     { kind: 'crate', at: [-56, 2], scale: 0.85 },
     // — the water-stair puzzle chamber —
     { kind: 'ruin_wall', density: 0.3, area: [44, -24, 16] },
-    { kind: 'ruin_pillar', at: [36, -18] },
+    { kind: 'ruin_pillar', at: [36, -13] },
     { kind: 'ruin_pillar', at: [52, -18] },
     // — dry ascent toward the trial dais —
     { kind: 'ruin_arch', at: [-16, -20], rot: Math.PI / 2 },
@@ -77,15 +77,19 @@ export const ZONE = {
     { kind: 'ruin_pillar', at: [14, -78] },
     { kind: 'ruin_pillar', at: [-14, -68] },
     { kind: 'ruin_pillar', at: [14, -68] },
-    { kind: 'ruin_wall', at: [0, -86], scale: 1.3 },
+    { kind: 'ruin_wall', at: [-7.5, -88], scale: 1.1 },
+    { kind: 'ruin_wall', at: [7.5, -88], scale: 1.1 },
     // — general ruin dressing —
     { kind: 'rock', density: 0.14, area: [0, 0, 95] },
     { kind: 'rock_mossy', density: 0.08, area: [0, 0, 95] },
     { kind: 'fern', density: 0.12, area: [0, 30, 70] },
     { kind: 'grass_tuft', density: 0.16, area: [0, -30, 80] },
     { kind: 'stump', at: [40, 40] },
-    { kind: 'fence', at: [0, 96], rot: 0 },
+    { kind: 'fence', at: [-6, 98], rot: 0 },
     { kind: 'fence', at: [12, 96], rot: 0 },
+    // — v2: an overgrown wood closes around the drowned temple —
+    { kind: 'tree_cluster', border: { inset: 6, step: 12, rows: 2, gap: 16 }, scale: 1.3 },
+    { kind: 'ruin_pillar', border: { inset: 16, step: 24, rows: 1, gap: 18 } },
   ],
 
   portals: [

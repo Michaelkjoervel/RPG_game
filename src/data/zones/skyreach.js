@@ -42,25 +42,25 @@ export const ZONE = {
     { kind: 'rock', at: [-14, 66], scale: 1.2 },
     { kind: 'rock', at: [10, 30], scale: 1.1 },
     // — climber Bo's camp, midway —
-    { kind: 'tent', at: [8, -18], rot: -Math.PI / 4 },
-    { kind: 'campfire', at: [4, -14] },
-    { kind: 'crate', at: [12, -22] },
+    { kind: 'tent', at: [14, -15], rot: -Math.PI / 4 },
+    { kind: 'campfire', at: [10.5, -12] },
+    { kind: 'crate', at: [15.5, -18.5] },
     { kind: 'rock_mossy', at: [16, -16] },
     // — Keeper Sera's summit ring, under the storm —
     { kind: 'shrine_stone', at: [-5, -58], scale: 1.2 },
-    { kind: 'shrine_stone', at: [-12, -56], scale: 0.85 },
+    { kind: 'shrine_stone', at: [-14.5, -57], scale: 0.85 },
     { kind: 'shrine_stone', at: [2, -56], scale: 0.85 },
-    { kind: 'shrine_stone', at: [-5, -65], scale: 0.8 },
+    { kind: 'shrine_stone', at: [-1, -65.5], scale: 0.8 },
     { kind: 'rock', at: [-16, -62], scale: 1.4 },
     { kind: 'rock', at: [8, -62], scale: 1.3 },
-    { kind: 'banner', at: [-5, -70], rot: Math.PI },
+    { kind: 'banner', at: [0.5, -70], rot: Math.PI },
     // — the snow line near the top —
     { kind: 'snow_pile', density: 0.3, area: [0, -68, 55] },
     { kind: 'ice_spike', density: 0.14, area: [0, -75, 45] },
     // — hand-placed markers up the ascent so the switchbacks never read as a
     //   featureless snowfield: frost-heaved boulders and ice teeth by the trail —
     { kind: 'rock', at: [-24, 20], scale: 1.5 },
-    { kind: 'ice_spike', at: [-14, 8], scale: 1.1 },
+    { kind: 'ice_spike', at: [-19, 4], scale: 1.1 },
     { kind: 'ice_spike', at: [16, -4], scale: 0.9 },
     { kind: 'rock', at: [-4, -34], scale: 1.6 },
     { kind: 'ice_spike', at: [-18, -40], scale: 1.2 },
@@ -81,8 +81,11 @@ export const ZONE = {
     { kind: 'grass_tuft', density: 0.14, area: [0, 70, 60] },
     { kind: 'stump', at: [-25, 40] },
     { kind: 'log', at: [30, 20], rot: Math.PI / 3 },
-    { kind: 'fence', at: [0, 108], rot: 0 },
-    { kind: 'fence', at: [10, 108], rot: 0 },
+    { kind: 'fence', at: [6.5, 109], rot: 0.8 },
+    { kind: 'fence', at: [-10, 112], rot: 0.8 },
+    // — v2: wind-bent pine stands and crags frame the pass —
+    { kind: 'pine_cluster', border: { inset: 6, step: 12, rows: 2, gap: 16 }, scale: 1.25 },
+    { kind: 'cliff_wall', border: { inset: 14, step: 20, rows: 1, gap: 18 }, scale: 1.3 },
   ],
 
   portals: [

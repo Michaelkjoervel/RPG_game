@@ -45,16 +45,16 @@ export const ZONE = {
 
   props: [
     // — crystal-lit main tunnel —
-    { kind: 'crystal_cluster', at: [-30, -6], scale: 1.1 },
-    { kind: 'crystal_cluster', at: [10, 2], scale: 1.0 },
-    { kind: 'crystal_cluster', at: [50, 6], scale: 1.2 },
+    { kind: 'crystal_cluster', at: [-30, -12.5], scale: 1.1 },
+    { kind: 'crystal_cluster', at: [4, 7.5], scale: 1.0 },
+    { kind: 'crystal_cluster', at: [44, 13], scale: 1.2 },
     { kind: 'crystal_cluster', at: [78, -2], scale: 1.0 },
     { kind: 'crystal_cluster', at: [-70, 4], scale: 0.9 },
     { kind: 'rock_crystal', density: 0.2, area: [0, 0, 90] },
     // — Lanternkeeper Ode's camp —
     { kind: 'campfire', at: [17, -36] },
     { kind: 'tent', at: [22, -40], rot: Math.PI / 6 },
-    { kind: 'crate', at: [14, -33] },
+    { kind: 'crate', at: [12.5, -34.5] },
     { kind: 'crystal_cluster', at: [25, -34], scale: 0.7 },
     // — Finn's hidden pocket —
     { kind: 'campfire', at: [-62, 48], scale: 0.7 },
@@ -78,6 +78,11 @@ export const ZONE = {
     { kind: 'hangmoss', at: [30, -20] },
     { kind: 'rock_mossy', at: [-20, 30] },
     { kind: 'rock', at: [60, 20], scale: 0.9 },
+    // — v2: crystal glints and fallen stone along the tunnel walls —
+    { kind: 'rock_crystal', line: [[-86, 5.2], [-42, -3.6]], step: 11, jitter: 2 },
+    { kind: 'rock_crystal', line: [[4, -6.2], [88, -6.6]], step: 13, jitter: 2 },
+    { kind: 'rock', line: [[-80, -6.4], [-44, -16.4]], step: 12, jitter: 2, scale: 1.2 },
+    { kind: 'glowfern', density: 0.12, area: [0, 0, 80] },
   ],
 
   portals: [
