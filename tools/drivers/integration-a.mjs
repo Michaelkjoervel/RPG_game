@@ -12,7 +12,10 @@ const SEED = `(async () => {
   G.party = [makeCreature('charvane', 18, { resonance: 3 }), makeCreature('aurelark', 16),
              makeCreature('cairnox', 15), makeCreature('glowvern', 14)];
   gainItem('woven_charm', 6); gainItem('tonic', 4);
-  for (const f of ['intro_done','tutorial_done','dm_tip_shown','kb_beat','kl_beat'])
+  // Story flags through Bryn's second duel, so zone entry doesn't trigger a
+  // scripted rival encounter in front of the camera.
+  for (const f of ['intro_done','tutorial_done','dm_tip_shown','kb_beat','kl_beat',
+                   'ww_hollowed_seen','shard_stolen','gloam_ambush_done','bryn_1','bryn_2'])
     setFlag(f);
   G.glim = 1240; G.sigils = [true, true, false, false, false];
   G.pos = { zone: 'brighthollow', x: 0, z: 6, face: 0 };
@@ -20,11 +23,13 @@ const SEED = `(async () => {
 })()`;
 
 export async function goZone(page, h, zone, name, dayTime) {
-  await page.evaluate(`(async () => {
+  // Fire-and-forget: an awaited evaluate can hang forever if the tab stalls
+  // mid-load under software GL; the bounded waitFor below is the real gate.
+  page.evaluate(`(async () => {
     if (${dayTime !== undefined}) window.LF.G.calendar.dayTime = ${dayTime ?? 0.5};
     await window.LF.game.enterOverworld('${zone}');
   })()`).catch(() => {});
-  await h.waitFor(M('overworld'), 45000);
+  await h.waitFor(`window.LF?.game.mode === 'overworld' && window.LF.game.overworld?.zone?.id === '${zone}'`, 90000);
   await h.sleep(900);
   for (let i = 0; i < 4; i++) { await h.press('Enter'); await h.sleep(250); }
   await h.sleep(1500);
