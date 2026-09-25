@@ -1,30 +1,44 @@
 // ============================================================================
-// gfx/postfx.js — a single, lightweight screen-space grade pass: gentle pivot
-// contrast + saturation lift, warm-highlight/cool-shadow split tone, and a
-// soft vignette on top of the normal render. One fullscreen pass, no bloom
-// chains — cheap enough for software GL.
+// gfx/postfx.js — the world's screen-space finish, tiered by settings.quality:
+//
+//   'high' : scene -> soft BLOOM (half resolution) -> grade -> output
+//   'med'  : scene -> grade -> output                (no bloom)
+//   'low'  : plain renderer.render()                 (zero overhead)
+//
+// The grade pass is one fullscreen shader: gentle pivot contrast + saturation
+// lift, warm-highlight/cool-shadow split tone, and a soft vignette.
 //
 //   applyAtmosphere(renderer, scene, camera) -> {
 //     render(), setCamera(camera), setEnabled(bool), dispose()
 //   }
 //
-// Built on the vendored EffectComposer/RenderPass/ShaderPass/OutputPass so
-// tone mapping + color space still resolve exactly as a direct
+// Built on the vendored EffectComposer/RenderPass/UnrealBloomPass/ShaderPass/
+// OutputPass so tone mapping + color space still resolve exactly as a direct
 // `renderer.render()` would (OutputPass applies renderer.toneMapping /
-// outputColorSpace on the way to screen). The grade pass therefore runs in
-// LINEAR pre-tonemap space — its constants are tuned for that (pivot 0.18
-// linear gray, small additive tints that ACES then rolls off). Disabled
-// entirely on settings.quality 'low' (falls back to a plain render — zero
-// overhead), and if the composer ever fails to build or to render (odd
-// GPU/driver), it permanently falls back to plain rendering rather than risk
-// the game loop. World.render(renderer, dt) is the only caller — call
-// `render()` once per frame instead of `renderer.render(scene, camera)`.
+// outputColorSpace on the way to screen). Bloom and grade therefore run in
+// LINEAR, pre-tonemap HDR space:
+//   - BLOOM keys on linear luminance. A fully sunlit white surface peaks
+//     around ~1.0 (sun 3.0 × albedo/π + sky fill), so the threshold sits just
+//     above that: only emissive/glow content blooms — crystals, lanterns,
+//     windows at night, creature element glows, shards, unlit glow meshes
+//     brighter than ~1.1. To make something bloom, give it emissive ≳ 1.2 on a
+//     bright color (or an unlit color pushed above 1). BLOOM_* below.
+//   - The grade constants are tuned for that space (pivot 0.18 linear gray,
+//     small additive tints that ACES then rolls off).
+// The scene target is multisampled (MSAA) so edges — and the creature/human
+// ink outlines — stay clean in postfx mode (the canvas's own antialias does
+// not apply to offscreen targets).
+// If the composer ever fails to build or to render (odd GPU/driver), it
+// permanently falls back to plain rendering rather than risk the game loop.
+// World.render(renderer, dt) is the main caller — call `render()` once per
+// frame instead of `renderer.render(scene, camera)`. Any other scene (battle,
+// previews) can use the same chain via its own applyAtmosphere() instance.
 // ============================================================================
 import * as THREE from 'three';
 import { bus } from '../core/events.js';
 import { settings } from '../core/settings.js';
 
-let EffectComposer = null, RenderPass = null, ShaderPass = null, OutputPass = null;
+let EffectComposer = null, RenderPass = null, ShaderPass = null, OutputPass = null, UnrealBloomPass = null;
 let _addonsPromise = null;
 function loadAddons() {
   if (_addonsPromise) return _addonsPromise;
@@ -33,14 +47,27 @@ function loadAddons() {
     import('three/addons/postprocessing/RenderPass.js'),
     import('three/addons/postprocessing/ShaderPass.js'),
     import('three/addons/postprocessing/OutputPass.js'),
-  ]).then(([a, b, c, d]) => {
+    // Bloom is optional: if it fails to load, the grade chain still works.
+    import('three/addons/postprocessing/UnrealBloomPass.js').catch((e) => {
+      console.warn('[postfx] bloom unavailable — grade only', e?.message ?? e);
+      return null;
+    }),
+  ]).then(([a, b, c, d, e]) => {
     EffectComposer = a.EffectComposer; RenderPass = b.RenderPass;
     ShaderPass = c.ShaderPass; OutputPass = d.OutputPass;
+    UnrealBloomPass = e?.UnrealBloomPass ?? null;
   }).catch((e) => {
     console.warn('[postfx] postprocessing addons unavailable — plain render only', e?.message ?? e);
   });
   return _addonsPromise;
 }
+
+// Bloom tuning (linear HDR luminance; see header).
+const BLOOM_THRESHOLD = 1.08;  // just above the brightest sunlit diffuse
+const BLOOM_KNEE = 0.3;        // soft ramp above the threshold (highpass smoothWidth)
+const BLOOM_STRENGTH = 0.55;
+const BLOOM_RADIUS = 0.42;
+const MSAA_SAMPLES = { high: 4, med: 4 };
 
 const ATMO_SHADER = {
   uniforms: {
@@ -95,25 +122,62 @@ function screenSize() {
  * @param {THREE.Camera|null} camera  may be null at construction; call setCamera() once known
  */
 export function applyAtmosphere(renderer, scene, camera) {
-  let composer = null, renderPass = null, atmoPass = null;
+  let composer = null, renderPass = null, atmoPass = null, bloomPass = null;
   let ready = false, broken = false;
   let enabled = settings.quality !== 'low';
   let curCam = camera || new THREE.PerspectiveCamera();
+  let curPr = 1;
+
+  function applyTier() {
+    if (!composer) return;
+    const tier = settings.quality;
+    if (bloomPass) bloomPass.enabled = tier === 'high';
+    // MSAA on the scene target; a changed sample count needs a re-allocation.
+    const samples = MSAA_SAMPLES[tier] ?? 0;
+    for (const rt of [composer.renderTarget1, composer.renderTarget2]) {
+      if (rt && rt.samples !== samples) { rt.samples = samples; rt.dispose(); }
+    }
+  }
+
+  function resize() {
+    const { w, h, pr } = screenSize();
+    curPr = pr;
+    composer.setPixelRatio(pr);
+    composer.setSize(w, h);
+  }
 
   async function build() {
     if (broken || composer || !renderer) return;
     try {
       await loadAddons();
       if (!EffectComposer) { broken = true; return; }
-      composer = new EffectComposer(renderer);
+      const { w, h, pr } = screenSize();
+      const target = new THREE.WebGLRenderTarget(w * pr, h * pr, {
+        type: THREE.HalfFloatType, samples: MSAA_SAMPLES[settings.quality] ?? 0,
+      });
+      composer = new EffectComposer(renderer, target);
       renderPass = new RenderPass(scene, curCam);
       composer.addPass(renderPass);
+      if (UnrealBloomPass) {
+        try {
+          bloomPass = new UnrealBloomPass(new THREE.Vector2(w, h), BLOOM_STRENGTH, BLOOM_RADIUS, BLOOM_THRESHOLD);
+          bloomPass.highPassUniforms.smoothWidth.value = BLOOM_KNEE;
+          // HALF resolution of the CSS canvas regardless of devicePixelRatio:
+          // UnrealBloomPass halves whatever size it is given, so feed it the
+          // CSS size (the composer passes device pixels).
+          const setBloomSize = bloomPass.setSize.bind(bloomPass);
+          bloomPass.setSize = (dw, dh) => setBloomSize(Math.max(2, Math.round(dw / curPr)), Math.max(2, Math.round(dh / curPr)));
+          composer.addPass(bloomPass);
+        } catch (e) {
+          console.warn('[postfx] bloom pass failed to build — grade only', e?.message ?? e);
+          bloomPass = null;
+        }
+      }
       atmoPass = new ShaderPass(ATMO_SHADER);
       composer.addPass(atmoPass);
       composer.addPass(new OutputPass());
-      const { w, h, pr } = screenSize();
-      composer.setPixelRatio(pr);
-      composer.setSize(w, h);
+      resize();
+      applyTier();
       ready = true;
     } catch (e) {
       console.warn('[postfx] composer build failed — falling back to plain render', e?.message ?? e);
@@ -125,16 +189,15 @@ export function applyAtmosphere(renderer, scene, camera) {
 
   const offResize = bus.on('render:resize', () => {
     if (!composer) return;
-    try {
-      const { w, h, pr } = screenSize();
-      composer.setPixelRatio(pr);
-      composer.setSize(w, h);
-    } catch (e) { /* ignore — next frame falls back if this got wedged */ }
+    try { resize(); } catch (e) { /* ignore — next frame falls back if this got wedged */ }
   });
   const offSettings = bus.on('settings:changed', ({ key } = {}) => {
     if (key !== 'quality') return;
     enabled = settings.quality !== 'low';
     if (enabled && !composer && !broken) build();
+    else if (composer) {
+      try { applyTier(); resize(); } catch (e) { /* ignore */ }
+    }
   });
 
   return {
@@ -157,6 +220,7 @@ export function applyAtmosphere(renderer, scene, camera) {
     dispose() {
       offResize?.();
       offSettings?.();
+      try { bloomPass?.dispose?.(); } catch (e) { /* ignore */ }
       try { composer?.dispose?.(); } catch (e) { /* ignore */ }
       composer = null; ready = false;
     },

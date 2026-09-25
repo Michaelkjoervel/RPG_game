@@ -14,7 +14,7 @@ import { bus } from '../core/events.js';
 import { G } from '../core/state.js';
 import { input } from '../core/input.js';
 import { clamp, clamp01, lerp, damp, dampAngle, shortAngle, TAU } from '../core/math.js';
-import { disposeGroup, applyVertexGradient, jitterGeometry, contactShadow } from '../gfx/materials.js';
+import { disposeGroup, applyVertexGradient, jitterGeometry, contactShadow, applyLook, addOutline, smoothGeometry, sphericalNormals } from '../gfx/materials.js';
 
 /* ----------------------------- movement tuning ----------------------------- */
 const WALK_SPEED = 3.2;        // u/s — contract value
@@ -61,11 +61,12 @@ const BIOME_SURFACE = {
 
 /* ============================ Warden model =============================== */
 
-function M(color, { rough = 0.82, metal = 0, emissive = 0x000000, ei = 0.0, flat = true, vc = false } = {}) {
-  return new THREE.MeshStandardMaterial({
+// v2 soft look: smooth by default + the shared wrapped-terminator/rim hook.
+function M(color, { rough = 0.82, metal = 0, emissive = 0x000000, ei = 0.0, flat = false, vc = false, side = THREE.FrontSide, rim = 1 } = {}) {
+  return applyLook(new THREE.MeshStandardMaterial({
     color, roughness: rough, metalness: metal, flatShading: flat,
-    emissive, emissiveIntensity: ei, vertexColors: vc,
-  });
+    emissive, emissiveIntensity: ei, vertexColors: vc, side,
+  }), { rim });
 }
 
 /* Build-time color helpers (never called per frame). */
@@ -324,6 +325,7 @@ function buildWarden() {
     glint.castShadow = false;
     glint.position.set(0.007, 0.008, 0.026);
     g.add(sclera, iris, pupil, glint);
+    g.userData.noOutline = true;
     head.add(g);
     return g;
   }
@@ -403,6 +405,8 @@ function buildWarden() {
   const clasp = mesh(new THREE.SphereGeometry(0.028, 6, 4), mats.gold);
   clasp.position.set(0, 0.475, 0.128);
   torso.add(clasp);
+
+  addOutline(group, { color: 0x2a1d2b, thickness: 2.0 });
 
   return {
     group,

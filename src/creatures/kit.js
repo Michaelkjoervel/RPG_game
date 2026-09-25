@@ -87,6 +87,25 @@
 //     hollowify(group, parts?) -> group                         gray, cracked, dim (mutates)
 //     gleamify(group, parts?) -> group                          hue-shift + sparkle (mutates)
 //
+// VISUAL PASS v2 — SOFT STYLIZED (docs/VISUAL_V2_BRIEF.md). Every signature
+// above is unchanged; only the defaults moved:
+//   - mat() is SMOOTH by default and carries the shared soft look (wrapped
+//     terminator + rim light, gfx/materials.js applyLook). Pass { flat: true }
+//     ONLY for crystal / gem / ice / cut-stone materials.
+//   - Round parts are tessellated so silhouettes read round: orb/blob pick
+//     their segment counts from their radius (explicit wSeg/hSeg are raised to
+//     a floor), capsules/horns/snouts/ears/teardrops/bulbs got more segments,
+//     blob/horn/snout/shellPlate normals are crack-free (no UV-seam crease).
+//   - cone() with <= 5 segments stays FACETED (spikes, gem shards, ice teeth);
+//     more segments = smooth.
+//   - fluffTuft() is one merged mesh per tuft (fewer draw calls) with
+//     spherical "one soft ball" normals; still returns a Group.
+//   - eye(): finer spheres, sclera gets a whisper of self-light so eyes stay
+//     bright in shade; eyes are excluded from the creature ink outline
+//     (registry.js adds outlines to every creature — see addOutline).
+//   - Outlines skip transparent/unlit/glowing parts automatically; flag any
+//     other part with `mesh.userData.noOutline = true` to keep it ink-free.
+//
 // EXAMPLE — a tiny two-part creature (see kindlet.js etc. for full builds):
 //   import * as THREE from 'three';
 //   import * as kit from '../kit.js';
@@ -115,9 +134,13 @@ import { hashStr, seededRandom } from '../core/rng.js';
 import { ASPECTS } from '../data/aspects.js';
 import {
   applyVertexGradient,
+  applyLook,
+  smoothGeometry,
+  sphericalNormals,
   contactShadow as _contactShadow,
   lobedMass as _lobedMass,
 } from '../gfx/materials.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 // ------------------------------------------------------------------ Materials
 
@@ -133,7 +156,8 @@ import {
  * @param {object} [opts]
  * @param {number} [opts.rough=0.75] - roughness (standard material only)
  * @param {number} [opts.metal=0.05] - metalness (standard material only)
- * @param {boolean} [opts.flat=true] - flatShading
+ * @param {boolean} [opts.flat=false] - flatShading (v2: smooth by default; true for gems/crystals/ice)
+ * @param {number} [opts.rim=1] - soft-look rim scale (0 = none)
  * @param {number|null} [opts.emissive=null] - emissive color hex
  * @param {number} [opts.emissiveIntensity=1]
  * @param {boolean} [opts.vertexColors=false] - read geometry 'color' attribute
@@ -146,9 +170,9 @@ import {
  */
 export function mat(color, opts = {}) {
   const {
-    rough = 0.75, metal = 0.05, flat = true, emissive = null, emissiveIntensity = 1,
+    rough = 0.75, metal = 0.05, flat = false, emissive = null, emissiveIntensity = 1,
     vertexColors = false, transparent = false, opacity = 1, side = THREE.FrontSide,
-    unlit = false, additive = false,
+    unlit = false, additive = false, rim = 1,
   } = opts;
   if (unlit || additive) {
     return new THREE.MeshBasicMaterial({
@@ -165,7 +189,19 @@ export function mat(color, opts = {}) {
     vertexColors, transparent, opacity, side,
   });
   if (emissive != null) { m.emissive = new THREE.Color(emissive); m.emissiveIntensity = emissiveIntensity; }
+  applyLook(m, { rim });
   return m;
+}
+
+// Segment floors for smooth shading: under the v2 soft look a 10-sided sphere
+// silhouette reads as a polygon at battle framing, so round primitives pick
+// their tessellation from their size (explicit counts are raised to a floor —
+// they were tuned for the old faceted look).
+function sphereSegs(r, wSeg, hSeg) {
+  const auto = Math.round(Math.min(22, Math.max(12, 12 + r * 48)));
+  const w = Math.max(wSeg ?? auto, Math.min(auto, 14));
+  const h = Math.max(hSeg ?? Math.round(auto * 0.72), Math.round(Math.min(auto, 14) * 0.72));
+  return [w, Math.max(6, h)];
 }
 
 // -------------------------------------------------------------- Noise helper
@@ -187,11 +223,12 @@ function fakeNoise3(x, y, z, seed) {
  * bellies, cheeks, knuckles, berries, buds — anything round.
  * @param {number} r
  * @param {THREE.Material} m
- * @param {object} [opts] {sx=1,sy=1,sz=1, wSeg=10, hSeg=8}
+ * @param {object} [opts] {sx=1,sy=1,sz=1, wSeg, hSeg} (v2: segments auto from r, explicit values floored)
  * @returns {THREE.Mesh}
  */
 export function orb(r, m, opts = {}) {
-  const { sx = 1, sy = 1, sz = 1, wSeg = 10, hSeg = 8 } = opts;
+  const { sx = 1, sy = 1, sz = 1 } = opts;
+  const [wSeg, hSeg] = sphereSegs(r, opts.wSeg, opts.hSeg);
   const mesh = new THREE.Mesh(new THREE.SphereGeometry(r, wSeg, hSeg), m);
   mesh.scale.set(sx, sy, sz);
   return mesh;
@@ -218,11 +255,12 @@ export function orb(r, m, opts = {}) {
  * @param {number} r
  * @param {number} len - length of the straight midsection (total length = len + 2r)
  * @param {THREE.Material} m
- * @param {object} [opts] {capSeg=4, radSeg=8}
+ * @param {object} [opts] {capSeg, radSeg} (v2: floored at 5 / 14 so limbs read round)
  * @returns {THREE.Mesh}
  */
 export function capsule(r, len, m, opts = {}) {
-  const { capSeg = 4, radSeg = 8 } = opts;
+  const capSeg = Math.max(opts.capSeg ?? 6, 5);
+  const radSeg = Math.max(opts.radSeg ?? 16, r < 0.012 ? 8 : 14);
   return new THREE.Mesh(new THREE.CapsuleGeometry(r, Math.max(len, 0.001), capSeg, radSeg), m);
 }
 
@@ -233,14 +271,17 @@ export function capsule(r, len, m, opts = {}) {
  * @param {number} r - base radius
  * @param {number} h - height
  * @param {THREE.Material} m
- * @param {object} [opts] {segments=8, flip=false} flip points the apex -Y instead
+ * @param {object} [opts] {segments=14, flip=false} flip points the apex -Y instead.
+ *   v2: <= 5 segments stays deliberately FACETED (gem shards, ice teeth, thorns).
  * @returns {THREE.Mesh}
  */
 export function cone(r, h, m, opts = {}) {
-  const { segments = 8, flip = false } = opts;
-  const geo = new THREE.ConeGeometry(r, h, segments);
+  const { flip = false } = opts;
+  const segments = opts.segments ?? 14;
+  let geo = new THREE.ConeGeometry(r, h, segments);
   geo.translate(0, (flip ? -h : h) / 2, 0);
   if (flip) geo.rotateX(Math.PI);
+  if (segments <= 5) { geo = geo.toNonIndexed(); geo.computeVertexNormals(); } // crisp facets
   return new THREE.Mesh(geo, m);
 }
 
@@ -263,12 +304,13 @@ function lathePoints(pts, segments) {
  * near the base, base sits at y=0. Great for crests (Nixling), fruit,
  * lanterns, hanging dew/berries.
  * @param {THREE.Material} m
- * @param {object} [opts] {height=0.3, width=0.18, segments=10}
+ * @param {object} [opts] {height=0.3, width=0.18, segments=18}
  * @returns {THREE.Mesh}
  */
 export function teardrop(m, opts = {}) {
-  const { height = 0.3, width = 0.18, segments = 10 } = opts;
-  const steps = 10;
+  const { height = 0.3, width = 0.18 } = opts;
+  const segments = Math.max(opts.segments ?? 18, width < 0.02 ? 6 : 12);
+  const steps = 14;
   const pts = [];
   for (let i = 0; i <= steps; i++) {
     const t = i / steps; // 0 at tip, 1 at base
@@ -283,11 +325,12 @@ export function teardrop(m, opts = {}) {
  * good for oozes, gourds, jars, jelly bells (used a lot by the second batch
  * of Kindred models: oozel, sludgemaw, jellune...).
  * @param {THREE.Material} m
- * @param {object} [opts] {height=0.26, width=0.2, neck=0.35, segments=10}
+ * @param {object} [opts] {height=0.26, width=0.2, neck=0.35, segments=20}
  * @returns {THREE.Mesh}
  */
 export function bulb(m, opts = {}) {
-  const { height = 0.26, width = 0.2, neck = 0.35, segments = 10 } = opts;
+  const { height = 0.26, width = 0.2, neck = 0.35 } = opts;
+  const segments = Math.max(opts.segments ?? 20, 14);
   const pts = [
     [0, height], [width * 0.22, height * 0.86], [width * neck, height * 0.62],
     [width * 0.34, height * 0.5], [width, height * 0.28], [width * 0.92, height * 0.08],
@@ -303,11 +346,12 @@ export function bulb(m, opts = {}) {
  * of the same species using the same seed).
  * @param {number} r
  * @param {THREE.Material} m
- * @param {object} [opts] {noise=0.16, seed=1, wSeg=10, hSeg=8, squash:{x,y,z}}
+ * @param {object} [opts] {noise=0.16, seed=1, wSeg, hSeg, squash:{x,y,z}} (v2: segments auto from r)
  * @returns {THREE.Mesh}
  */
 export function blob(r, m, opts = {}) {
-  const { noise = 0.16, seed = 1, wSeg = 10, hSeg = 8, squash = { x: 1, y: 1, z: 1 } } = opts;
+  const { noise = 0.16, seed = 1, squash = { x: 1, y: 1, z: 1 } } = opts;
+  const [wSeg, hSeg] = sphereSegs(r * 1.15, opts.wSeg, opts.hSeg);
   const geo = new THREE.SphereGeometry(r, wSeg, hSeg);
   const pos = geo.attributes.position;
   const v = new THREE.Vector3();
@@ -317,7 +361,7 @@ export function blob(r, m, opts = {}) {
     v.multiplyScalar(1 + n * noise);
     pos.setXYZ(i, v.x, v.y, v.z);
   }
-  geo.computeVertexNormals();
+  smoothGeometry(geo); // position-averaged: no crease along the UV seam / at the poles
   const mesh = new THREE.Mesh(geo, m);
   mesh.scale.set(squash.x, squash.y, squash.z);
   return mesh;
@@ -335,6 +379,7 @@ export function blob(r, m, opts = {}) {
  *   paint(body, { from: 0x5a3d2c, to: 0x9a7a52 });          // belly -> back
  * @param {THREE.Mesh} mesh
  * @param {object} [opts] {from, to, axis='y', noise=0.05, seed=1, exp=1, rough, flat}
+ *   flat defaults to the source material's flatShading (v2: smooth).
  * @returns {THREE.Mesh} mesh (same object, material replaced)
  */
 export function paint(mesh, opts = {}) {
@@ -344,7 +389,7 @@ export function paint(mesh, opts = {}) {
   const m = mat(0xffffff, {
     vertexColors: true,
     rough: opts.rough ?? (src && src.roughness != null ? src.roughness : 0.75),
-    flat: opts.flat ?? true,
+    flat: opts.flat ?? !!(src && src.flatShading),
     transparent: !!(src && src.transparent),
     opacity: src ? src.opacity : 1,
     side: src ? src.side : THREE.FrontSide,
@@ -389,12 +434,13 @@ export const lobedMass = _lobedMass;
  * upward tip — instantly less "capsule stuck on a sphere".
  * @param {number} len - total length
  * @param {THREE.Material} m
- * @param {object} [opts] {r=len*0.42, taper=0.45, up=0.14, segments=8}
+ * @param {object} [opts] {r=len*0.42, taper=0.45, up=0.14, segments=16}
  * @returns {THREE.Mesh}
  */
 export function snout(len, m, opts = {}) {
-  const { r = len * 0.42, taper = 0.45, up = 0.14, segments = 8 } = opts;
-  const geo = new THREE.CapsuleGeometry(r, Math.max(len - 2 * r, 0.005), 3, segments);
+  const { r = len * 0.42, taper = 0.45, up = 0.14 } = opts;
+  const segments = Math.max(opts.segments ?? 16, 12);
+  const geo = new THREE.CapsuleGeometry(r, Math.max(len - 2 * r, 0.005), 5, segments);
   geo.rotateX(Math.PI / 2); // axis onto Z
   geo.computeBoundingBox();
   const bb = geo.boundingBox;
@@ -410,7 +456,7 @@ export function snout(len, m, opts = {}) {
     pos.setXYZ(i, v.x, v.y, v.z);
   }
   geo.translate(0, 0, -bb.min.z);
-  geo.computeVertexNormals();
+  smoothGeometry(geo);
   return new THREE.Mesh(geo, m);
 }
 
@@ -471,7 +517,12 @@ export function eye(r = 0.05, opts = {}) {
     microGlint = true,   // tiny secondary catchlight opposite the main one
   } = opts;
   const group = new THREE.Group(); group.name = 'eye';
-  const sclera = new THREE.Mesh(new THREE.SphereGeometry(r, 9, 7), mat(scleraColor, { rough: 0.25 }));
+  group.userData.noOutline = true; // ink ring would halve the white — eyes stay crisp & bright
+  // v2: finer sphere (the eye is the focal point of every face) and a whisper
+  // of self-light on the white so eyes never go muddy gray on the shadow side.
+  const scleraM = mat(scleraColor, { rough: 0.25, rim: 0.5 });
+  scleraM.emissive = new THREE.Color(scleraColor).multiplyScalar(0.12);
+  const sclera = new THREE.Mesh(new THREE.SphereGeometry(r, 22, 16), scleraM);
   sclera.name = 'eyeSclera';
   group.add(sclera);
   if (pupil) {
@@ -499,29 +550,29 @@ export function eye(r = 0.05, opts = {}) {
     // angle — the classic "painted eyeball".
     const capTheta = Math.min(1.05 * irisScale, 1.45); // iris angular radius (rad from +Z)
     const capMesh = (radius, theta, color, wSeg) => {
-      const geo = new THREE.SphereGeometry(radius, wSeg, 4, 0, Math.PI * 2, 0, theta);
+      const geo = new THREE.SphereGeometry(radius, wSeg, 6, 0, Math.PI * 2, 0, theta);
       geo.rotateX(Math.PI / 2); // cap pole from +Y onto +Z
       return new THREE.Mesh(geo, mat(color, { unlit: true }));
     };
-    const rim = capMesh(r * 1.025, Math.min(capTheta * 1.18, 1.5), pupilC.getHex(), 10);
+    const rim = capMesh(r * 1.025, Math.min(capTheta * 1.18, 1.5), pupilC.getHex(), 28);
     rim.name = 'eyeIrisRim';
     group.add(rim);
-    const iris = capMesh(r * 1.05, capTheta, irisC.getHex(), 10);
+    const iris = capMesh(r * 1.05, capTheta, irisC.getHex(), 28);
     iris.name = 'eyeIris';
     group.add(iris);
-    const pup = capMesh(r * 1.075, capTheta * 0.52, pupilC.getHex(), 8);
+    const pup = capMesh(r * 1.075, capTheta * 0.52, pupilC.getHex(), 22);
     pup.name = 'eyePupil';
     group.add(pup);
   }
   // Main catchlight: floored so no model ends up with an invisible speck —
   // the always-on specular highlight is what makes an eye read as ALIVE.
   const gR = Math.max(glintSize, r * 0.26);
-  const glint = new THREE.Mesh(new THREE.SphereGeometry(gR, 6, 4), mat(0xffffff, { unlit: true }));
+  const glint = new THREE.Mesh(new THREE.SphereGeometry(gR, 12, 8), mat(0xffffff, { unlit: true }));
   glint.name = 'eyeGlint';
   glint.position.set(r * 0.3, r * 0.34, r * 0.8);
   group.add(glint);
   if (microGlint) {
-    const g2 = new THREE.Mesh(new THREE.SphereGeometry(gR * 0.45, 5, 3), mat(0xffffff, { unlit: true, transparent: true, opacity: 0.85 }));
+    const g2 = new THREE.Mesh(new THREE.SphereGeometry(gR * 0.45, 8, 6), mat(0xffffff, { unlit: true, transparent: true, opacity: 0.85 }));
     g2.name = 'eyeGlint2';
     g2.position.set(-r * 0.28, -r * 0.22, r * 0.92);
     group.add(g2);
@@ -529,7 +580,7 @@ export function eye(r = 0.05, opts = {}) {
   // Eyelid: slightly darker than the skin so a blink reads as a lid, not a
   // glitch. Y-scale = openness (0.06 open sliver .. ~1 closed).
   const lidC = new THREE.Color(skinColor).multiplyScalar(0.82);
-  const lid = new THREE.Mesh(new THREE.SphereGeometry(r * 1.08, 9, 7), mat(lidC.getHex(), { rough: 0.85 }));
+  const lid = new THREE.Mesh(new THREE.SphereGeometry(r * 1.08, 22, 16), mat(lidC.getHex(), { rough: 0.85 }));
   lid.name = 'eyelid';
   lid.position.z = r * 0.12;
   lid.scale.set(1, 0.06 + 0.9 * clamp01(lidBias), 0.7);
@@ -567,9 +618,10 @@ export function fang(len, m, opts = {}) {
  * @returns {THREE.Mesh}
  */
 export function ear(len, m, opts = {}) {
-  const { width = len * 0.55, floppy = false, segments = 8 } = opts;
-  if (floppy) return leafBlade(len, m, { width, segments: 6 });
-  const geo = new THREE.ConeGeometry(width * 0.5, len, segments, 1);
+  const { width = len * 0.55, floppy = false } = opts;
+  const segments = Math.max(opts.segments ?? 14, 10);
+  if (floppy) return leafBlade(len, m, { width, segments: 8 });
+  const geo = new THREE.ConeGeometry(width * 0.5, len, segments, 3);
   geo.translate(0, len / 2, 0);
   geo.scale(1, 1, 0.42);
   return new THREE.Mesh(geo, m);
@@ -581,12 +633,13 @@ export function ear(len, m, opts = {}) {
  * for the other side, or rotate the whole mesh via `at()`.
  * @param {number} len
  * @param {THREE.Material} m
- * @param {object} [opts] {baseR=len*0.16, tipR=len*0.02, bend=0.5, segments=8}
+ * @param {object} [opts] {baseR=len*0.16, tipR=len*0.02, bend=0.5, segments=12}
  * @returns {THREE.Mesh}
  */
 export function horn(len, m, opts = {}) {
-  const { baseR = len * 0.16, tipR = len * 0.02, bend = 0.5, segments = 8 } = opts;
-  const geo = new THREE.CylinderGeometry(tipR, baseR, len, segments, 6, false);
+  const { baseR = len * 0.16, tipR = len * 0.02, bend = 0.5 } = opts;
+  const segments = Math.max(opts.segments ?? 12, baseR < 0.01 ? 6 : 10);
+  const geo = new THREE.CylinderGeometry(tipR, baseR, len, segments, 8, false);
   geo.translate(0, len / 2, 0);
   const pos = geo.attributes.position;
   const v = new THREE.Vector3();
@@ -596,7 +649,7 @@ export function horn(len, m, opts = {}) {
     v.x += bend * t * t * len;
     pos.setXYZ(i, v.x, v.y, v.z);
   }
-  geo.computeVertexNormals();
+  smoothGeometry(geo, { creaseAngle: 1.0 }); // round shaft, crisp base cap, no seam crease
   return new THREE.Mesh(geo, m);
 }
 
@@ -802,16 +855,35 @@ export function crystal(r, m, opts = {}) {
 
 /**
  * A soft cluster of overlapping puffs — fur tufts, moss clumps, cheek fluff.
+ * v2: the puffs are merged into ONE mesh (one draw call per tuft) whose
+ * normals bend toward the tuft center, so it shades like a single soft ball
+ * with gentle lumps. Still returns a Group (the tuft) with that mesh as its
+ * only child — `for (const c of tuft.children) paint(c, ...)` keeps working
+ * (and now paints one continuous gradient across the whole tuft).
+ * @param {object} [opts] {count=5, spread=r*0.85, seed=1, soft=0.65}
  * @returns {THREE.Group}
  */
 export function fluffTuft(r, m, opts = {}) {
-  const { count = 5, spread = r * 0.85, seed = 1 } = opts;
+  const { count = 5, spread = r * 0.85, seed = 1, soft = 0.65 } = opts;
   const group = new THREE.Group(); group.name = 'fluffTuft';
   const rng = seededRandom(seed * 8191 + count * 131);
+  const geos = [];
+  const mtx = new THREE.Matrix4();
   for (let i = 0; i < count; i++) {
     const rr = r * (0.55 + rng() * 0.55);
-    const puff = orb(rr, m, { sy: 1.1 + rng() * 0.2 });
-    puff.position.set((rng() - 0.5) * spread, (rng() - 0.5) * spread * 0.6, (rng() - 0.5) * spread);
+    const sy = 1.1 + rng() * 0.2;
+    const [ws, hs] = sphereSegs(rr);
+    const g = new THREE.SphereGeometry(rr, ws, hs);
+    mtx.makeScale(1, sy, 1).setPosition((rng() - 0.5) * spread, (rng() - 0.5) * spread * 0.6, (rng() - 0.5) * spread);
+    g.applyMatrix4(mtx);
+    geos.push(g);
+  }
+  const merged = geos.length > 1 ? mergeGeometries(geos, false) : geos[0];
+  if (merged !== geos[0]) for (const g of geos) g.dispose();
+  if (merged && soft > 0) sphericalNormals(merged, { blend: soft });
+  if (merged) {
+    const puff = new THREE.Mesh(merged, m);
+    puff.name = 'fluffPuffs';
     group.add(puff);
   }
   return group;
@@ -822,7 +894,8 @@ export function fluffTuft(r, m, opts = {}) {
  * @returns {THREE.Mesh}
  */
 export function shellPlate(w, h, d, m, opts = {}) {
-  const { bulge = 0.15, segments = 3 } = opts;
+  const { bulge = 0.15 } = opts;
+  const segments = Math.max(opts.segments ?? 6, 4);
   const geo = new THREE.BoxGeometry(w, h, d, segments, segments, 1);
   const pos = geo.attributes.position;
   const v = new THREE.Vector3();
@@ -833,7 +906,7 @@ export function shellPlate(w, h, d, m, opts = {}) {
     v.z += b * bulge;
     pos.setXYZ(i, v.x, v.y, v.z);
   }
-  geo.computeVertexNormals();
+  smoothGeometry(geo, { creaseAngle: 0.9 }); // domed face reads soft, plate rim stays crisp
   return new THREE.Mesh(geo, m);
 }
 

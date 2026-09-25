@@ -28,7 +28,7 @@ import { bus } from '../core/events.js';
 import { G, hasFlag } from '../core/state.js';
 import { clamp, damp, dampAngle, lerp, TAU } from '../core/math.js';
 import { hashStr, seededRandom } from '../core/rng.js';
-import { windSway, disposeGroup, applyVertexGradient, jitterGeometry, contactShadow } from '../gfx/materials.js';
+import { windSway, disposeGroup, applyVertexGradient, jitterGeometry, contactShadow, applyLook, addOutline, smoothGeometry, sphericalNormals } from '../gfx/materials.js';
 
 const INTERACT_RADIUS = 2.3;
 const INTERACT_CONE = Math.cos((50 * Math.PI) / 180); // half-angle cutoff -> ~100deg total talk cone
@@ -45,13 +45,15 @@ function geo(key, make) {
   if (!g) { g = make(); geoCache.set(key, g); }
   return g;
 }
+// v2 soft look: smooth by default (flat: true opt-in) + the shared soft-light hook.
 function stdMat(color, opts = {}) {
   const m = new THREE.MeshStandardMaterial({
-    color, flatShading: opts.flat !== false, roughness: opts.rough ?? 0.8, metalness: opts.metal ?? 0,
+    color, flatShading: opts.flat === true, roughness: opts.rough ?? 0.8, metalness: opts.metal ?? 0,
     emissive: new THREE.Color(opts.emissive ?? 0x000000), emissiveIntensity: opts.ei ?? 1,
     transparent: !!opts.transparent, opacity: opts.opacity ?? 1, side: opts.side ?? THREE.FrontSide,
     vertexColors: !!opts.vertexColors,
   });
+  applyLook(m, { rim: opts.rim ?? 1 });
   if (opts.sway) { try { windSway(m, { strength: opts.sway }); } catch (e) { warnOnce('windSway unavailable: ' + e.message); } }
   return m;
 }
@@ -305,6 +307,7 @@ function buildHuman(spec) {
       const glint = mesh(geo(K('npc_glint'), () => new THREE.SphereGeometry(headR * 0.034, 5, 4)), glintM, false);
       glint.position.set(headR * 0.045, headR * 0.05, headR * 0.16);
       eye.add(sclera, iris, pupil, glint);
+      eye.userData.noOutline = true;
       headGrp.add(eye);
       const brow = mesh(geo(K('npc_brow'), () => vgrad(new THREE.BoxGeometry(headR * 0.36, headR * 0.085, headR * 0.08), { from: 0xf2ede8, seed: 25 })), hairM, false);
       brow.position.set(sx * headR * 0.36, headR * 0.42, headR * 0.97);
@@ -426,6 +429,10 @@ function buildHuman(spec) {
     materials: { skinM, hairM, primaryM, secondaryM, accentM, bootM },
   };
   if (typeof spec.special === 'function') spec.special(ctx);
+
+  // Soft ink outline (people + creatures only). One material per NPC so
+  // nothing leaks between figures; eyes/glows/transparent bits are skipped.
+  addOutline(group, { color: 0x2a1d2b, thickness: 1.9 });
 
   group.name = 'npc';
   return {

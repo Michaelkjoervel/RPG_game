@@ -24,6 +24,19 @@
 import * as THREE from 'three';
 import * as kit from './kit.js';
 import { CreatureAnimator } from './animator.js';
+import { addOutline } from '../gfx/materials.js';
+
+// v2 soft-stylized look: every Kindred gets a soft dark ink outline (see
+// gfx/materials.js addOutline) so it pops off grass/sky the way finished
+// creature games' characters do. Applied here, once, after scaling and the
+// hollowed/gleaming variants, so overworld followers, wild roamers, battle,
+// the codex/title/starter previews and the gallery all get it for free.
+// Width is ~constant on screen (≈ OUTLINE_PX px on a 900 px frame) and
+// clamped to a small fraction of the creature's height at distance. Eyes,
+// glows, transparent/unlit parts, flat sheets and tiny bits are skipped by
+// addOutline itself. Deep plum-brown ink reads softer than black.
+const OUTLINE_COLOR = 0x2a1d2b;
+const OUTLINE_PX = 2.1;
 // SPECIES is owned by the creature-data agent (src/data/creatures.js) and
 // used only for its per-species `size` (world height in meters). Per the
 // HARD RULES, importing a not-yet-existing sibling module is expected during
@@ -170,6 +183,12 @@ export function buildCreature(speciesId, variant = {}) {
   if (gleaming) kit.gleamify(group, parts);
 
   group.traverse((node) => { if (node.isMesh) node.castShadow = true; });
+
+  try {
+    addOutline(group, { color: hollowed ? 0x2a2a30 : OUTLINE_COLOR, thickness: OUTLINE_PX });
+  } catch (err) {
+    if (!warnedOnce.has('outline')) { warnedOnce.add('outline'); console.warn('[registry] outline pass failed', err); }
+  }
 
   const animator = new CreatureAnimator(group, { parts, hints });
   return { group, animator };
