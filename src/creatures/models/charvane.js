@@ -3,126 +3,146 @@
 // "Lean coal-furred hound, magma cracks along spine, smoke wisps when it
 // huffs. Loyal, proud." (Design Bible §4)
 // =============================================================================
-// Design notes for later awakening-chain consistency (species that awaken
-// into/from each other should rhyme visually): keeps Kindlet's warm
-// charcoal palette and rounded ember-glow accents, but the body language
-// flips from round/clumsy to lean/proud — longer legs, straighter spine,
-// head held high. The "magma cracks along spine" are literal thin emissive
-// strips (the same trick hollowify uses for Hollowed cracks, but permanent
-// and warm here rather than pale and sickly).
+// Visual pass v2 (soft stylized). The pup's round soot body grows into a
+// powerful, deep-chested hound: a big ribcage tapering to a tucked waist and
+// a rounded haunch, a short thick neck carrying a broad head HIGH (pride is
+// a posture), heavy shoulders and thighs that taper through real joints to
+// slim wrists and hocks and round dark paws — no stick legs. Kindlet's ember
+// belly survives as a warm ash chest ruff; the magma cracks are bold glowing
+// seams laid ON the spine and flanks with dark crust around them, and the
+// proud tail curls up into a live flame tuft. Static pieces per node are
+// merged into one smooth vertex-coloured mesh (./soft.js).
 
 import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
+import * as S from './soft.js';
+
+const COAL_LO = 0x221916, COAL_HI = 0x5e4b42, CRUST = 0x1b1311, ASH = 0x8d7466, ASH_HI = 0xb39886, SOCK = 0x1e1614;
 
 export function build_charvane(kit = kitDefault) {
   const pal = kit.palette(['ember']);
-  // Coal fur, but READABLE coal (Design Bible §8: colors must read, and the
-  // silhouette must survive daylight): a warm charcoal at ~14% relative
-  // luminance rather than the near-black it used to be, so the hound reads as
-  // a dark warm shape lit by its own magma seams instead of a flat blot.
-  const skinHex = 0x6f625c;
-  const skin = kit.mat(skinHex, { rough: 0.65, emissive: 0x2a1c14, emissiveIntensity: 0.4 });
-  // Magma seams: unlit hot core plus a standard shell with a strong emissive
-  // so the cracks stay bright under any lighting (the same "glow that survives
-  // daylight" treatment the umbra species got in kit.palette).
-  const crackGlow = kit.mat(0xffb14a, { unlit: true, transparent: true, opacity: 0.95 });
-  const crackHalo = kit.mat(pal.primary, {
-    rough: 0.4, emissive: 0xff5a12, emissiveIntensity: 1.6, transparent: true, opacity: 0.8,
-  });
+  const fur = S.vcMat(kit, { rough: 0.66 });
+  const magma = kit.mat(0xffa640, { unlit: true });
 
   const root = new THREE.Group();
 
-  // Lean torso: a stretched capsule reads leaner than a blob. capsule() is
-  // Y-axis aligned by default and we want it lying along Z (nose-to-tail), so
-  // the bake is a rotation ABOUT X — rotating about Z would swing the capsule
-  // onto the X axis and lay the hound sideways across the view. IMPORTANT:
-  // bake it into the GEOMETRY (geometry.rotateX), not `body.rotation` — `body`
-  // is also the attachment anchor for every other part below, and rotating
-  // its *transform* would silently rotate all of their local x/y/z offsets
-  // out from under them too.
-  const body = kit.capsule(0.13, 0.34, skin, { capSeg: 4, radSeg: 9 });
-  body.geometry.rotateX(Math.PI / 2);
-  // Belly-to-back gradient: cool charcoal underside warming toward the
-  // magma-lit spine — the coat reads as fur catching its own seam-glow.
-  kit.paint(body, { from: 0x4a3d38, to: 0x8a7264, noise: 0.06, seed: 21 });
+  // --- Torso: big ribcage, tucked waist, rounded haunch. ------------------
+  const torsoGeo = S.spindle({
+    len: 0.64, r: 0.175, sx: 0.88, sy: 1.1, p: 0.9, radial: 20, rings: 16,
+    profile: (t) => 0.74 + 0.16 * S.bump(t, 0.17, 0.28) + 0.28 * S.bump(t, 0.72, 0.36),
+    belly: (t) => 0.06 + 0.34 * S.bump(t, 0.36, 0.3),
+    arch: (t) => 0.04 * S.sstep(0.45, 1, t) - 0.012 * S.bump(t, 0.35, 0.3),
+  });
+  S.paint(torsoGeo, { from: COAL_LO, to: COAL_HI, axis: 'y', exp: 0.9, noise: 0.012, seed: 21 });
+  S.overlay(torsoGeo, 0x6e5446, (x, y, z) => S.sstep(-0.06, -0.16, y) * S.sstep(0.05, 0.3, z));
+  // dark crust around the spine seams
+  S.overlay(torsoGeo, CRUST, (x, y, z) => S.sstep(0.12, 0.19, y + 0.04 * S.sstep(0.1, 0.3, z)) * (1 - S.sstep(0.03, 0.1, Math.abs(x))) * 0.8);
+  // Short, thick neck (part of the torso mesh).
+  const neckGeo = S.spindle({ len: 0.3, r: 0.1, sx: 0.95, sy: 1.08, p: 0.9, radial: 14, rings: 8, profile: (t) => 1.12 - 0.22 * t });
+  S.pose(neckGeo, [0, 0.13, 0.3], [-0.85, 0, 0]);
+  S.paint(neckGeo, { from: COAL_LO, to: COAL_HI, axis: 'y', noise: 0.012, seed: 22 });
+  // Warm ash chest ruff: Kindlet's ember belly, grown into fur.
+  const ruffGeo = S.puff(0.1, { count: 6, spread: 0.65, seed: 23, sy: 1.05, blend: 0.72 });
+  S.pose(ruffGeo, [0, 0.01, 0.33], [0.45, 0, 0], [0.95, 1.1, 0.62]);
+  S.paint(ruffGeo, { from: ASH, to: ASH_HI, axis: 'y', noise: 0.02, seed: 24 });
+  const body = S.bake([torsoGeo, neckGeo, ruffGeo], fur, 'body');
   root.add(body);
-  body.position.y = 0.44;
+  body.position.y = 0.47;
 
-  const chest = kit.at(body, kit.orb(0.15, skin, { sx: 0.95, sy: 1.05 }), 0, -0.02, 0.15);
-  kit.paint(chest, { from: 0x4a3d38, to: 0x836d60, noise: 0.05, seed: 22 });
-
-  const head = kit.at(body, kit.orb(0.11, skin, { sz: 1.15, sy: 0.92 }), 0, 0.09, 0.28);
-  kit.paint(head, { from: 0x55463f, to: 0x8a7264, noise: 0.05, seed: 23 });
-  // Proper tapered muzzle instead of a capsule stub.
-  const snout = kit.at(head, kit.snout(0.12, skin, { r: 0.05, taper: 0.42, up: 0.1 }), 0, -0.035, 0.06);
-
-  const eyeL = kit.at(head, kit.eye(0.042, { irisColor: 0x2a1810, skinColor: skinHex, glintSize: 0.015 }), 0.062, 0.025, 0.082, { ry: 0.22 });
-  const eyeR = kit.at(head, kit.eye(0.042, { irisColor: 0x2a1810, skinColor: skinHex, glintSize: 0.015 }), -0.062, 0.025, 0.082, { ry: -0.22 });
-
-  // Perky, alert canine ears — pride and loyalty read through an alert
-  // upright posture more than any single part.
-  const earL = kit.at(head, kit.ear(0.09, skin), 0.075, 0.09, -0.01, { rz: 0.2, ry: -0.15 });
-  const earR = kit.at(head, kit.ear(0.09, skin), -0.075, 0.09, -0.01, { rz: -0.2, ry: 0.15 });
-
-  // A pair of small fangs peeking from under the new muzzle — a proud hound
-  // bares them subtly.
-  kit.at(head, kit.fang(0.035, kit.mat(0xe8e2d8, { rough: 0.4 })), 0.028, -0.062, 0.14, { rz: -0.1 });
-  kit.at(head, kit.fang(0.035, kit.mat(0xe8e2d8, { rough: 0.4 })), -0.028, -0.062, 0.14, { rz: 0.1 });
-
-  // --- Magma cracks along the spine: thin, permanently glowing seams. ---
-  // They must sit PROUD of the fur: the torso capsule's surface directly above
-  // the spine is at y = +radius (0.13), and at a sideways offset dx it drops to
-  // sqrt(r^2 - dx^2) — a seam placed any lower is simply buried inside the
-  // capsule, which is exactly why this hound used to render as an unbroken
-  // black shape. Each seam is a bright unlit core with a slightly wider
-  // emissive halo around it, so the crack still glows in full daylight.
-  const crackPositions = [
-    [0, 0.129, 0.16, 0.1, 0.012],
-    [0, 0.129, 0.02, 0.13, 0.013],
-    [0, 0.129, -0.14, 0.09, 0.011],
-    [0.072, 0.105, 0.09, 0.07, 0.009],
-    [-0.072, 0.105, -0.05, 0.07, 0.009],
+  // --- Magma seams: bold glowing cracks on spine, shoulders and haunch. ----
+  const seams = [
+    S.grooveTop(torsoGeo, [[0.0, 0.27], [0.014, 0.17], [-0.01, 0.06], [0.012, -0.05], [-0.006, -0.16], [0.0, -0.27]], { radius: 0.015, lift: 0.001, seg: 26 }),
+    S.grooveTop(torsoGeo, [[0.012, 0.17], [0.06, 0.13], [0.09, 0.07], [0.11, 0.05]], { radius: 0.009, lift: 0.001 }),
+    S.grooveTop(torsoGeo, [[-0.01, 0.06], [-0.06, 0.03], [-0.1, -0.03]], { radius: 0.009, lift: 0.001 }),
+    S.grooveTop(torsoGeo, [[0.012, -0.05], [0.06, -0.1], [0.1, -0.13]], { radius: 0.008, lift: 0.001 }),
+    S.grooveTop(torsoGeo, [[-0.006, -0.16], [-0.055, -0.2], [-0.09, -0.24]], { radius: 0.008, lift: 0.001 }),
   ];
-  for (const [x, y, z, len, w] of crackPositions) {
-    const jitter = (Math.random() - 0.5) * 0.15;
-    kit.at(body, kit.box(w * 2.2, 0.01, len * 1.3, crackHalo.clone()), x, y - 0.003, z, { rx: jitter });
-    kit.at(body, kit.box(w, 0.024, len, crackGlow.clone()), x, y, z, { rx: jitter });
+  const seamMesh = new THREE.Mesh(S.merge(seams.map((g) => S.paint(g, 0xffffff))), magma);
+  seamMesh.name = 'magmaSeams';
+  body.add(seamMesh);
+  const seamGlow = S.glow(0xff7a2a, 0.34, 0.35);
+  seamGlow.position.set(0, 0.2, 0.0);
+  seamGlow.scale.set(0.5, 0.2, 1);
+  body.add(seamGlow);
+  const embers = kit.mote(7, { color: 0xff9a3c, size: 0.016, radius: 0.16, height: 0.2, speed: 0.7, seed: 21 });
+  kit.at(body, embers, 0, 0.18, -0.02);
+
+  // --- Head: broad skull + tapered muzzle, carried high. -------------------
+  const skullGeo = S.spindle({ len: 0.23, r: 0.118, sx: 1.0, sy: 0.88, p: 0.95, radial: 18, rings: 14, profile: (t) => 0.92 + 0.1 * S.bump(t, 0.4, 0.4) });
+  S.paint(skullGeo, { from: COAL_LO, to: COAL_HI, axis: 'y', noise: 0.01, seed: 25 });
+  const muzzleGeo = S.spindle({
+    len: 0.2, r: 0.066, sx: 1.0, sy: 0.8, p: 0.85, pNose: 1.1, radial: 14, rings: 10, belly: 0.15,
+    profile: (t) => 1.0 - 0.3 * t,
+  });
+  S.pose(muzzleGeo, [0, -0.04, 0.12], [0.1, 0, 0]);
+  S.paint(muzzleGeo, { from: 0x3a2d28, to: 0x735e53, axis: 'y', noise: 0.01, seed: 26 });
+  S.overlay(muzzleGeo, ASH, (x, y, z) => S.sstep(-0.035, -0.075, y));
+  const noseGeo = S.ball(0.026, { sx: 1.35, sy: 0.85, radial: 8, rings: 6 });
+  S.pose(noseGeo, S.surface(muzzleGeo, [0, 0.35, 1], { from: [0, -0.035, 0.12], inset: 0.013 }));
+  S.paint(noseGeo, 0x141010);
+  // Cheek ruffs flaring back from the jaw.
+  const cheekGeos = [1, -1].map((s) => {
+    const g = S.puff(0.05, { count: 3, spread: 0.7, seed: 27 + s, sy: 0.9, radial: 8, rings: 5 });
+    S.pose(g, [s * 0.09, -0.045, -0.015], [0, s * 0.5, 0], [0.75, 1, 1.25]);
+    return S.paint(g, { from: COAL_HI, to: ASH, axis: 'y', seed: 28 });
+  });
+  const brows = [1, -1].map((s) => S.paint(S.groove(skullGeo, [[s * 0.16, 0.42], [s * 0.34, 0.5], [s * 0.52, 0.42]], { radius: 0.007, lift: 0.001 }), 0x171010));
+  const head = S.bake([skullGeo, muzzleGeo, noseGeo, ...cheekGeos, ...brows], fur, 'head');
+  kit.at(body, head, 0, 0.33, 0.47, { rx: -0.05, ry: 0.12 });
+
+  const eyeOpts = { irisColor: 0x2a1810, skinColor: 0x3a2d28, glintSize: 0.014 };
+  const eyeL = S.seatEye(kit, head, skullGeo, 0.039, 0.42, 0.14, eyeOpts, { sink: 0.45, front: 0.6 });
+  const eyeR = S.seatEye(kit, head, skullGeo, 0.039, -0.42, 0.14, eyeOpts, { sink: 0.45, front: 0.6 });
+
+  // Fangs peeking under the muzzle — a proud hound bares them, a little.
+  const fangMat = S.smoothMat(kit, 0xefe8dc, { rough: 0.4 });
+  for (const s of [1, -1]) {
+    const f = new THREE.Mesh(S.taper(0.032, 0.01, { r1: 0.002, radial: 6, rings: 5 }), fangMat);
+    f.rotation.x = Math.PI;
+    const p = S.surface(muzzleGeo, [s * 0.35, -0.9, 0.2], { from: [0, -0.035, 0.14], inset: 0.004 });
+    f.position.set(p[0], p[1] + 0.004, p[2]);
+    head.add(f);
   }
-  // Embers lifting off the hot seams — sells "magma" at a glance and keeps the
-  // back edge of the silhouette lit even against a bright sky.
-  const embers = kit.mote(7, { color: 0xff9a3c, size: 0.016, radius: 0.16, height: 0.18, speed: 0.7, seed: 21 });
-  kit.at(body, embers, 0, 0.12, -0.02);
 
-  // --- Legs: four long, lean legs — a hound's confident stride. ---
-  // Local Y is measured from the TORSO's centre (these hang off `body`, not
-  // `root`): the hips belong just under the belly line at -radius, and
-  // kit.leg(len) drops 0.92*len + 0.25*thighR + 0.925*shinR from the hip to
-  // the sole, so hipY = drop - body.position.y puts the paws exactly on y=0.
-  // Front/rear pairs sit under the shoulders and haunches (~2/3 of the torso
-  // half-length of 0.3), not bunched together at the middle.
-  const legDefs = [
-    [0.1, -0.136, 0.19], [-0.1, -0.136, 0.19],
-    [0.1, -0.136, -0.19], [-0.1, -0.136, -0.19],
-  ];
-  const legs = legDefs.map(([x, y, z]) => kit.at(body, kit.leg(0.28, skin, { thighR: 0.05, shinR: 0.036, footLen: 0.09 }), x, y, z));
+  // Tall, alert ears (accents — they twitch).
+  const mkEar = () => new THREE.Mesh(S.ear(0.12, 0.08, { color: COAL_HI, inner: 0x86665a, tip: 1.3, cup: 0.5 }), fur);
+  const earL = mkEar(), earR = mkEar();
+  earL.name = earR.name = 'ear';
+  const ea = S.surface(skullGeo, S.dirYP(0.5, 0.95), { inset: 0.014 });
+  kit.at(head, earL, ea[0], ea[1], ea[2] - 0.012, { rz: -0.3, ry: 0.35, rx: -0.14 });
+  kit.at(head, earR, -ea[0], ea[1], ea[2] - 0.012, { rz: 0.3, ry: -0.35, rx: -0.14 });
 
-  // Tail: proud, held aloft, no flame this time (that trait stayed with the
-  // pup) — instead a warm ember-glow tuft at the tip echoes the lineage.
-  const tail = kit.at(body, kit.tailChain(4, skin, { segLen: 0.09, startR: 0.04, endR: 0.018 }), 0, 0.05, -0.26, { rx: 0.55 });
-  kit.at(tail.pivots[tail.pivots.length - 1], kit.fluffTuft(0.045, crackGlow.clone(), { count: 5, seed: 3 }), 0, 0, -0.04);
-
-  // Smoke wisps drifting from the snout when it huffs — cool grey motes,
-  // self-driving fx.
+  // Smoke wisps from the nostrils when it huffs.
   const smoke = kit.mote(4, { color: 0x8a8478, size: 0.014, radius: 0.035, height: 0.1, speed: 0.6, seed: 7 });
-  kit.at(head, smoke, 0, -0.075, 0.2);
+  kit.at(head, smoke, 0, -0.03, 0.26);
 
-  // The heartspark rides ON the chest surface (the chest orb reaches z=0.30) —
-  // any deeper and the unlit core is simply occluded by the fur around it.
-  const spark = kit.heartspark(0.036, pal.eye, { seed: 12 });
-  kit.at(body, spark, 0, -0.03, 0.29);
+  // --- Legs: heavy shoulders/thighs tapering through real joints. ----------
+  const foreDef = { thighR: 0.078, shinR: 0.036, kneeR: 0.045, ankleR: 0.03, pawR: 0.048, pawLen: 1.3, bend: -0.12, split: 0.52, bulge: 0.28 };
+  const hindDef = { thighR: 0.1, shinR: 0.036, kneeR: 0.046, ankleR: 0.03, pawR: 0.048, pawLen: 1.3, bend: 0.4, split: 0.45, bulge: 0.35 };
+  const legDefs = [
+    [0.085, -0.06, 0.2, foreDef], [-0.085, -0.06, 0.2, foreDef],
+    [0.08, -0.04, -0.21, hindDef], [-0.08, -0.04, -0.21, hindDef],
+  ];
+  const legs = legDefs.map(([x, y, z, d]) => {
+    const l = S.softLeg(0.47 + y, fur, { ...d, color: COAL_HI, shinColor: 0x3a2d28, pawColor: SOCK, toes: 3 });
+    kit.at(body, l, x, y, z);
+    return l;
+  });
 
-  // Planted on the ground — a proud hound casts a presence.
-  root.add(kit.shadowDisc(0.36, 0.38));
+  // --- Tail: proud, curling up into a live flame tuft. ---------------------
+  const tail = S.softTail(5, fur, {
+    segLen: 0.09, startR: 0.05, endR: 0.03, curl: 0.13, rootPitch: 0.55,
+    color: (t) => S.mixHex(COAL_HI, 0x9a5a3c, Math.pow(t, 2.5)),
+  });
+  kit.at(body, tail, 0, 0.08, -0.3);
+  const tailFlame = S.flame3d(kit, 0.13, { seed: 12, width: 0.075, colors: [0xd23a0e, 0xff8a2e, 0xffe08a], halo: 0.45 });
+  kit.at(tail.tipAnchor, tailFlame, 0, 0.0, 0.0, { rx: -tail.tipPitch });
+
+  // Heartspark riding on the chest ruff.
+  const spark = kit.heartspark(0.032, pal.eye, { seed: 12 });
+  kit.at(body, spark, 0, 0.03, 0.42);
+
+  root.add(kit.shadowDisc(0.4, 0.4));
 
   return {
     group: kit.groundPlant(root),
@@ -132,8 +152,8 @@ export function build_charvane(kit = kitDefault) {
       eyelids: [eyeL.getObjectByName('eyelid'), eyeR.getObjectByName('eyelid')],
       tail: tail.pivots,
       legs: legs.map((l) => ({ hip: l.hip, knee: l.knee, foot: l.foot })),
-      accents: [earL, earR, chest, snout],
-      fx: [smoke, embers, spark],
+      accents: [earL, earR],
+      fx: [smoke, embers, tailFlame, spark, S.variantFx(root)],
     },
     hints: {
       personality: 'regal',

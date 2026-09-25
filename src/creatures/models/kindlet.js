@@ -3,104 +3,107 @@
 // "Round soot-black salamander pup, candle-flame tail tip that flickers with
 // mood. Eager, clumsy." (Design Bible §4)
 // =============================================================================
-//
-// This is the simplest of the 9 starters and a good first read if you're
-// building one of the other 39 species — every pattern used here recurs
-// throughout the roster:
-//   - kit.palette(aspects) gives you the SPECIES' GLOW colors (eyes, emissive
-//     accents, heartspark) — it is NOT automatically your skin color. Bible
-//     art direction is specific ("soot-black") so the base skin here is a
-//     bespoke warm charcoal, and the ember palette is reserved for the parts
-//     that should visually read as "lit from within" (eyes, tail flame,
-//     heartspark). Species whose bible text IS basically the aspect color
-//     (e.g. Nixling's "teal") can use palette.primary as skin directly —
-//     see nixling.js.
-//   - Build everything hanging off a `root` Group, THEN call
-//     `kit.groundPlant(root)` as the very last step — it measures the real
-//     assembled bounding box and shifts everything up so feet sit exactly at
-//     y=0. Don't hand-compute vertical offsets across body/legs/tail; let
-//     groundPlant do it. It's the difference between a model that floats or
-//     clips depending on leg length vs. one that's always planted correctly.
-//   - Every model returns { group, parts, hints }. `group` is what gets
-//     attached to the scene; `parts`/`hints` feed CreatureAnimator (see
-//     animator.js's header for the full contract).
-//   - Small sub-parts that should move WITH their parent for free (the belly
-//     patch, snout nubs below) don't need their own parts.accents entry —
-//     only parts that want INDEPENDENT sway need tracking. Kindlet keeps
-//     this simple: only the brow ridges get their own accent entry.
+// Visual pass v2 (soft stylized): one smooth, chubby bean of a body with a
+// fire-bellied-newt underside (soot back, ember-orange throat and belly), a
+// big wide salamander head with a clumsy tilt and a wide grin, four stubby
+// sprawled legs with round toe-bean paws, and a fat tapering tail that curls
+// up over the back into the signature candle flame (a 3D flame that reads
+// from every angle). Every static piece on a node is merged into one
+// vertex-coloured smooth mesh (see ./soft.js).
+//   - kit.palette(aspects) is the GLOW palette (eyes, flame, heartspark), not
+//     the skin: the bible is specific ("soot-black").
+//   - groundPlant() last; parts/hints feed CreatureAnimator (animator.js).
 
 import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
+import * as S from './soft.js';
+
+const SOOT_LO = 0x151011, SOOT_HI = 0x46352e, BELLY = 0xf0782e, BELLY_HI = 0xffa65a, PAW = 0x8a5238, DARK = 0x120b09;
 
 export function build_kindlet(kit = kitDefault) {
   const pal = kit.palette(['ember']);
-  const skin = kit.mat(0x2b211d, { rough: 0.7 });        // soot-black, warm undertone
-  const belly = kit.mat(0x3d2c22, { rough: 0.75 });       // slightly lighter underbelly
-  const emberGlow = kit.mat(pal.primary, { unlit: true, transparent: true, opacity: 0.9 });
+  const skin = S.vcMat(kit, { rough: 0.6 });
+  const emberGlow = kit.mat(pal.primary, { unlit: true, transparent: true, opacity: 0.92 });
 
   const root = new THREE.Group();
 
-  // --- Body: a plump, roly-poly pup. Squashed slightly so it reads "round
-  // and clumsy" rather than lean. Gradient-painted: soot belly warming to an
-  // ember-lit back, so the pup never reads as a flat black blot. ---
-  const body = kit.blob(0.19, skin, { seed: 4, noise: 0.12, squash: { x: 1.05, y: 0.92, z: 1.15 } });
-  kit.paint(body, { from: 0x1e1512, to: 0x54382a, noise: 0.06, seed: 4 });
+  // --- Body: a round, low bean, fuller at the chest. ---------------------
+  const bodyGeo = S.spindle({
+    len: 0.44, r: 0.19, sx: 1.1, sy: 0.88, belly: 0.32, p: 0.92, radial: 20, rings: 14,
+    profile: (t) => 0.86 + 0.16 * S.bump(t, 0.64, 0.5),
+    arch: (t) => 0.02 * Math.sin(Math.PI * t) + 0.03 * S.sstep(0.6, 1, t),
+  });
+  S.paint(bodyGeo, { from: SOOT_LO, to: SOOT_HI, axis: 'y', exp: 0.85, noise: 0.012, seed: 4 });
+  // Fire-bellied newt: ember-orange throat & belly wrapping up the chest.
+  S.overlay(bodyGeo, BELLY, (x, y, z) => S.sstep(-0.01, -0.09, y - 0.08 * S.clamp01((z - 0.04) / 0.18)) * (1 - 0.3 * Math.abs(x) / 0.21));
+  const body = S.bake([bodyGeo], skin, 'body');
   root.add(body);
-  body.position.y = 0.24;
+  body.position.y = 0.15;
 
-  // Pale soot-warm belly patch, tucked slightly into the body so it doesn't
-  // z-fight.
-  kit.at(body, kit.orb(0.1, belly, { sy: 0.7, sx: 0.85 }), 0, -0.11, 0.09);
-
-  // Faint ember speckles along the spine — coals under the soot, echoing the
-  // tail flame without stealing its show.
-  for (const [x, y, z, s] of [[0.03, 0.16, 0.02, 0.011], [-0.04, 0.15, -0.05, 0.009], [0.01, 0.16, -0.1, 0.008]]) {
-    kit.at(body, kit.orb(s, emberGlow.clone()), x, y, z);
+  // Faint ember speckles along the spine — coals under the soot.
+  const speckGeo = [];
+  for (const [x, z, s] of [[0.035, 0.03, 0.013], [-0.045, -0.06, 0.012], [0.015, -0.14, 0.011], [-0.02, 0.1, 0.01]]) {
+    const p = S.surface(bodyGeo, [0, 1, 0], { from: [x, 0, z], inset: s * 0.35 });
+    speckGeo.push(S.pose(S.ball(s, { radial: 6, rings: 4 }), p));
   }
+  const specks = new THREE.Mesh(S.merge(speckGeo.map((g) => S.paint(g, 0xffffff))), emberGlow);
+  specks.name = 'emberSpecks';
+  body.add(specks);
 
-  // --- Head: wide flat salamander head, overlapping the body for a
-  // seamless silhouette. A tiny clumsy head-tilt is baked into the rest pose. ---
-  const head = kit.at(body, kit.orb(0.13, skin, { sy: 0.82, sz: 1.05 }), 0, 0.1, 0.14, { rz: 0.07 });
-  kit.paint(head, { from: 0x2a1e19, to: 0x4c352a, noise: 0.05, seed: 5 });
+  // --- Head: wide, flat-topped salamander head, big and tilted. -----------
+  const headGeo = S.spindle({
+    len: 0.29, r: 0.155, sx: 1.22, sy: 0.82, p: 0.95, radial: 20, rings: 14, belly: 0.1,
+    profile: (t) => 0.9 + 0.12 * S.bump(t, 0.42, 0.5),
+  });
+  S.paint(headGeo, { from: 0x2c1f19, to: 0x59402f, axis: 'y', noise: 0.01, seed: 5 });
+  // warm chin wrapping under the grin
+  S.overlay(headGeo, BELLY_HI, (x, y, z) => S.sstep(-0.045, -0.11, y) * S.sstep(-0.02, 0.1, z));
+  // A wide salamander grin that follows the snout, and two nostril dots.
+  const grin = S.groove(headGeo, [[-0.62, -0.3], [-0.36, -0.42], [0, -0.47], [0.36, -0.42], [0.62, -0.3]], { radius: 0.0058, lift: -0.001 });
+  S.paint(grin, DARK);
+  const nost = [0.14, -0.14].map((yw) => S.pose(S.ball(0.0075, { radial: 5, rings: 3 }), S.surface(headGeo, S.dirYP(yw, -0.12), { inset: 0.002 })));
+  nost.forEach((g) => S.paint(g, DARK));
+  // Soft arched brows, part of the head (they ride its tilt).
+  const brows = [1, -1].map((s) => S.paint(S.groove(headGeo, [[s * 0.2, 0.62], [s * 0.4, 0.7], [s * 0.6, 0.64]], { radius: 0.0075, lift: 0.002 }), DARK));
+  // Warm ember blush on the cheeks (soft, painted into the skin).
+  for (const s of [1, -1]) S.blush(headGeo, S.surface(headGeo, S.dirYP(s * 0.82, -0.16)), 0.05, 0xff7a3a, 0.85);
+  const head = S.bake([headGeo, grin, ...nost, ...brows], skin, 'head');
+  kit.at(body, head, 0, 0.085, 0.2, { rz: 0.12, rx: -0.08 });
 
-  // Big, readable eyes (art direction: "always big readable eyes"). Kindlet
-  // is eager and clumsy, so the eyes sit wide and a touch high, giving an
-  // open, excitable expression. The dark-amber irisColor auto-enlivens into
-  // a warm ember iris + dark pupil (kit.eye's overhaul).
-  const eyeL = kit.at(head, kit.eye(0.058, { irisColor: 0x241a12, skinColor: 0x2b211d, glintSize: 0.022 }), 0.088, 0.032, 0.098, { ry: 0.25 });
-  const eyeR = kit.at(head, kit.eye(0.058, { irisColor: 0x241a12, skinColor: 0x2b211d, glintSize: 0.022 }), -0.088, 0.032, 0.098, { ry: -0.25 });
+  const eyeOpts = { irisColor: 0x241a12, skinColor: 0x2e2019, glintSize: 0.022 };
+  const eyeL = S.seatEye(kit, head, headGeo, 0.055, 0.48, 0.33, eyeOpts, { sink: 0.5, front: 0.55 });
+  const eyeR = S.seatEye(kit, head, headGeo, 0.055, -0.48, 0.33, eyeOpts, { sink: 0.5, front: 0.55 });
 
-  // Small brow ridges for expression (salamanders have no external ears).
-  const browL = kit.at(head, kit.brow(0.07, skin), 0.08, 0.09, 0.11, { rz: 0.15 });
-  const browR = kit.at(head, kit.brow(0.07, skin), -0.08, 0.09, 0.11, { rz: -0.15 });
 
-  // Tiny ember nub freckles either side of the snout — reads as a cheerful,
-  // clumsy smile silhouette without needing a jaw part.
-  kit.at(head, kit.orb(0.02, emberGlow.clone()), 0.05, -0.06, 0.155);
-  kit.at(head, kit.orb(0.02, emberGlow.clone()), -0.05, -0.06, 0.155);
+  // --- Legs: four stubby, sprawled salamander legs with toe-bean paws. ------
+  const legDefs = [[0.125, -0.06, 0.1, 1], [-0.125, -0.06, 0.1, -1], [0.125, -0.06, -0.11, 1], [-0.125, -0.06, -0.11, -1]];
+  const legs = legDefs.map(([x, y, z, s]) => {
+    const l = S.softLeg(0.105, skin, {
+      stubby: true, thighR: 0.055, kneeR: 0.042, pawR: 0.048, pawLen: 1.3, toes: 3,
+      color: SOOT_HI, shinColor: 0x33241d, pawColor: PAW,
+    });
+    kit.at(body, l, x, y, z, { rz: s * 0.3 });
+    return l;
+  });
 
-  // --- Legs: four short, stubby legs — deliberately a little too short for
-  // the body, which is exactly what "clumsy" should look like. ---
-  const legDefs = [
-    [0.1, 0.05, 0.1], [-0.1, 0.05, 0.1],
-    [0.1, 0.05, -0.09], [-0.1, 0.05, -0.09],
-  ];
-  const legs = legDefs.map(([x, y, z]) => kit.at(body, kit.leg(0.16, skin, { thighR: 0.045, shinR: 0.032, footLen: 0.06 }), x, y, z));
+  // --- Tail: fat at the root, curling up over the back into the flame. ----
+  const tail = S.softTail(5, skin, {
+    segLen: 0.068, startR: 0.072, endR: 0.03, curl: 0.3,
+    color: (t) => S.mixHex(SOOT_HI, 0xc0602c, Math.pow(t, 2.4)),
+  });
+  kit.at(body, tail, 0, 0.0, -0.19);
+  const wick = new THREE.Mesh(S.ball(0.028, { radial: 8, rings: 6 }), emberGlow);
+  wick.name = 'wick';
+  kit.at(tail.tipAnchor, wick, 0, 0, 0);
+  const tailFlame = S.flame3d(kit, 0.17, { seed: 6, width: 0.085, colors: [0xd23a0e, 0xff8a2e, 0xffe08a] });
+  kit.at(tail.tipAnchor, tailFlame, 0, 0.012, -0.004, { rx: -tail.tipPitch });
 
-  // --- Tail: tapers back from the body, ending in the signature flickering
-  // candle-flame. The flame is a self-driving fx object (see kit.flame) —
-  // it goes in parts.fx, NOT parts.accents, because it animates itself. ---
-  const tail = kit.at(body, kit.tailChain(4, skin, { segLen: 0.09, startR: 0.045, endR: 0.02 }), 0, 0.02, -0.15);
-  const tailFlame = kit.flame(0.11, { seed: 6, colors: [0xb8300a, 0xff7a2e, 0xffce6e] });
-  kit.at(tail.pivots[tail.pivots.length - 1], tailFlame, 0, 0, -0.05);
+  // Heartspark on the chest.
+  const sparkAt = S.surface(bodyGeo, S.dirYP(0, -0.08), { inset: 0.012 });
+  const spark = kit.heartspark(0.03, pal.eye, { seed: 11 });
+  kit.at(body, spark, sparkAt[0], sparkAt[1], sparkAt[2]);
 
-  // The heartspark: a small glow at the chest, the mote of starlight every
-  // Kindred carries (Design Bible §1). Self-driving fx, pulses on its own.
-  const spark = kit.heartspark(0.032, pal.eye, { seed: 11 });
-  kit.at(body, spark, 0, 0.02, 0.16);
-
-  // Soft AO disc plants the pup on the ground.
-  root.add(kit.shadowDisc(0.24, 0.4));
+  root.add(kit.shadowDisc(0.26, 0.4));
 
   return {
     group: kit.groundPlant(root),
@@ -110,8 +113,8 @@ export function build_kindlet(kit = kitDefault) {
       eyelids: [eyeL.getObjectByName('eyelid'), eyeR.getObjectByName('eyelid')],
       tail: tail.pivots,
       legs: legs.map((l) => ({ hip: l.hip, knee: l.knee, foot: l.foot })),
-      accents: [browL, browR],
-      fx: [tailFlame, spark],
+      accents: [],
+      fx: [tailFlame, spark, S.variantFx(root)],
     },
     hints: {
       personality: 'eager',
