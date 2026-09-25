@@ -9,16 +9,24 @@ import { loadIn, goZone } from './integration-a.mjs';
 
 const PART = process.env.LOOK_PART ?? 'ab';
 
+// Also measures the frame with every outlined figure (creatures, Warden,
+// NPCs — roots carry userData.outline) hidden, so the characters' own share
+// of calls/triangles is visible separately from the rest of the scene.
 export const STATS = `(() => {
   const g = window.LF.game, r = g.renderer, s = g.activeScene;
   if (!s || !s.scene || !s.camera) return 'n/a';
   const auto = r.info.autoReset;
-  r.info.autoReset = false; r.info.reset();
-  r.render(s.scene, s.camera);
-  const o = { calls: r.info.render.calls, triangles: r.info.render.triangles,
-    programs: (r.info.programs || []).length, geometries: r.info.memory.geometries, textures: r.info.memory.textures };
+  const measure = () => { r.info.reset(); r.render(s.scene, s.camera); return [r.info.render.calls, r.info.render.triangles]; };
+  r.info.autoReset = false;
+  const [calls, triangles] = measure();
+  const figs = [];
+  s.scene.traverse((o) => { if (o.userData && o.userData.outline && o.visible) figs.push(o); });
+  figs.forEach((o) => { o.visible = false; });
+  const [c0, t0] = measure();
+  figs.forEach((o) => { o.visible = true; });
   r.info.autoReset = auto;
-  return JSON.stringify(o);
+  return JSON.stringify({ calls, triangles, figures: figs.length, figureCalls: calls - c0, figureTris: triangles - t0,
+    programs: (r.info.programs || []).length, geometries: r.info.memory.geometries, textures: r.info.memory.textures });
 })()`;
 
 // Linear-HDR luminance stats of the live frame (FloatType target, no tone

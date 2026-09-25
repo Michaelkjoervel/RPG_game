@@ -159,6 +159,9 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 // ------------------------------------------------------------------ Materials
 
+// HDR gain applied to unlit (glow) materials — see mat().
+const GLOW_GAIN = 1.6;
+
 /**
  * A stylized material factory used for every surface in the game's creature
  * (and by convention, prop) art. v2: a SMOOTH-shaded MeshStandardMaterial
@@ -217,9 +220,6 @@ export function mat(color, opts = {}) {
   applyLook(m, { rim });
   return m;
 }
-
-// HDR gain applied to unlit (glow) materials — see mat().
-const GLOW_GAIN = 1.6;
 
 // Segment floors for smooth shading: under the v2 soft look a 10-sided sphere
 // silhouette reads as a polygon at battle framing, so round primitives pick

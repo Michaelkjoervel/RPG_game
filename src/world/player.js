@@ -159,11 +159,11 @@ function buildWarden() {
     shin.position.y = -0.38;
     // folded boot top: a short flared ring, soft-rolled at the lip
     const cuffG = new THREE.LatheGeometry([
-      new THREE.Vector2(0.057, -0.032), new THREE.Vector2(0.066, -0.028), new THREE.Vector2(0.072, -0.006),
-      new THREE.Vector2(0.074, 0.014), new THREE.Vector2(0.068, 0.026), new THREE.Vector2(0.058, 0.024),
+      new THREE.Vector2(0.055, -0.028), new THREE.Vector2(0.062, -0.025), new THREE.Vector2(0.067, -0.006),
+      new THREE.Vector2(0.069, 0.012), new THREE.Vector2(0.064, 0.022), new THREE.Vector2(0.056, 0.02),
     ], 26);
     shin.add(mesh(bakeParts([   // boot shaft + rolled cuff + rounded boot: one mesh
-      [grad(taperCapsule(0.061, 0.055, 0.23), P.boots, { down: 0.08, up: 0.06, seed: 6 }), { p: [0, -0.19, 0] }],
+      [grad(taperCapsule(0.058, 0.05, 0.23), P.boots, { down: 0.08, up: 0.06, seed: 6 }), { p: [0, -0.19, 0] }],
       [grad(cuffG, P.bootCuff, { seed: 7 }), { p: [0, -0.05, 0] }],
       [grad(bootGeo(), P.boots, { down: 0.07, up: 0.05, seed: 8 }), { p: [0, -0.378, 0.04] }],
     ]), mats.cloth));

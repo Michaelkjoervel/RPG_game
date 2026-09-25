@@ -120,6 +120,17 @@ export async function run(page, h) {
     await page.evaluate(NPC_ROW(false, r)); await h.sleep(700);
     await h.shot(`npcs-back-${r + 1}`);
   }
+  // Quality tiers through the real postfx chain: med (grade, no bloom) and
+  // low (plain render), then back to high — exercises bloom toggling + MSAA
+  // re-allocation. LOOK_TIERS=0 to skip.
+  if (process.env.LOOK_TIERS !== '0') {
+    await page.evaluate(VIEW(0.45, 1.5, -2.5, 0.95));
+    for (const q of ['med', 'low', 'high']) {
+      await page.evaluate(`import('/src/core/settings.js').then((m) => { m.updateSetting('quality', '${q}'); return true; })`);
+      await h.sleep(900);
+      await h.shot(`tier-${q}`);
+    }
+  }
   // LOOK_TUNE=1: A/B the shared soft-look params on one close framing.
   if (process.env.LOOK_TUNE === '1') {
     await page.evaluate(NPC_ROW(true)); await h.sleep(300);

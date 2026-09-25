@@ -259,9 +259,10 @@ function buildHuman(spec) {
   /* long robe skirt (elders, scholars): hangs from the waist over the legs */
   if (spec.robe) {
     const robe = mesh(geo(K('v2_robe'), () => {
+      // full enough at the hips to swallow the trouser tops and the tunic hem
       const pts = [
-        new THREE.Vector2(0.16 * wide, TL * 0.3), new THREE.Vector2(0.156 * wide, 0.0), new THREE.Vector2(0.2 * wide, -legLen * 0.5),
-        new THREE.Vector2(0.235 * wide, -legLen * 0.9), new THREE.Vector2(0.232 * wide, -legLen * 0.935), new THREE.Vector2(0.2 * wide, -legLen * 0.93),
+        new THREE.Vector2(0.162 * wide, TL * 0.3), new THREE.Vector2(0.186 * wide, 0.0), new THREE.Vector2(0.212 * wide, -legLen * 0.5),
+        new THREE.Vector2(0.238 * wide, -legLen * 0.9), new THREE.Vector2(0.235 * wide, -legLen * 0.935), new THREE.Vector2(0.2 * wide, -legLen * 0.93),
       ].reverse();
       const g = new THREE.LatheGeometry(pts, 26);
       const pos = g.attributes.position;
@@ -281,27 +282,28 @@ function buildHuman(spec) {
   /* work apron (merchants): a gently curved drape over the front + waist tie */
   if (spec.apron) {
     const apron = mesh(geo(K('v2_apron'), () => {
+      // waist apron in the torso's own (1.06, 1, 0.88)-scaled space: clears
+      // the flared tunic hem and hangs over the knees
       const g = drapeShell({
         profile: [
-          { y: TL * 0.8, rx: 0.15 * wide, rz: 0.132 * wide, cz: 0, span: 0.62 },
-          { y: TL * 0.42, rx: 0.15 * wide, rz: 0.13 * wide, cz: 0, span: 0.68 },
-          { y: -TL * 0.3, rx: 0.2 * wide, rz: 0.17 * wide, cz: -0.012, span: 0.66 },
+          { y: TL * 0.38, rx: 0.172 * wide, rz: 0.158 * wide, cz: 0, span: 0.78 },
+          { y: TL * 0.05, rx: 0.2 * wide, rz: 0.172 * wide, cz: 0, span: 0.8 },
+          { y: -TL * 0.42, rx: 0.215 * wide, rz: 0.19 * wide, cz: -0.01, span: 0.74 },
         ],
-        nu: 20, nv: 12, folds: 3, foldAmp: [0.002, 0.012], hemWave: 0.02, hemSideLift: 0.04, thick: 0.012,
+        nu: 20, nv: 12, folds: 3, foldAmp: [0.002, 0.012], hemWave: 0.02, hemSideLift: 0.05, thick: 0.012,
         ...DRAPE_NEUTRAL, seed: 10,
       });
       g.rotateY(Math.PI); // drapeShell's θ = 0 is the back; turn it to the front
       return g;
     }), secondaryM);
-    apron.scale.set(1.06, 1, 0.88);
     torso.add(apron);
     const tie = mesh(geo(K('v2_aprontie'), () => {
       const g = new THREE.TorusGeometry(0.152 * wide, 0.011, 8, 30);
       g.rotateX(Math.PI / 2);
       return g;
     }), bootM, false);
-    tie.scale.set(1.06, 1, 0.88);
-    tie.position.y = TL * 0.4;
+    tie.scale.set(1.12, 1, 1.04);
+    tie.position.y = TL * 0.38;
     torso.add(tie);
   }
 
@@ -406,12 +408,13 @@ function buildHuman(spec) {
     if (style !== 'bald' && style !== 'none') {
       add(lobe(headR * 1.04, 0.05, 31, 22, 16), 0, 0.34, -0.10, 1.02, 0.9, 1.0);
       // soft locks hanging around the back of the head — structure for the camera's view
+      // (7 overlapping locks = one continuous scalloped hem, not a ring of beads)
       if (style !== 'bob') {
-        for (let i = 0; i < 5; i++) {
-          const a = (i / 4 - 0.5) * 2.6;
-          const g = lumpify(hairLockGeo(headR * 0.36, headR * 0.72), 0.05, 44 + i);
-          g.rotateX(0.28); g.rotateY(a);          // tip tucks out, then swung around the head
-          add(g, -Math.sin(a) * 0.9, 0.06, -0.12 - Math.cos(a) * 0.86);
+        for (let i = 0; i < 7; i++) {
+          const a = (i / 6 - 0.5) * 2.9;
+          const g = lumpify(hairLockGeo(headR * 0.44, headR * 0.66), 0.04, 44 + i);
+          g.rotateX(0.2); g.rotateY(a);           // tip tucks out, then swung around the head
+          add(g, -Math.sin(a) * 0.8, 0.14, -0.1 - Math.cos(a) * 0.8);
         }
       }
     }
@@ -428,9 +431,11 @@ function buildHuman(spec) {
     if (style === 'bun') add(lobe(headR * 0.38, 0.04, 36), 0, 0.78, -0.85);
     if (style === 'ponytail') add(lumpify(hairLockGeo(headR * 0.3, headR * 1.7), 0.05, 37), 0, 0.3, -1.0, 1, 1, 1, 0.35, 0);
     if (style === 'spiky') {
-      add(softSpikeGeo(headR * 0.72, headR * 0.24, 0.35), -0.35, 1.05, 0.1, 1, 1, 1, -0.15, 0.5);
-      add(softSpikeGeo(headR * 0.62, headR * 0.22, -0.3), 0.15, 1.15, 0.05, 1, 1, 1, 0.1, -0.35);
-      add(softSpikeGeo(headR * 0.55, headR * 0.2, 0.3), 0.35, 1.0, -0.35, 1, 1, 1, -0.55, -0.7);
+      // five chunky spikes swept BACK and out from the crown (rooted inside
+      // the hair volume) — reads as windswept spiky hair, not horns
+      const spikes = [[-0.42, 0.95, 0.2, 0.62, 0.3, -1.0, 0.65], [-0.12, 1.08, 0.3, 0.7, 0.32, -1.25, 0.2],
+        [0.2, 1.05, 0.22, 0.66, 0.3, -1.2, -0.3], [0.48, 0.9, 0.05, 0.56, 0.28, -0.95, -0.75], [0.05, 0.9, -0.3, 0.6, 0.3, -1.7, 0.05]];
+      for (const [x, y, z, len, r, rx, rz] of spikes) add(softSpikeGeo(headR * len, headR * r, 0.25), x, y, z, 1, 1, 1, rx, rz);
     }
     if (style === 'bald') add(lobe(headR * 1.0, 0.04, 38, 24, 16), 0, -0.02, -0.15, 1.04, 0.42, 1.0);
     if (spec.beard) {
@@ -665,15 +670,15 @@ function halfCape(ctx, outer = 0x2a2f3f, lining = 0xff8a4a) {
     const w = ctx.wide;
     const g = drapeShell({
       profile: [
-        { y: 0, rx: 0.16 * w, rz: 0.12 * w, cz: 0, span: 1.15 },
-        { y: -0.12, rx: 0.25 * w, rz: 0.17 * w, cz: -0.02, span: 1.1 },
-        { y: -len, rx: 0.29 * w, rz: 0.2 * w, cz: -0.06, span: 1.0 },
+        { y: 0, rx: 0.14 * w, rz: 0.11 * w, cz: 0, span: 1.5 },
+        { y: -0.1, rx: 0.26 * w, rz: 0.18 * w, cz: -0.02, span: 1.45 },
+        { y: -len, rx: 0.3 * w, rz: 0.21 * w, cz: -0.06, span: 1.3 },
       ],
-      nu: 36, nv: 14, folds: 4, foldAmp: [0.004, 0.04], hemWave: 0.03, hemSideLift: 0.14, thick: 0.014,
+      nu: 40, nv: 14, folds: 5, foldAmp: [0.004, 0.04], hemWave: 0.03, hemSideLift: 0.16, thick: 0.014,
       outerTop: shade(outer, 0.08), outerBot: shade(outer, -0.04), liningTop: lining, liningBot: shade(lining, -0.12),
       trim: shade(lining, 0.05), trimWidth: 0.06, seed: 51,
     });
-    g.rotateY(0.85); // swing the drape round onto the right shoulder (-X)
+    g.rotateY(0.55); // swing the drape round onto the right shoulder (-X) and back
     return g;
   });
   const cape = mesh(capeG, capeM, true);
@@ -708,9 +713,11 @@ function lantern(ctx, side = 1) {
   const glow = mesh(geo('v2_lantern_glow', () => new THREE.SphereGeometry(0.034, 14, 10)), stdMat(0xffd9a0, { emissive: 0xffd9a0, ei: 1.6 }), false);
   const cap = mesh(geo('v2_lantern_cap', () => new THREE.ConeGeometry(0.05, 0.035, 8).translate(0, 0.085, 0)), stdMat(0x3a3f4a, { rough: 0.6, flat: true }), false);
   grp.add(cage, glow, cap);
-  const light = new THREE.PointLight(0xffd9a0, 0.9, 4, 2);
+  // held out from the body (a point light a hand-span from the cloth blows it out)
+  const light = new THREE.PointLight(0xffd9a0, 0.45, 4, 2);
+  light.position.set(side * 0.05, 0, 0.06);
   grp.add(light);
-  grp.position.set(side * 0.26 * ctx.wide, ctx.chestY - 0.16, 0.1);
+  grp.position.set(side * 0.3 * ctx.wide, ctx.chestY - 0.2, 0.14);
   ctx.torso.add(grp);
   ctx.extra = (ctx.extra ?? []).concat([{ type: 'lantern', node: grp, glow, light }]);
 }
