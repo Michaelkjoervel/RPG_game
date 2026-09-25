@@ -7,6 +7,12 @@
 // a suggested duration (seconds) the caller can await for pacing. No three.js
 // imports here — this module is pure composition logic and node-testable with
 // a stubbed P.
+//
+// v2 punch: every beat is built from LIGHT first (P.flash blooms — a white-hot
+// pop inside an aspect-colored glow), then SHAPE (P.shockwave rings on the
+// ground or in the air, velocity-stretched P.emitSparks streaks), then the
+// aspect's lingering particles. Readable, not noisy: few big clear shapes,
+// short lives. P.flash / P.shockwave are optional on stubbed P objects.
 import { ASPECTS, aspectColor } from '../data/aspects.js';
 
 // Per-aspect "linger" identity: what hangs in the air after an impact.
@@ -80,22 +86,28 @@ export function linger(P, { at, aspect = 'neutral', color, scale = 1 }) {
   return 0.5;
 }
 
-/** Main impact: colored core burst + shockwave ring + sparks + aspect linger. */
+/** Main impact: light pop + aspect glow, shockwave rings, streak sparks,
+ *  a hot core burst and the aspect's linger. */
 export function impact(P, { at, aspect = 'neutral', color, eff = 'normal', crit = false, big = false }) {
   const c = color ?? aspectColor(aspect);
   const power = (big ? 2.1 : 1) * (eff === 'super' ? 1.5 : eff === 'weak' ? 0.65 : 1) * (crit ? 1.3 : 1);
   if (eff === 'immune') {
+    P.flash?.({ at, color: 0xc8c8d0, size: 0.35, sizeEnd: 0.8, life: 0.2, peak: 0.45 });
     P.emitBurst({ at, count: 10, color: 0x9a9aa4, size: 0.12, speed: 1.4, life: 0.4, gravity: 0.5, drag: 3, additive: false });
     return 0.3;
   }
-  // hot core
-  P.emitBurst({ at, count: Math.round(16 * power), color: 0xffffff, color2: c, size: 0.2 * power, sizeEnd: 0.03, speed: 4.2 * power, life: 0.34, gravity: 1.5, drag: 3.5 });
-  // sparks
-  P.emitBurst({ at, count: Math.round(10 * power), color: c, size: 0.08, speed: 7 * power, life: 0.42, gravity: 5, drag: 1.2 });
-  // ground shockwave
-  P.emitRing({ at: { x: at.x, y: 0.05, z: at.z }, radius: 0.3, count: Math.round(30 * Math.min(power, 1.6)), color: c, color2: 0xffffff, size: 0.11, speed: (big ? 9 : 5.5) * Math.min(power, 1.5), life: 0.4 });
+  const pw = Math.min(power, 2.2);
+  // light first: a white pop inside a bigger aspect-colored bloom
+  P.flash?.({ at, color: 0xffffff, size: 0.35 * pw, sizeEnd: 1.25 * pw, life: 0.14, peak: 1 });
+  P.flash?.({ at, color: c, size: 0.7 * pw, sizeEnd: 2.3 * pw, life: 0.34, peak: 0.8 });
+  // shape: a ground ring under the defender, an air ring on the heavy blows
+  P.shockwave?.({ at: { x: at.x, y: 0.07, z: at.z }, color: c, radius: 1.3 + 0.9 * pw, life: 0.42, width: 0.13 });
+  if (big || crit || eff === 'super') P.shockwave?.({ at, color: 0xffffff, radius: 0.9 + 0.6 * pw, life: 0.26, width: 0.08, flat: false, peak: 0.8 });
+  // streaking sparks + a compact hot core
+  P.emitSparks({ at, count: Math.round(10 * power), color: c, color2: 0xffffff, size: 0.075, speed: 7.5 * pw, life: 0.32, gravity: 4, drag: 2.6, up: 0.4 });
+  P.emitBurst({ at, count: Math.round(12 * power), color: 0xffffff, color2: c, size: 0.17 * pw, sizeEnd: 0.03, speed: 3.6 * pw, life: 0.3, gravity: 1.5, drag: 3.5 });
   linger(P, { at, aspect, color: c, scale: power });
-  if (crit) P.emitBurst({ at, count: 12, color: 0xffe9b0, size: 0.14, speed: 8, life: 0.3, gravity: 0, drag: 2, flicker: true });
+  if (crit) P.emitSparks({ at, count: 10, color: 0xffe9b0, color2: 0xffffff, size: 0.09, speed: 9, life: 0.28, gravity: 0, drag: 2 });
   return big ? 0.65 : 0.45;
 }
 
@@ -114,7 +126,8 @@ export function conjure(P, { at, color = 0xffe9b0, dur = 0.25 }) {
     P.emitBurst({ at: { x: sx, y: sy, z: sz }, count: 1, color, size: 0.11, speed: 0.01, life: dur + 0.1, gravity: -((sy - at.y) / (dur + 0.1)), drag: 0, up: 0 });
   }
   // simpler readable core: swelling glow at the point
-  P.emitFountain({ at, count: 10, color, color2: 0xffffff, size: 0.14, life: dur + 0.15, speed: 0.3, spread: 0.25, gravity: 0, sway: 0.4, flicker: true });
+  P.flash?.({ at, color, size: 0.18, sizeEnd: 0.75, life: dur + 0.12, peak: 0.85 });
+  P.emitFountain({ at, count: 8, color, color2: 0xffffff, size: 0.12, life: dur + 0.15, speed: 0.3, spread: 0.25, gravity: 0, sway: 0.4, flicker: true });
   return dur;
 }
 
@@ -122,6 +135,8 @@ export function conjure(P, { at, color = 0xffe9b0, dur = 0.25 }) {
 export function eruption(P, { at, aspect = 'terra', color, big = false }) {
   const c = color ?? aspectColor(aspect);
   const s = big ? 1.8 : 1;
+  P.flash?.({ at: { x: at.x, y: 0.4, z: at.z }, color: c, size: 0.8 * s, sizeEnd: 2.2 * s, life: 0.35, peak: 0.9, stretchY: 1.6 });
+  P.shockwave?.({ at: { x: at.x, y: 0.07, z: at.z }, color: c, radius: 2.4 * s, life: 0.5, width: 0.16 });
   P.emitFountain({ at: { x: at.x, y: 0.05, z: at.z }, count: Math.round(30 * s), color: c, color2: 0xffffff, size: 0.17 * s, life: 0.8, speed: 5.5 * s, spread: 0.6 * s, gravity: 7 });
   P.emitRing({ at: { x: at.x, y: 0.06, z: at.z }, radius: 0.4, count: 40, color: c, size: 0.13 * s, speed: 6.5 * s, life: 0.5 });
   linger(P, { at, aspect, color: c, scale: s });
@@ -147,6 +162,7 @@ export function auraSpiral(P, { at, color = 0xffe9b0, up = true, height = 1.2, d
 
 /** Arena-wide wash for 'field' moves — an expanding tinted wave. */
 export function fieldWash(P, { at = { x: 0, y: 0.2, z: 0 }, color = 0xffe9b0, radius = 11 }) {
+  P.shockwave?.({ at: { x: at.x, y: 0.08, z: at.z }, color, radius, life: 0.9, width: 0.06, peak: 0.7 });
   P.emitRing({ at, radius: 0.5, count: 64, color, color2: 0xffffff, size: 0.16, speed: radius * 1.15, life: 0.85, rise: 0.5 });
   P.emitRing({ at, radius: 0.5, count: 40, color, size: 0.1, speed: radius * 0.8, life: 1.0, rise: 1.3 });
   return 0.9;
@@ -231,6 +247,7 @@ export function statStageFx(P, { at, delta = 1, height = 1.2 }) {
 }
 
 export function healFx(P, { at, height = 1 }) {
+  P.flash?.({ at, color: 0x9dffb0, size: 0.6, sizeEnd: 1.6, life: 0.45, peak: 0.55 });
   P.emitFountain({ at, count: 20, color: 0x9dffb0, color2: 0xfff8dc, size: 0.12, life: 0.9, speed: 1.8, spread: 0.6, gravity: -0.6, sway: 0.8, flicker: true });
   P.emitRing({ at: { x: at.x, y: 0.06, z: at.z }, radius: 0.4, count: 22, color: 0x9dffb0, size: 0.1, speed: 1.6, life: 0.6, rise: 1.2 });
   return 0.5;
@@ -240,6 +257,10 @@ export function healFx(P, { at, height = 1 }) {
 
 /** Charm-light materialize column on send-in. */
 export function materialize(P, { at, color = 0xffe9b0, height = 1 }) {
+  // a pillar of charm-light the Kindred forms inside
+  P.flash?.({ at: { x: at.x, y: at.y + height * 0.55, z: at.z }, color, size: 0.5 + height * 0.35, sizeEnd: 0.9 + height * 0.5, life: 0.55, peak: 0.9, stretchY: 2.6 });
+  P.flash?.({ at: { x: at.x, y: at.y + height * 0.5, z: at.z }, color: 0xffffff, size: 0.3 + height * 0.2, sizeEnd: 0.8 + height * 0.4, life: 0.25, peak: 0.8 });
+  P.shockwave?.({ at: { x: at.x, y: 0.07, z: at.z }, color, radius: 1.2 + height * 0.8, life: 0.5, width: 0.12 });
   P.emitFountain({ at, count: 26, color, color2: 0xffffff, size: 0.13, life: 0.7, speed: 2.4 + height, spread: 0.35, gravity: 0.5, flicker: true });
   P.emitRing({ at: { x: at.x, y: 0.05, z: at.z }, radius: 0.25, count: 30, color, size: 0.11, speed: 3.2, life: 0.45 });
   return 0.55;
@@ -261,6 +282,8 @@ export function dissolve(P, { at, color = 0x9a9aa4, height = 1, count = 34 }) {
 
 /** Catch: seal burst on success. */
 export function sealBurst(P, { at }) {
+  P.flash?.({ at, color: 0xffe9b0, size: 0.5, sizeEnd: 2.0, life: 0.5, peak: 1 });
+  P.shockwave?.({ at, color: 0xffe9b0, radius: 1.6, life: 0.5, width: 0.1, flat: false });
   P.emitRing({ at, radius: 0.15, count: 40, color: 0xffe9b0, color2: 0xffffff, size: 0.12, speed: 3.4, life: 0.55 });
   P.emitBurst({ at, count: 18, color: 0xfff8dc, size: 0.12, speed: 2.2, life: 0.7, gravity: 0.8, drag: 1.5, flicker: true });
   return 0.6;
@@ -268,6 +291,8 @@ export function sealBurst(P, { at }) {
 
 /** Catch: burst-out on failure. */
 export function breakOut(P, { at, color = 0xffffff }) {
+  P.flash?.({ at, color: 0xffffff, size: 0.5, sizeEnd: 1.6, life: 0.22, peak: 0.9 });
+  P.emitSparks({ at, count: 14, color: 0xffffff, color2: 0xffe9b0, size: 0.08, speed: 7, life: 0.3, gravity: 3, drag: 2.5 });
   P.emitBurst({ at, count: 26, color: 0xffffff, color2: color, size: 0.18, sizeEnd: 0.03, speed: 5, life: 0.4, gravity: 1.5, drag: 2.5 });
   return 0.35;
 }
@@ -293,7 +318,9 @@ const BURST_FAMILY = {
 export function burstSignature(P, { at, target, aspect = 'neutral', color }) {
   const c = color ?? aspectColor(aspect);
   const fam = BURST_FAMILY[aspect] ?? 'lumen';
-  // shared charge-up: gathering vortex around the user
+  // shared charge-up: gathering vortex around the user, then the release pop
+  P.flash?.({ at, color: c, size: 0.6, sizeEnd: 2.6, life: 0.7, peak: 0.9 });
+  P.shockwave?.({ at: { x: at.x, y: 0.07, z: at.z }, color: c, radius: 3.2, life: 0.7, width: 0.12 });
   auraSpiral(P, { at, color: c, up: true, height: 1.6, dur: 0.6 });
   P.emitFountain({ at, count: 22, color: c, color2: 0xffffff, size: 0.15, life: 0.6, speed: 1.2, spread: 0.9, gravity: -1.5, flicker: true });
 
@@ -350,6 +377,10 @@ export function burstSignature(P, { at, target, aspect = 'neutral', color }) {
         count: 2, color: c, color2: 0xffffff, size: 0.16, speed: 0.6, life: 0.4 + t * 0.35, gravity: 0, drag: 1, flicker: true,
       });
     }
+  }
+  if (target) {
+    P.flash?.({ at: target, color: 0xffffff, size: 0.8, sizeEnd: 2.4, life: 0.3, peak: 0.9 });
+    P.shockwave?.({ at: { x: target.x, y: 0.07, z: target.z }, color: c, radius: 3.6, life: 0.6, width: 0.14 });
   }
   linger(P, { at: target ?? at, aspect, color: c, scale: 2 });
   return 1.25;

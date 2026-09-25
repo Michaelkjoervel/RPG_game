@@ -288,7 +288,8 @@ uniform float uLfWrapScale;
 
 // Soft terminator: the DIFFUSE term uses wrapped N·L (light rolls a little
 // past 90° instead of cutting off); specular keeps the true N·L so there is
-// no highlight leaking onto the dark side. Built once from three's own chunk;
+// no highlight leaking onto the dark side. Skipped for shadow-map receivers
+// while shadows are on (it would meet the self-shadow edge as a hard step). Built once from three's own chunk;
 // if a future three changes the chunk text, the replace is a no-op and the
 // look simply falls back to plain Lambert (never a broken shader).
 const _physChunk = THREE.ShaderChunk.lights_physical_pars_fragment;
@@ -298,6 +299,12 @@ const WRAPPED_PHYSICAL_CHUNK = (_physChunk.includes(_WRAP_FROM_A) && _physChunk.
   ? _physChunk
     .replace(_WRAP_FROM_A, `${_WRAP_FROM_A}
 	float lfWrapK = uLfWrap * uLfWrapScale;
+	#ifdef USE_SHADOWMAP
+		// A shadow-map receiver self-shadows exactly where N·L turns negative, so
+		// wrapped light would end in a hard step there: plain Lambert for receivers
+		// (props, ground); casters-only (characters, creatures) keep the soft roll.
+		if ( receiveShadow ) lfWrapK = 0.0;
+	#endif
 	float lfWrapNL = saturate( ( dot( geometryNormal, directLight.direction ) + lfWrapK ) / ( 1.0 + lfWrapK ) );
 	vec3 lfDiffuseIrradiance = lfWrapNL * directLight.color;`)
     .replace(_WRAP_FROM_B, 'reflectedLight.directDiffuse += lfDiffuseIrradiance * BRDF_Lambert( material.diffuseColor );')

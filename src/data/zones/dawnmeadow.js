@@ -37,26 +37,59 @@ export const ZONE = {
   ],
 
   props: [
-    // — Keeper Bramwell's shrine ring, a flowering hollow —
+    // — Keeper Bramwell's shrine ring, a flowering hollow ringed by birches —
     { kind: 'shrine_stone', at: [-38, 48], scale: 1.2 },
     { kind: 'shrine_stone', at: [-32, 46], scale: 0.9 },
     { kind: 'shrine_stone', at: [-44, 46], scale: 0.9 },
     { kind: 'shrine_stone', at: [-38, 55], scale: 0.85 },
     { kind: 'flower_patch', density: 0.5, area: [-38, 48, 12] },
     { kind: 'rock_mossy', at: [-30, 53] },
-    // — the pond's edge —
+    { kind: 'tree_birch', ring: [-38, 49, 15.5], count: 10, startAngle: 0.3, jitter: 2.2 },
+    { kind: 'bush', ring: [-38, 49, 11.5], count: 8, startAngle: 0.9, jitter: 1.5 },
+    // — the pond's edge: willows, reeds, a little jetty —
     { kind: 'reeds', density: 0.4, area: [58, 42, 14] },
+    { kind: 'reeds', density: 0.25, area: [58, 42, 24] },
     { kind: 'lilypad', density: 0.3, area: [58, 42, 10] },
+    { kind: 'tree_willow', density: 0.05, area: [58, 42, 30] },
     { kind: 'rock', at: [70, 50], scale: 1.1 },
+    { kind: 'rock_mossy', density: 0.03, area: [58, 42, 28] },
     { kind: 'flower_patch', at: [48, 30] },
+    { kind: 'flower_patch', density: 0.2, area: [44, 30, 10] },
+    { kind: 'bench', at: [40.5, 33.5], rot: 2.3 },
+    // — landmarks: the windmill on the western rise greets the west gate; the
+    //   great oak crowns the meadow's heart; twin oaks frame the north gate —
+    { kind: 'windmill', at: [-61, -19], rot: -1.05 },
+    { kind: 'fence', line: [[-70, -29], [-53, -29]], step: 1.6, align: true },
+    { kind: 'woodpile', at: [-55, -13.5], rot: 0.4 },
+    { kind: 'tree_oak', at: [22, -8], scale: 2.1 },
+    { kind: 'flower_patch', ring: [22, -8, 5.5], count: 7, jitter: 1 },
+    { kind: 'rock_mossy', at: [27.5, -3.5], scale: 0.8 },
+    { kind: 'tree_oak', at: [-8.5, -86], scale: 1.5 },
+    { kind: 'tree_oak', at: [8.5, -85], scale: 1.45 },
+    { kind: 'signpost', at: [5.5, -78], rot: 3.0 },
+    { kind: 'bush', line: [[-8, -70], [-8, -80]], step: 5, jitter: 1 },
+    { kind: 'bush', line: [[8, -70], [8, -80]], step: 5, jitter: 1 },
     // — oak clusters dotting the hills —
     { kind: 'tree_oak', density: 0.3, area: [-70, -55, 26] },
     { kind: 'tree_oak', density: 0.28, area: [40, -70, 24] },
     { kind: 'tree_oak', density: 0.22, area: [-70, 60, 20] },
     { kind: 'tree_oak', density: 0.18, area: [85, 60, 22] },
+    { kind: 'tree_birch', density: 0.1, area: [60, -20, 22] },
+    // — a forest edge frames the whole meadow (gaps where the gates open) —
+    { kind: 'tree_cluster', border: { inset: 5, step: 11, rows: 2, gap: 16 }, scale: 1.3 },
+    { kind: 'rock', border: { inset: 13, step: 22, rows: 1, gap: 16 }, scale: 1.3 },
+    // — along the walks: flowers at the verges, bushes and stones a few steps off —
+    { kind: 'flower_patch', line: [[-90, 4.8], [-54, 12]], step: 6, jitter: 1.5 },
+    { kind: 'flower_patch', line: [[-50, 11.8], [-12, 4.9]], step: 6, jitter: 1.5 },
+    { kind: 'flower_patch', line: [[-2.6, -8], [3.2, -48]], step: 7, jitter: 1.5 },
+    { kind: 'flower_patch', line: [[3.4, -54], [3.4, -92]], step: 7, jitter: 1.5 },
+    { kind: 'bush', line: [[-48, 14.5], [-14, 8.2]], step: 9, jitter: 2 },
+    { kind: 'bush', line: [[-60, 2], [-88, -3.5]], step: 9, jitter: 2 },
+    { kind: 'rock', line: [[-11.5, -12], [-6.5, -44]], step: 9, jitter: 2, scale: 0.8 },
+    { kind: 'rock', line: [[6.5, -58], [6.5, -90]], step: 11, jitter: 2, scale: 0.8 },
     // — meadow dressing, dense and alive —
-    { kind: 'flower_patch', density: 0.3, area: [0, 0, 95] },
-    { kind: 'grass_tuft', density: 0.55, area: [0, 0, 100] },
+    { kind: 'flower_patch', density: 0.14, area: [0, 0, 95] },
+    { kind: 'grass_tuft', density: 0.18, area: [0, 0, 100] },
     { kind: 'bush', density: 0.08, area: [0, 0, 90] },
     // — mid-field landmarks so the open center doesn't read empty —
     { kind: 'tree_oak', at: [25, 22], scale: 1.15 },
@@ -68,8 +101,14 @@ export const ZONE = {
     { kind: 'rock_mossy', at: [-60, -20] },
     { kind: 'stump', at: [-15, -60] },
     { kind: 'log', at: [12, -75], rot: Math.PI / 5 },
+    // — the west gate: a fenced pasture lane and a signpost —
     { kind: 'fence', at: [-96, -6], rot: Math.PI / 2 },
     { kind: 'fence', at: [-96, 6], rot: Math.PI / 2 },
+    { kind: 'fence', line: [[-91, -5.3], [-66, -1.2]], step: 1.6, align: true },
+    { kind: 'fence', line: [[-91, 7.8], [-68, 11.6]], step: 1.6, align: true },
+    { kind: 'signpost', at: [-85, -3.2], rot: -0.3 },
+    { kind: 'signpost', at: [-11, -3.8], rot: 0.8 },
+    { kind: 'lamp_post', at: [-95, 4.2] },
   ],
 
   portals: [

@@ -401,7 +401,7 @@ uniform float uIntensity, uTime, uFogD;
 void main() {
   float across = 1.0 - abs(vUv.x - 0.5) * 2.0;
   float a = across * across * (3.0 - 2.0 * across);
-  a *= smoothstep(0.0, 0.3, vUv.y) * (1.0 - smoothstep(0.62, 1.0, vUv.y));
+  a *= smoothstep(0.0, 0.1, vUv.y) * (1.0 - smoothstep(0.55, 1.0, vUv.y));
   a *= vFade * uIntensity * (0.55 + 0.45 * sin(uTime * 0.31 + vPhase * 6.2831));
   float fd = uFogD * vDist;
   a *= exp(-fd * fd);
@@ -443,7 +443,7 @@ function makeColorSet(zone, mood) {
     mid: top.clone().lerp(new THREE.Color(0x0d1226), 0.85),
     bottom: bottom.clone().lerp(new THREE.Color(0x121c3a), 0.86),
     // A clear deep blue at the horizon (v1's gray-blue read as fog-gray).
-    horizon: bottom.clone().lerp(new THREE.Color(0x24376e), 0.86),
+    horizon: bottom.clone().lerp(new THREE.Color(0x1d3372), 0.9),
     glow: new THREE.Color(0x2c3c6e),
   };
   const dawn = {
@@ -634,10 +634,11 @@ function buildProfile(spec, rng) {
       samples.push(f.a - f.w, f.a, f.a + f.w);
     } else if (f.shape === 'round') {
       for (let i = -3; i <= 3; i++) samples.push(f.a + (i / 3) * f.w);
-    } else { // tower / spire: near-vertical sides + broken top
-      const e = f.w * 0.04;
-      samples.push(f.a - f.w - e, f.a - f.w, f.a - f.w * 0.35, f.a + f.w * 0.2, f.a + f.w, f.a + f.w + e);
-      if (f.shape === 'spire') samples.push(f.a - f.w * 0.05);
+    } else { // tower / spire: near-vertical sides + broken/pointed top
+      const xs = f.shape === 'spire'
+        ? [-1.04, -1, -0.675, -0.05, 0.575, 1, 1.04]
+        : [-1.04, -1, -0.35, -0.33, 0.18, 0.2, 0.22, 1, 1.04];
+      for (const x of xs) samples.push(f.a + x * f.w);
     }
   }
   const featH = (f, a) => {
@@ -647,13 +648,14 @@ function buildProfile(spec, rng) {
     if (f.shape === 'pine') return f.h * (1 - ax);
     if (f.shape === 'round') return f.h * Math.sqrt(Math.max(0, 1 - ax * ax)) * 0.85 + f.h * 0.15 * (1 - ax);
     if (f.shape === 'spire') {
-      if (ax > 1) return -Infinity;
       const roof = f.h * 0.35 * Math.max(0, 1 - Math.abs(x + 0.05) * 1.6);
       return f.h * 0.8 + roof;
     }
-    // tower with a broken, stepped top
-    const notch = x > -0.35 && x < 0.2 ? -f.h * (0.12 + f.seed * 0.25) : 0;
-    return f.h * (x > 0.2 ? 0.86 : 1) + notch;
+    // tower with a broken, stepped top: a bite out of the crown, lower right shoulder
+    if (x < -0.34) return f.h;
+    if (x < 0.19) return f.h * (0.88 - f.seed * 0.25);
+    if (x < 0.21) return f.h;
+    return f.h * 0.86;
   };
   const norm = (a) => ((a % TAU) + TAU) % TAU;
   const pts = samples.map(norm).sort((p, q) => p - q);
@@ -1329,8 +1331,11 @@ export function createSky(zone, scene) {
       if (!warden && (wardenLookup -= dt) <= 0) { warden = scene.getObjectByName('warden') || null; wardenLookup = 1; }
       if (warden) shaftU.uGroundY.value = warden.position.y;
       const s = skyU.uSkySunDir.value;
-      // shafts lean along the key but never flatter than ~35 deg off vertical
-      shaftU.uShaftDir.value.set(s.x * 0.55, Math.max(s.y, 0.2) + 0.9, s.z * 0.55).normalize();
+      // shafts lean toward the sun's bearing, but never more than 40 deg off
+      // vertical (a low sun would otherwise lay them flat along the ground)
+      const hl = Math.hypot(s.x, s.z) || 1;
+      const tilt = Math.min(Math.acos(clamp(s.y, -1, 1)), 40 * DEG);
+      shaftU.uShaftDir.value.set(s.x / hl * Math.sin(tilt), Math.cos(tilt), s.z / hl * Math.sin(tilt));
       shaftU.uIntensity.value = 0.16 * clamp01(dayWeight(t) * 1.2 - 0.1) * (0.7 + dawnDuskWeight(t) * 0.6);
       shaftU.uTime.value = time;
       shaftU.uFogD.value = (scene.fog?.density ?? 0.02) * 0.7;

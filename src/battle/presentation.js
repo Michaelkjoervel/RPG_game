@@ -18,7 +18,7 @@ import { G } from '../core/state.js';
 import { aspectColor } from '../data/aspects.js';
 import { Particles } from '../gfx/particles.js';
 import * as MAT from '../gfx/materials.js';
-import { buildArena } from './arenas.js';
+import { buildArena, glowTexture } from './arenas.js';
 import { createCameraDirector } from './cameraDirector.js';
 import * as vfx from './vfx.js';
 
@@ -67,16 +67,22 @@ export async function createPresentation(game, config = {}) {
   const WHITE = new THREE.Color(0xffffff);
 
   // -- reusable one-shot props (avoid per-move allocation/disposal churn) --
-  const boltGeo = new THREE.IcosahedronGeometry(0.16, 1);
-  const boltMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 1.6, roughness: 0.3, flatShading: true });
+  const boltGeo = new THREE.IcosahedronGeometry(0.16, 2);
+  const boltMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 2.2, roughness: 0.3 });
   const bolt = new THREE.Mesh(boltGeo, boltMat); bolt.visible = false; bolt.renderOrder = 5; scene.add(bolt);
+  // the bolt is light, not a pebble: a soft additive halo rides on it
+  const boltGlowMat = new THREE.SpriteMaterial({ map: glowTexture(), color: 0xffffff, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
+  const boltGlow = new THREE.Sprite(boltGlowMat); boltGlow.scale.setScalar(2.4); bolt.add(boltGlow);
 
-  const beamGeo = new THREE.CylinderGeometry(0.14, 0.14, 1, 10, 1, true);
-  const beamMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, depthWrite: false });
+  const beamGeo = new THREE.CylinderGeometry(0.14, 0.14, 1, 14, 1, true);
+  const beamMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, depthWrite: false, fog: false });
   const beam = new THREE.Mesh(beamGeo, beamMat); beam.visible = false; scene.add(beam);
+  const beamCoreMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
+  beamCoreMat.color.setRGB(2.2, 2.2, 2.2); // HDR core: blooms on High
+  const beamCore = new THREE.Mesh(beamGeo, beamCoreMat); beamCore.scale.set(0.35, 1, 0.35); beam.add(beamCore);
 
-  const charmGeo = new THREE.IcosahedronGeometry(0.22, 1);
-  const charmMat = new THREE.MeshStandardMaterial({ color: 0xffe9b0, emissive: 0xffb85c, emissiveIntensity: 0.6, metalness: 0.4, roughness: 0.3, flatShading: true });
+  const charmGeo = new THREE.IcosahedronGeometry(0.22, 3);
+  const charmMat = new THREE.MeshStandardMaterial({ color: 0xffe9b0, emissive: 0xffb85c, emissiveIntensity: 0.6, metalness: 0.4, roughness: 0.3 });
   const charm = new THREE.Mesh(charmGeo, charmMat); charm.visible = false; charm.castShadow = true; scene.add(charm);
 
   const vignette = buildVignette(camera);
@@ -193,7 +199,7 @@ export async function createPresentation(game, config = {}) {
 
   function fallbackWisp() {
     const g = new THREE.Group();
-    const core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.4, 1), new THREE.MeshStandardMaterial({ color: 0xffe9b0, emissive: 0xffe9b0, emissiveIntensity: 0.8, flatShading: true }));
+    const core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.4, 3), new THREE.MeshStandardMaterial({ color: 0xffe9b0, emissive: 0xffe9b0, emissiveIntensity: 0.8 }));
     core.position.y = 0.5;
     g.add(core);
     return g;
@@ -282,6 +288,7 @@ export async function createPresentation(game, config = {}) {
     vfx.conjure(particles, { at: from, color, dur: 0.2 });
     camDir.shot('closeUp', { side: other, ms: 0 });
     bolt.material.color.set(color); bolt.material.emissive.set(color);
+    boltGlowMat.color.set(color).multiplyScalar(1.6);
     bolt.position.set(from.x, from.y, from.z);
     bolt.visible = aspect !== 'gale';
     bolt.scale.setScalar(0.32);
@@ -322,6 +329,7 @@ export async function createPresentation(game, config = {}) {
     });
     trail.stop();
     bolt.visible = false;
+    particles.flash({ at: to, color, size: 0.5, sizeEnd: 1.5, life: 0.2, peak: 0.9 });
   }
 
   async function beamAttack(from, to, color) {
@@ -330,9 +338,12 @@ export async function createPresentation(game, config = {}) {
     beamMat.color.set(color);
     orientBeam(beam, from, to);
     beam.visible = true;
-    await tween({ from: 0, to: 1, dur: 0.14, ease: easeOutCubic, onUpdate: (v) => { beamMat.opacity = v * 0.85; beam.scale.x = beam.scale.z = 0.4 + v * 0.8; } });
+    particles.flash({ at: from, color, size: 0.5, sizeEnd: 1.3, life: 0.45, peak: 0.9 });
+    particles.flash({ at: to, color: 0xffffff, size: 0.4, sizeEnd: 1.6, life: 0.4, peak: 0.9 });
+    particles.shockwave({ at: to, color, radius: 1.4, life: 0.4, width: 0.1, flat: false });
+    await tween({ from: 0, to: 1, dur: 0.14, ease: easeOutCubic, onUpdate: (v) => { beamMat.opacity = v * 0.7; beamCoreMat.opacity = v; beam.scale.x = beam.scale.z = 0.4 + v * 0.9; } });
     await delay(0.14);
-    await tween({ from: 1, to: 0, dur: 0.2, ease: easeOutCubic, onUpdate: (v) => { beamMat.opacity = v * 0.85; } });
+    await tween({ from: 1, to: 0, dur: 0.2, ease: easeOutCubic, onUpdate: (v) => { beamMat.opacity = v * 0.7; beamCoreMat.opacity = v; } });
     beam.visible = false;
   }
 
@@ -769,8 +780,8 @@ export async function createPresentation(game, config = {}) {
     creatureFill.dispose();
     sendLight.dispose();
     try { fx?.dispose(); } catch (e) { /* ignore */ }
-    boltGeo.dispose(); boltMat.dispose();
-    beamGeo.dispose(); beamMat.dispose();
+    boltGeo.dispose(); boltMat.dispose(); boltGlowMat.dispose();
+    beamGeo.dispose(); beamMat.dispose(); beamCoreMat.dispose();
     charmGeo.dispose(); charmMat.dispose();
     scene.remove(camera);
   }

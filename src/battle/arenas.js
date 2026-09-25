@@ -1135,6 +1135,7 @@ export async function buildArena(biomeOrKind, particles, opts = {}) {
       scaleAt: (x, z) => 1 - laneAt(x, z) * 0.4,
     });
     bag.geos.push(grass.geometry); bag.mats.push(grass.material);
+    grass.name = 'stage-grass';
     group.add(grass);
   }
   if (stage.flowers) {
@@ -1145,6 +1146,7 @@ export async function buildArena(biomeOrKind, particles, opts = {}) {
     });
     flowers.traverse((o) => { if (o.isMesh) { bag.geos.push(o.geometry); bag.mats.push(o.material); } });
     if (fl.glow) { const hm = flowers.children[1].material; hm.emissive.set(0x6a5a8a); hm.emissiveIntensity = 0.8; }
+    flowers.name = 'stage-flowers';
     group.add(flowers);
   }
 
@@ -1192,6 +1194,7 @@ export async function buildArena(biomeOrKind, particles, opts = {}) {
     }
     const tl = buildBlobField(items, { lo: t.lo, hi: t.hi, detail: 1, seed: 8 });
     bag.geos.push(tl.geometry); bag.mats.push(tl.material);
+    tl.name = 'stage-treeline';
     group.add(tl);
   }
   if (stage.canopy && q > 0) {
@@ -1220,6 +1223,7 @@ export async function buildArena(biomeOrKind, particles, opts = {}) {
   }
   for (const r of stage.ridges ?? []) {
     const ridge = buildRidges(r);
+    ridge.name = 'stage-ridge';
     bag.geos.push(ridge.geometry); bag.mats.push(ridge.material);
     group.add(ridge);
   }

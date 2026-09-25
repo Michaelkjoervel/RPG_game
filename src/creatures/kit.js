@@ -161,9 +161,11 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 /**
  * A stylized material factory used for every surface in the game's creature
- * (and by convention, prop) art. Defaults to flat-shaded MeshStandardMaterial
- * with a tiny per-call roughness jitter so surfaces don't read as uniform
- * plastic. Pass `unlit:true` for an emissive-looking, lighting-independent
+ * (and by convention, prop) art. v2: a SMOOTH-shaded MeshStandardMaterial
+ * carrying the shared soft look (wrapped terminator + rim light, see
+ * gfx/materials.js applyLook) with a tiny per-call roughness jitter so
+ * surfaces don't read as uniform plastic; `flat: true` only for gems,
+ * crystals and ice. Pass `unlit:true` for an emissive-looking, lighting-independent
  * material (eyes' glint, energy wings, hard-light antlers); add
  * `additive:true` on top for glow/particle-style blending.
  *
@@ -181,22 +183,30 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
  * @param {THREE.Side} [opts.side=THREE.FrontSide]
  * @param {boolean} [opts.unlit=false] - use MeshBasicMaterial instead
  * @param {boolean} [opts.additive=false] - AdditiveBlending, implies unlit-friendly settings
+ * @param {number} [opts.glow=1.6] - unlit only: HDR gain so bright glows bloom on High (1 = none)
  * @returns {THREE.Material}
  */
 export function mat(color, opts = {}) {
   const {
     rough = 0.75, metal = 0.05, flat = false, emissive = null, emissiveIntensity = 1,
     vertexColors = false, transparent = false, opacity = 1, side = THREE.FrontSide,
-    unlit = false, additive = false, rim = 1,
+    unlit = false, additive = false, rim = 1, glow = GLOW_GAIN,
   } = opts;
   if (unlit || additive) {
-    return new THREE.MeshBasicMaterial({
+    const m = new THREE.MeshBasicMaterial({
       color, vertexColors, side,
       transparent: transparent || additive || opacity < 1,
       opacity,
       blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
       depthWrite: !additive,
     });
+    // v2 glow: unlit bits are the creature's light sources (embers, sparks,
+    // flames, crystal cores, energy wings). Pushing their color into HDR (>1)
+    // lets the High-tier bloom (gfx/postfx.js, threshold ~1.1 linear) halo
+    // the BRIGHT ones gently while dark unlit details stay dark. Eyes pass
+    // glow: 1 so pupils/catchlights never bloom.
+    if (glow !== 1) m.color.multiplyScalar(glow);
+    return m;
   }
   const roughJitter = (Math.random() - 0.5) * 0.08;
   const m = new THREE.MeshStandardMaterial({
@@ -207,6 +217,9 @@ export function mat(color, opts = {}) {
   applyLook(m, { rim });
   return m;
 }
+
+// HDR gain applied to unlit (glow) materials — see mat().
+const GLOW_GAIN = 1.6;
 
 // Segment floors for smooth shading: under the v2 soft look a 10-sided sphere
 // silhouette reads as a polygon at battle framing, so round primitives pick
@@ -581,7 +594,7 @@ export function eye(r = 0.05, opts = {}) {
       cap(r * 1.025, Math.min(capTheta * 1.18, 1.5), pupilC.getHex(), 28),
       cap(r * 1.05, capTheta, irisC.getHex(), 28),
       cap(r * 1.075, capTheta * 0.52, pupilC.getHex(), 22),
-    ]), mat(0xffffff, { unlit: true, vertexColors: true }));
+    ]), mat(0xffffff, { unlit: true, vertexColors: true, glow: 1 }));
     iris.name = 'eyeIris';
     group.add(iris);
   }
@@ -591,7 +604,7 @@ export function eye(r = 0.05, opts = {}) {
   const gR = Math.max(glintSize, r * 0.26);
   const glintParts = [[new THREE.SphereGeometry(gR, 12, 8), { p: [r * 0.3, r * 0.34, r * 0.8] }]];
   if (microGlint) glintParts.push([new THREE.SphereGeometry(gR * 0.45, 8, 6), { p: [-r * 0.28, -r * 0.22, r * 0.92] }]);
-  const glint = new THREE.Mesh(bakeParts(glintParts), mat(0xffffff, { unlit: true }));
+  const glint = new THREE.Mesh(bakeParts(glintParts), mat(0xffffff, { unlit: true, glow: 1 }));
   glint.name = 'eyeGlint';
   group.add(glint);
   // Eyelid: slightly darker than the skin so a blink reads as a lid, not a
@@ -797,8 +810,10 @@ export function tailChain(segments, m, opts = {}) {
     const t0 = i / segments, t1 = (i + 1) / segments;
     const r0 = startR + (endR - startR) * t0;
     const r1 = startR + (endR - startR) * t1;
-    const seg = capsule((r0 + r1) * 0.5, segLen, m, { capSeg: 3, radSeg: 6 });
-    seg.rotation.x = Math.PI / 2; // capsule's natural axis is Y; lay it along Z
+    // v2: each segment tapers r0 -> r1 (was a constant-radius capsule), so
+    // the chain reads as one smoothly narrowing tail instead of beads.
+    const seg = new THREE.Mesh(taperCapsule(r0, r1, segLen, r0 < 0.012 ? 8 : 14), m);
+    seg.rotation.x = Math.PI / 2; // lathe axis is Y (r0 end up); lay it along Z, r0 toward the root
     seg.position.z = -segLen * 0.5;
     parent.add(seg);
     if (i === segments - 1 && tipTuft) {
@@ -1148,13 +1163,28 @@ export function palette(aspectIds = ['neutral']) {
  * @returns {THREE.Group} group
  */
 export function hollowify(group, parts) {
+  const greyed = new Set();
+  const hsl = { h: 0, s: 0, l: 0 };
+  const cc = new THREE.Color();
   group.traverse((node) => {
     if (!node.isMesh || !node.material || !node.material.color) return;
     if (node.name === 'eyeGlint' || node.name === 'eyeGlint2') { node.material.opacity = 0.5; node.material.transparent = true; return; }
-    const hsl = { h: 0, s: 0, l: 0 };
     node.material.color.getHSL(hsl);
     node.material.color.setHSL(hsl.h, hsl.s * 0.12, clamp(hsl.l * 0.7 + 0.12, 0.18, 0.55));
     if (node.material.emissive) node.material.emissiveIntensity = Math.min(node.material.emissiveIntensity ?? 1, 0.25);
+    // Painted (vertex-color) parts carry their hue in the geometry, not the
+    // material — drain it there too (once per geometry) or hollowed creatures
+    // keep their full palette under a merely dimmed tint.
+    const col = node.material.vertexColors && node.geometry?.attributes?.color;
+    if (col && !greyed.has(node.geometry)) {
+      greyed.add(node.geometry);
+      for (let i = 0; i < col.count; i++) {
+        cc.setRGB(col.getX(i), col.getY(i), col.getZ(i)).getHSL(hsl);
+        cc.setHSL(hsl.h, hsl.s * 0.15, hsl.l);
+        col.setXYZ(i, cc.r, cc.g, cc.b);
+      }
+      col.needsUpdate = true;
+    }
   });
   // box3 is WORLD-space; the crack strips are about to become CHILDREN of
   // `group`, so every size/position below is converted into group's LOCAL

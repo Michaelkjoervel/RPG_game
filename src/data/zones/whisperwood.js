@@ -38,7 +38,7 @@ export const ZONE = {
 
   props: [
     // — mushroom grove (myclet habitat) —
-    { kind: 'mushroom_giant', at: [-34, 36], scale: 1.3 },
+    { kind: 'mushroom_giant', at: [-29, 44], scale: 1.3 },
     { kind: 'mushroom_giant', at: [-42, 30], scale: 1.1 },
     { kind: 'mushroom_cluster', density: 0.5, area: [-36, 34, 16] },
     { kind: 'fern', density: 0.4, area: [-36, 34, 20] },
@@ -50,9 +50,13 @@ export const ZONE = {
     { kind: 'mushroom_cluster', density: 0.36, area: [62, 16, 16] },
     { kind: 'mushroom_cluster', density: 0.32, area: [96, 6, 14] },
     { kind: 'mushroom_giant', at: [-4, 84], scale: 1.0 },
-    { kind: 'mushroom_giant', at: [18, 52], scale: 1.15 },
+    { kind: 'mushroom_giant', at: [14, 49.5], scale: 1.15 },
     { kind: 'mushroom_giant', at: [46, 28], scale: 0.95 },
     { kind: 'mushroom_giant', at: [84, 4], scale: 1.1 },
+    // — the elder oak: an ancient mossy giant greets the south gate —
+    { kind: 'tree_oak', at: [-6, 74], scale: 2.5 },
+    { kind: 'rock_mossy', at: [-10.5, 70], scale: 1.2 },
+    { kind: 'fern', ring: [-6, 74, 4.8], count: 7, jitter: 1 },
     // — Keeper Liora's light-shaft glade —
     { kind: 'shrine_stone', at: [52, -35], scale: 1.15 },
     { kind: 'shrine_stone', at: [46, -33], scale: 0.85 },
@@ -64,29 +68,48 @@ export const ZONE = {
     { kind: 'tree_glow', at: [64, -18], scale: 0.9 },
     { kind: 'tree_glow', at: [52, -50], scale: 1.0 },
     { kind: 'fern', density: 0.3, area: [52, -35, 18] },
+    { kind: 'glowfern', density: 0.2, area: [52, -35, 12] },
     // — herbalist Syl's hut —
     { kind: 'house_small', at: [76, 6], rot: -Math.PI / 2 },
-    { kind: 'berry_bush', at: [80, 12] },
+    { kind: 'berry_bush', at: [80.5, 1.5] },
     { kind: 'flower_patch', at: [72, 14] },
-    { kind: 'crate', at: [78, 0] },
+    { kind: 'crate', at: [78, -1] },
+    { kind: 'planter', at: [72.2, 2.2] },
+    { kind: 'woodpile', at: [80.8, 6], rot: Math.PI / 2 },
+    { kind: 'flower_bed', at: [70.5, -1.5], rot: Math.PI / 2 },
     // — the scarred clearing (first Hollowed encounter site) —
-    { kind: 'tree_dead', at: [28, 80], scale: 1.2 },
-    { kind: 'tree_dead', at: [34, 74], scale: 0.9 },
-    { kind: 'tree_dead', at: [24, 72], scale: 1.0 },
-    { kind: 'rock', at: [30, 78], scale: 1.1 },
+    { kind: 'tree_dead', at: [28, 81], scale: 1.2 },
+    { kind: 'tree_dead', at: [35, 74], scale: 0.9 },
+    { kind: 'tree_dead', at: [20, 76] },
+    { kind: 'rock', at: [32.5, 79.5], scale: 1.1 },
     { kind: 'grass_tuft', density: 0.08, area: [28, 76, 12] }, // deliberately sparse — life has thinned here
     // — the hidden waterfall (conceals the Starfall Glade way) —
     { kind: 'waterfall', at: [-92, -88], scale: 1.3 },
+    { kind: 'cliff_wall', at: [-99, -80], rot: 0.8, scale: 1.2 },
+    { kind: 'cliff_wall', at: [-84, -99], rot: 2.3, scale: 1.1 },
     { kind: 'hangmoss', at: [-86, -82] },
     { kind: 'hangmoss', at: [-98, -92] },
     { kind: 'fern', density: 0.3, area: [-90, -86, 14] },
     { kind: 'rock_mossy', at: [-80, -78] },
-    // — general canopy, dense and towering —
-    { kind: 'tree_birch', density: 0.34, area: [0, 0, 118] },
-    { kind: 'tree_oak', density: 0.2, area: [0, 0, 110] },
+    { kind: 'tree_glow', at: [-74, -66], scale: 0.95 },
+    { kind: 'tree_glow', at: [-60, -73], scale: 0.85 },
+    { kind: 'glowfern', density: 0.25, area: [-72, -70, 12] },
+    // — general canopy, dense and towering; a forest wall seals the edges —
+    { kind: 'tree_birch', density: 0.27, area: [0, 0, 118] },
+    { kind: 'tree_oak', density: 0.16, area: [0, 0, 110] },
     { kind: 'tree_pine', density: 0.14, area: [-40, -40, 60] },
+    { kind: 'tree_cluster', border: { inset: 6, step: 9, rows: 2, gap: 16 }, scale: 1.4 },
+    { kind: 'pine_cluster', border: { inset: 20, step: 26, rows: 1, gap: 20 }, scale: 1.2 },
     { kind: 'fern', density: 0.25, area: [0, 0, 110] },
-    { kind: 'grass_tuft', density: 0.3, area: [0, 0, 110] },
+    { kind: 'grass_tuft', density: 0.12, area: [0, 0, 110] },
+    { kind: 'bush', density: 0.05, area: [0, 0, 110] },
+    // — along the trail: ferns at the verges, logs, stumps and stones set back —
+    { kind: 'fern', line: [[5.2, 104], [14.6, 72]], step: 5, jitter: 1.4 },
+    { kind: 'fern', line: [[-3.8, 100], [5.4, 72]], step: 6, jitter: 1.4 },
+    { kind: 'fern', line: [[16, 66], [44, 25]], step: 6, jitter: 1.4 },
+    { kind: 'fern', line: [[42, 18.8], [90, 7.2]], step: 6, jitter: 1.4 },
+    { kind: 'rock_mossy', line: [[-7, 96], [2, 64]], step: 13, jitter: 2 },
+    { kind: 'stump', line: [[22, 70], [50, 30]], step: 16, jitter: 3 },
     { kind: 'hangmoss', at: [20, -60] },
     { kind: 'hangmoss', at: [-20, 60] },
     { kind: 'rock_mossy', at: [70, -60] },
@@ -94,8 +117,11 @@ export const ZONE = {
     { kind: 'stump', at: [0, 40] },
     { kind: 'log', at: [14, 87], rot: Math.PI / 3 }, // beside the spawn trail — mossy fallen trunk greets the walk in
     { kind: 'log', at: [-10, -10], rot: Math.PI / 4 },
-    { kind: 'fence', at: [0, 108], rot: 0 },
-    { kind: 'fence', at: [12, 108], rot: 0 },
+    { kind: 'log', at: [60, 3], rot: 0.2 },
+    // — the south gate —
+    { kind: 'fence', at: [-5.6, 107.4], rot: 0 },
+    { kind: 'fence', at: [6.5, 107.5], rot: 0 },
+    { kind: 'signpost', at: [-5.2, 101], rot: -2.6 },
   ],
 
   portals: [

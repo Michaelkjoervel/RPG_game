@@ -51,7 +51,18 @@ const STATS = `(() => {
   r.info.autoReset = true;
   let q = 'high';
   try { q = JSON.parse(localStorage.getItem('lumenfall_settings') || '{}').quality || 'high'; } catch (e) {}
-  return JSON.stringify({ zone: w.zoneId, quality: q, scene, programs: r.info.programs?.length,
+  // SKY & WATER's own objects (sky dome/stars/clouds/backdrop/shafts, water, weather)
+  const MINE = /^(skydome|stars|clouds|backdrop\\d|lightShafts|water|rainStreaks|mistWisps)$/;
+  const mine = { calls: 0, triangles: 0, objects: [] };
+  w.scene.traverse((o) => {
+    if (!MINE.test(o.name) || !o.visible) return;
+    const g = o.geometry;
+    const n = g.index ? g.index.count : g.attributes.position.count;
+    const inst = o.isInstancedMesh ? o.count : g.isInstancedBufferGeometry ? g.instanceCount : 1;
+    const tris = o.isPoints ? 0 : Math.round(n / 3 * inst);
+    mine.calls++; mine.triangles += tris; mine.objects.push(o.name + ':' + tris);
+  });
+  return JSON.stringify({ zone: w.zoneId, quality: q, scene, mine, programs: r.info.programs?.length,
     geometries: r.info.memory.geometries, textures: r.info.memory.textures });
 })()`;
 

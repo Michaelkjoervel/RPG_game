@@ -27,6 +27,7 @@ const STARTERS = ['kindlet', 'nixling', 'thistlit'];
 // Built from the shared stage kit (battle/arenas.js); disposed on teardown.
 // ---------------------------------------------------------------------------
 const SUN_DIR = new THREE.Vector3(-0.72, 0.05, -1).normalize();
+const smooth01 = (t) => { const k = Math.min(1, Math.max(0, t)); return k * k * (3 - 2 * k); };
 
 // Soft cumulus puff texture (canvas) for billboard clouds.
 function makeCloudTexture(seed = 11) {
@@ -99,8 +100,8 @@ async function buildScene(game) {
     sun: 0xffc27a, sunDir: SUN_DIR.toArray(), sunAmt: 1.35, glow: 1.25, radius: 420,
   });
   scene.add(track(dome));
-  const fogColor = new THREE.Color(0xc98a78);
-  scene.fog = new THREE.FogExp2(fogColor, 0.0105);
+  const fogColor = new THREE.Color(0xb08aa0);
+  scene.fog = new THREE.FogExp2(fogColor, 0.0095);
   scene.background = new THREE.Color(0x2a2a52);
   const stars = buildStars(q === 0 ? 70 : 150, seededRandom(hashStr('title-stars')));
   scene.add(track(stars));
@@ -122,44 +123,52 @@ async function buildScene(game) {
     clouds.push({ s, speed: 0.6 + crng() * 0.8, x0: x });
   }
 
-  // ---- ground: a flowering hilltop that falls away into the valley
+  // ---- ground: a flowering hilltop plateau that falls away into the valley
+  const PLATEAU = 0.15;
   const heightAt = (x, z) => {
-    const r = Math.hypot(x * 0.8, z + 2);
-    const knoll = 0.55 * Math.exp(-((x * x) / 60 + ((z - 1) * (z - 1)) / 30));
-    const fall = -K.fbm2(x * 0.02, z * 0.02, 5) * 4 * Math.min(1, Math.max(0, (r - 12) / 30));
-    const hills = Math.max(0, (-z - 40) / 90) * (4 + 16 * K.fbm2(x * 0.012 + 3, z * 0.012, 8));
-    return knoll + fall + hills;
+    const edge = smooth01((1.5 - z) / 9);                 // 0 on the hilltop, 1 down in the valley
+    const drop = -edge * (2.4 + 1.6 * K.fbm2(x * 0.03, z * 0.03, 5));
+    const hills = Math.max(0, (-z - 45) / 95) * (3 + 14 * K.fbm2(x * 0.012 + 3, z * 0.012, 8));
+    return PLATEAU + drop + hills + (1 - edge) * 0.08 * K.fbm2(x * 0.4, z * 0.4, 2);
   };
   const groundMat = K.stageGroundMaterial({
-    a: 0x6a9a3a, b: 0x9cbf4f, c: 0xd8c064, dirt: 0x8a7050, far: 0x9a7a8a, hill: 0x6f8a58,
-    marks: [99, 99, 99, 99], worn: [0.1, 0.1, 0, 0], farR: [20, 120, 0.72], hillR: [12, 45, 0.45],
+    a: 0x5f8a36, b: 0x86ad48, c: 0xc8b85e, dirt: 0x8a7050, far: 0x8a7a98, hill: 0x5f7a52,
+    marks: [99, 99, 99, 99], worn: [0.1, 0.1, 0, 0], farR: [16, 110, 0.75], hillR: [8, 40, 0.45],
   });
   const groundGeo = K.buildStageGround(heightAt, { radius: 200, inner: 14, step: q === 0 ? 1 : 0.6, segs: 128 });
   const ground = new THREE.Mesh(groundGeo, groundMat);
   ground.receiveShadow = true;
   scene.add(track(ground));
 
-  // foreground + midground grass and flowers (denser toward the camera)
+  // The trio's spots (camera sits 1 m above them, 3.6-4.4 m back; heads land
+  // just under the menu, feet near the bottom edge).
+  const SPOTS = { kindlet: [-1.38, 4.2, 0.5], nixling: [0, 4.85, 0], thistlit: [1.38, 4.2, -0.5] };
+  const nearSpot = (x, z) => Math.min(...Object.values(SPOTS).map(([sx, sz]) => Math.hypot(x - sx, z - sz)));
+
+  // grass and flowers: short in front of the lens, lush on the hilltop
   const grass = K.buildGrass({
-    count: 5200, base: 0x3f5a22, tipA: 0xd8c86a, tipB: 0xa8cc5a, h: 0.5, seed: 21, r0: 0, r1: 22,
-    center: [0, 4], heightAt, accept: (x, z) => (z > -8 ? 1 : 0.35), scaleAt: (x, z) => (z > 5 ? 1.35 : 1),
+    count: 5200, base: 0x4a6a2a, tipA: 0xc0d270, tipB: 0xe0cc72, h: 0.32, seed: 21, r0: 0, r1: 24,
+    center: [0, 2], heightAt,
+    accept: (x, z) => (Math.hypot(x, z - 8.4) < 1.6 ? 0 : nearSpot(x, z) < 0.5 ? 0.25 : z > -6 ? 1 : 0.4),
+    scaleAt: (x, z) => (nearSpot(x, z) < 0.9 ? 0.6 : z > 6 ? 0.8 : 1),
   });
   scene.add(track(grass));
   const flowers = K.buildFlowers({
-    count: 220, colors: [0xfff4f8, 0xffd94f, 0xff9fb0, 0xc9b0ff, 0xffffff], seed: 5, r0: 0.5, r1: 16, heightAt,
-    accept: (x, z) => (z > -10 ? 1 : 0),
+    count: 240, colors: [0xfff4f8, 0xffd94f, 0xff9fb0, 0xc9b0ff, 0xffffff], seed: 5, r0: 0.5, r1: 16, heightAt,
+    accept: (x, z) => (Math.hypot(x, z - 8.4) < 1.8 || nearSpot(x, z) < 0.6 ? 0 : z > -8 ? 1 : 0),
   });
   scene.add(track(flowers));
 
-  // soft framing trees (left, near) + a stand on the ridge (right, far)
-  const treeGeo = K.softTreeGeometry({ seed: 3, h: 4.6, crown: 2.4, lobes: 7, leafLo: 0x2d4a2a, leafHi: 0xc8b85a, trunk: 0x4a3424, trunkTop: 0x7a5a3c });
+  // soft trees framing the valley on both sides (midground, never a dark lump)
+  const treeGeo = K.softTreeGeometry({ seed: 3, h: 4.6, crown: 2.3, lobes: 7, leafLo: 0x35502e, leafHi: 0xd0c070, trunk: 0x4a3424, trunkTop: 0x7a5a3c });
   const treeMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 });
   try { MAT.windSway(treeMat, { strength: 0.22, speed: 0.9, heightScale: 8 }); } catch (e) { /* static */ }
-  MAT.applyLook?.(treeMat, { rim: 0.8 });
-  const trees = new THREE.InstancedMesh(treeGeo, treeMat, 4);
+  MAT.applyLook?.(treeMat, { rim: 1 });
+  const TREES = [[-9.5, -3.5, 1.25, 0.4], [-12.5, -9, 1.05, 2.3], [10.5, -6, 1.3, 1.9], [14, -12, 1.0, 3.1], [-20, -24, 1.2, 1.2], [22, -28, 1.1, 0.8]];
+  const trees = new THREE.InstancedMesh(treeGeo, treeMat, TREES.length);
   const tm = new THREE.Matrix4(), tq = new THREE.Quaternion(), ts = new THREE.Vector3(), tp = new THREE.Vector3(), te = new THREE.Euler();
-  [[-6.8, -1.5, 1.35, 0.4], [9.5, -14, 1.1, 1.9], [13.5, -18, 0.9, 3.1], [-15, -22, 1.2, 2.2]].forEach(([x, z, s, ry], i) => {
-    tm.compose(tp.set(x, heightAt(x, z) - 0.1, z), tq.setFromEuler(te.set(0, ry, 0)), ts.set(s, s, s));
+  TREES.forEach(([x, z, sc, ry], i) => {
+    tm.compose(tp.set(x, heightAt(x, z) - 0.1, z), tq.setFromEuler(te.set(0, ry, 0)), ts.set(sc, sc, sc));
     trees.setMatrixAt(i, tm);
   });
   trees.castShadow = true; trees.receiveShadow = true;
@@ -174,8 +183,8 @@ async function buildScene(game) {
     tlItems.push({ x, y: heightAt(x, z) + s * 0.8, z, sx: s, sy: s * 1.2, sz: s, ry: tlRng() * TAU });
   }
   scene.add(track(K.buildBlobField(tlItems, { lo: 0x2c3a38, hi: 0x6a7a52, detail: 1, seed: 6 })));
-  scene.add(track(K.buildRidges({ r: 150, hMin: 6, hMax: 24, base: -8, cLo: 0x7a5a78, cHi: 0x9a6a84, seed: 7, freq: 6 })));
-  scene.add(track(K.buildRidges({ r: 240, hMin: 18, hMax: 58, base: -10, cLo: 0x8a6a8e, cHi: 0xa8809a, seed: 15, freq: 8, sharp: 0.7 })));
+  scene.add(track(K.buildRidges({ r: 150, hMin: 4, hMax: 18, base: -8, cLo: 0x5f5a88, cHi: 0x76689a, seed: 7, freq: 6 })));
+  scene.add(track(K.buildRidges({ r: 250, hMin: 14, hMax: 44, base: -10, cLo: 0x7a6aa0, cHi: 0x8e78ac, seed: 15, freq: 8, sharp: 0.7 })));
 
   // a lumen shard glowing on the far hill — the world's dreaming light
   const glowTex = K.glowTexture();
@@ -211,8 +220,8 @@ async function buildScene(game) {
 
   // ---- camera: low on the hill, looking out over the valley
   const camera = new THREE.PerspectiveCamera(36, 16 / 9, 0.1, 900);
-  const camBase = new THREE.Vector3(0, 1.05, 8.4);
-  const camLook = new THREE.Vector3(0, 1.75, -12);
+  const camBase = new THREE.Vector3(0, PLATEAU + 1.0, 8.4);
+  const camLook = new THREE.Vector3(0, PLATEAU + 1.0 + Math.tan(0.018) * 20, -11.6);
 
   // ---- the starter trio, just below the menu, each with its own motes
   const particles = new Particles(scene, { capacity: 900 });
@@ -221,7 +230,6 @@ async function buildScene(game) {
     nixling: { color: 0x7fc8ff, color2: 0xe0f4ff, vel: { x: 0, y: 0.32, z: 0 }, size: 0.05, flicker: false },
     thistlit: { color: 0xa8e07a, color2: 0xfff6b0, vel: { x: 0.08, y: 0.18, z: 0 }, size: 0.05, flicker: true },
   };
-  const SPOTS = { kindlet: [-1.55, 3.55, 0.55], nixling: [0.05, 4.7, -0.05], thistlit: [1.6, 3.45, -0.55] };
   const starterRigs = [];
   try {
     const { buildCreature } = await import('../creatures/registry.js');
@@ -235,7 +243,7 @@ async function buildScene(game) {
       animator.play?.('idle');
       scene.add(group);
       const a = AURA[id];
-      const h = particles.ambient({ center: { x, y: 0, z }, radius: 0.55, y0: 0.15, y1: 0.8, rate: 5, color: a.color, color2: a.color2, size: a.size, life: 1.8, vel: a.vel, sway: 0.5, flicker: a.flicker });
+      const h = particles.ambient({ center: { x, y: 0, z }, radius: 0.55, y0: PLATEAU + 0.1, y1: PLATEAU + 0.85, rate: 5, color: a.color, color2: a.color2, size: a.size, life: 1.8, vel: a.vel, sway: 0.5, flicker: a.flicker });
       starterRigs.push({ group, animator, h });
     }
   } catch (e) {
@@ -256,8 +264,8 @@ async function buildScene(game) {
     time += dt;
     try { MAT.tickWind?.(dt); } catch (e) { /* static */ }
     // slow breathing drift: the view floats a hand's width side to side
-    camera.position.set(camBase.x + Math.sin(time * 0.11) * 0.35, camBase.y + Math.sin(time * 0.17) * 0.06, camBase.z + Math.sin(time * 0.07) * 0.2);
-    camera.lookAt(camLook.x + Math.sin(time * 0.09) * 0.4, camLook.y, camLook.z);
+    camera.position.set(camBase.x + Math.sin(time * 0.11) * 0.18, camBase.y + Math.sin(time * 0.17) * 0.04, camBase.z + Math.sin(time * 0.07) * 0.12);
+    camera.lookAt(camLook.x + Math.sin(time * 0.09) * 0.25, camLook.y, camLook.z);
     for (const c of clouds) c.s.position.x = c.x0 + Math.sin(time * 0.01 * c.speed) * 30 + time * c.speed * 0.4;
     stars.material.uniforms.uTime.value = time;
     shardGlow.material.opacity = 0.7 + Math.sin(time * 1.3) * 0.12;
@@ -464,7 +472,12 @@ export function showTitle(game) {
     (async () => {
       let handle;
       try { handle = await buildScene(game); }
-      catch (e) { console.error('[titleUI] title scene failed to build', e); return; }
+      catch (e) {
+        // The menu is DOM and keeps working; only the backdrop is lost.
+        console.error('[titleUI] title scene failed to build', e);
+        if (!torndown) game.mode = 'title';
+        return;
+      }
       if (torndown) { handle.dispose(); return; }
       sceneHandle = handle;
       game.mode = 'title';

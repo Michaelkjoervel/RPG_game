@@ -108,11 +108,15 @@ const ATMO_SHADER = {
   `,
 };
 
-function screenSize() {
+function screenSize(renderer) {
   const hasDOM = typeof window !== 'undefined';
   const w = hasDOM ? window.innerWidth : 1280;
   const h = hasDOM ? window.innerHeight : 720;
-  const pr = Math.min((hasDOM ? window.devicePixelRatio : 1) || 1, settings.quality === 'low' ? 1 : 2);
+  // The renderer's pixel ratio is the source of truth (game.js caps it per
+  // quality tier); the composer must match it or it renders more pixels than
+  // the canvas shows.
+  const rp = renderer?.getPixelRatio?.();
+  const pr = rp > 0 ? rp : Math.min((hasDOM ? window.devicePixelRatio : 1) || 1, settings.quality === 'low' ? 1 : 2);
   return { w, h, pr };
 }
 
@@ -132,15 +136,21 @@ export function applyAtmosphere(renderer, scene, camera) {
     if (!composer) return;
     const tier = settings.quality;
     if (bloomPass) bloomPass.enabled = tier === 'high';
-    // MSAA on the scene target; a changed sample count needs a re-allocation.
+    // MSAA only where the SCENE is drawn: RenderPass draws into the composer's
+    // readBuffer, and with an even number of swapping passes per frame the two
+    // buffers return to the same roles every frame — so the other buffer only
+    // ever receives fullscreen quads and would pay a useless multisample
+    // resolve. (Odd parity: both need it.) A changed count needs a re-alloc.
     const samples = MSAA_SAMPLES[tier] ?? 0;
+    const swaps = composer.passes.filter((p) => p.enabled && p.needsSwap).length;
     for (const rt of [composer.renderTarget1, composer.renderTarget2]) {
-      if (rt && rt.samples !== samples) { rt.samples = samples; rt.dispose(); }
+      const want = (swaps % 2 === 1 || rt === composer.readBuffer) ? samples : 0;
+      if (rt && rt.samples !== want) { rt.samples = want; rt.dispose(); }
     }
   }
 
   function resize() {
-    const { w, h, pr } = screenSize();
+    const { w, h, pr } = screenSize(renderer);
     curPr = pr;
     composer.setPixelRatio(pr);
     composer.setSize(w, h);
@@ -151,7 +161,7 @@ export function applyAtmosphere(renderer, scene, camera) {
     try {
       await loadAddons();
       if (!EffectComposer) { broken = true; return; }
-      const { w, h, pr } = screenSize();
+      const { w, h, pr } = screenSize(renderer);
       const target = new THREE.WebGLRenderTarget(w * pr, h * pr, {
         type: THREE.HalfFloatType, samples: MSAA_SAMPLES[settings.quality] ?? 0,
       });

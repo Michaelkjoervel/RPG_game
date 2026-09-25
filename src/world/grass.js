@@ -117,7 +117,7 @@ uniform vec3 uGFernCol;
 varying vec3 vBladeCol;
 varying float vBladeT;
 varying vec3 vBladeW;
-varying vec3 vBladeFern; // x: across-blade side, y: fern frond flag, z: bloom
+varying vec3 vBladeInfo; // x: across-blade side, y: fern frond flag, z: bloom
 `;
 const VERT_BODY = /* glsl */ `
   float bT = position.y;
@@ -172,13 +172,13 @@ const VERT_BODY = /* glsl */ `
   vBladeCol = mix(vBladeCol, bFc, bBloom * smoothstep(0.58, 0.8, bT) * (1.0 - bFern));
   vBladeCol = mix(vBladeCol, mix(bGround, uGFernCol * (0.85 + bRnd * 0.3), smoothstep(0.0, 0.6, bT)), bFern);
   vBladeT = bT;
-  vBladeFern = vec3(bSide, bFern, bBloom);
+  vBladeInfo = vec3(bSide, bFern, bBloom);
 `;
 const FRAG_PARS = /* glsl */ `
 varying vec3 vBladeCol;
 varying float vBladeT;
 varying vec3 vBladeW;
-varying vec3 vBladeFern;
+varying vec3 vBladeInfo;
 uniform vec3 uGGlow;
 uniform vec3 uGSunDir;
 uniform vec3 uGSunCol;
@@ -228,9 +228,9 @@ export function createGrass(zone, world) {
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>\n${FRAG_PARS}`)
       .replace('#include <color_fragment>', `diffuseColor.rgb = vBladeCol;
-  if (vBladeFern.y > 0.5) { // leaflet stripes + darker mid-rib on fern fronds
-    float bLeaf = abs(fract(vBladeT * 7.0 - abs(vBladeFern.x) * 0.85) - 0.5);
-    diffuseColor.rgb *= (1.0 - 0.28 * smoothstep(0.32, 0.5, bLeaf)) * (1.0 - 0.18 * (1.0 - smoothstep(0.0, 0.18, abs(vBladeFern.x))));
+  if (vBladeInfo.y > 0.5) { // leaflet stripes + darker mid-rib on fern fronds
+    float bLeaf = abs(fract(vBladeT * 7.0 - abs(vBladeInfo.x) * 0.85) - 0.5);
+    diffuseColor.rgb *= (1.0 - 0.28 * smoothstep(0.32, 0.5, bLeaf)) * (1.0 - 0.18 * (1.0 - smoothstep(0.0, 0.18, abs(vBladeInfo.x))));
   }`)
       .replace('#include <normal_fragment_begin>', `#include <normal_fragment_begin>
 #ifdef DOUBLE_SIDED
@@ -238,7 +238,7 @@ export function createGrass(zone, world) {
   nonPerturbedNormal = normal;
 #endif`)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
-  totalEmissiveRadiance += uGGlow * smoothstep(0.55, 1.0, vBladeT) * (1.0 - vBladeFern.y) * (1.0 - vBladeFern.z);
+  totalEmissiveRadiance += uGGlow * smoothstep(0.55, 1.0, vBladeT) * (1.0 - vBladeInfo.y) * (1.0 - vBladeInfo.z);
   {
     // backlit translucency: blades glow warm when you look toward the sun
     float bBack = pow(max(dot(normalize(vBladeW - cameraPosition), uGSunDir), 0.0), 4.0);
@@ -440,7 +440,7 @@ export function createGrass(zone, world) {
       shapeArr[o + 3] = ny;
       n++;
     }
-    for (let k = n; k < perChunk; k++) shapeArr[(base + k) * 4] = 0; // hide unused tail
+    for (let k = n; k < perChunk; k++) { shapeArr[(base + k) * 4] = 0; shapeArr[(base + k) * 4 + 1] = 0; } // hide unused tail
     slotFill[slot] = n;
     aRoot.addUpdateRange(base * 4, perChunk * 4);
     aShape.addUpdateRange(base * 4, perChunk * 4);
