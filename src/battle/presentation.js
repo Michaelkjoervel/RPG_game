@@ -536,6 +536,11 @@ export async function createPresentation(game, config = {}) {
 
   async function onStatusApplied(ev) {
     const pos = focusOf(ev.side);
+    if (!ev.status) { // a status wore off / was cured: a soft cleansing sparkle, no label
+      vfx.healFx(particles, { at: pos });
+      await delay(0.2);
+      return;
+    }
     vfx.statusBurst(particles, ev.status, pos, false);
     popDamage(pos, STATUS_LABEL[ev.status] ?? ev.status, 'status');
     bus.emit('ui:sfx', { name: 'debuff' });
@@ -720,7 +725,10 @@ export async function createPresentation(game, config = {}) {
         case 'intro': await onIntro(); break;
         case 'send': await onSend(ev); break;
         case 'recall': await onRecall(ev); break;
-        case 'turnStart': releaseMelee(); camDir.shot('rest', { ms: 260, variant: ev.n }); break;
+        // Hard cut to the solved two-shot: the command menu opens on this
+        // frame, and it must always show BOTH Kindred — never a half-finished
+        // glide out of the last impact close-up.
+        case 'turnStart': releaseMelee(); camDir.shot('rest', { ms: 0, variant: ev.n, cut: true }); break;
         case 'moveUsed': await onMoveUsed(ev); break;
         case 'hit': await onHit(ev); break;
         case 'miss': await onMiss(); break;

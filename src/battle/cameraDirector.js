@@ -202,10 +202,12 @@ export function createCameraDirector({ getFocus } = {}) {
     overShoulderP() { const v = restFraming(0); setDesired(v.pos, v.look, v.fov, { lambdaPos: 4.2, lambdaLook: 5 }); },
     overShoulderE() { threeQuarter('p', { dist: 1.25, heightK: 0.8, lateral: 0.5, fov: 30, lambda: 4.5 }); },
     // Idle/rest framing cycles three solved two-shots by turn index.
+    // While the player chooses, the view breathes: a slow push-in (~4%).
     rest(opts = {}) {
       const variant = Math.abs((opts.variant ?? restCounter++) | 0) % 3;
       const v = restFraming(variant);
       setDesired(v.pos, v.look, v.fov, { lambdaPos: 3.3, lambdaLook: 3.6 });
+      dolly = { from: v.pos.clone(), to: v.pos.clone().lerp(v.look, 0.04), t: 0, dur: 8 };
     },
     // Impact framing on `side` (the one being hit): 3/4 front from the
     // camera's side of the line, so the reaction reads on its face.

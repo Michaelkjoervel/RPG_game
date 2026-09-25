@@ -43,28 +43,28 @@ const STARTER_FX = {
 // cap and an emissive rune ring in the starter's aspect color.
 function buildPlinth(MAT, fx, seed) {
   const g = new THREE.Group();
-  const stoneGeo = new THREE.CylinderGeometry(0.66, 0.78, 0.36, 28, 3).toNonIndexed();
+  const stoneGeo = new THREE.CylinderGeometry(0.5, 0.6, 0.28, 28, 3).toNonIndexed();
   stoneGeo.deleteAttribute('uv');
   MAT.jitterGeometry(stoneGeo, 0.035, seed);
   MAT.smoothGeometry(stoneGeo, { creaseAngle: 0.95 });
-  stoneGeo.translate(0, 0.18, 0);
+  stoneGeo.translate(0, 0.14, 0);
   const stoneMat = new THREE.MeshStandardMaterial({ color: 0x9a948a, roughness: 0.92 });
   MAT.applyLook?.(stoneMat, { rim: 0.6 });
   const stone = new THREE.Mesh(stoneGeo, stoneMat);
-  const mossGeo = new THREE.CylinderGeometry(0.6, 0.64, 0.05, 28, 1).toNonIndexed();
+  const mossGeo = new THREE.CylinderGeometry(0.45, 0.49, 0.05, 28, 1).toNonIndexed();
   mossGeo.deleteAttribute('uv');
   MAT.jitterGeometry(mossGeo, 0.02, seed + 3);
   MAT.smoothGeometry(mossGeo);
-  mossGeo.translate(0, 0.375, 0);
+  mossGeo.translate(0, 0.295, 0);
   const mossMat = new THREE.MeshStandardMaterial({ color: 0x6f9a48, roughness: 0.95 });
   const moss = new THREE.Mesh(mossGeo, mossMat);
   const runeMat = new THREE.MeshStandardMaterial({ color: fx.rune, emissive: fx.rune, emissiveIntensity: 1.2, roughness: 0.4 });
-  const rune = new THREE.Mesh(new THREE.TorusGeometry(0.705, 0.018, 8, 48), runeMat);
+  const rune = new THREE.Mesh(new THREE.TorusGeometry(0.545, 0.014, 8, 48), runeMat);
   rune.rotation.x = Math.PI / 2;
-  rune.position.y = 0.3;
+  rune.position.y = 0.23;
   g.add(stone, moss, rune);
   g.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-  g.userData.topY = 0.4;
+  g.userData.topY = 0.315;
   g.userData.runeMat = runeMat;
   return g;
 }
@@ -98,7 +98,7 @@ async function buildScene(game) {
   const PLINTHS = [[-2.4, 0.15], [0, -0.55], [2.4, 0.15]];
   const nearPlinth = (x, z) => Math.min(...PLINTHS.map(([px, pz]) => Math.hypot(x - px, z - pz)));
   scene.add(track(K.buildGrass({
-    count: 3400, base: 0x4f7a34, tipA: 0xa8cc62, tipB: 0xe0d890, h: 0.38, seed: 12, r0: 0, r1: 14, heightAt,
+    count: 3400, base: 0x4f7a34, tipA: 0xa8cc62, tipB: 0xe0d890, h: 0.3, seed: 12, r0: 0, r1: 14, heightAt,
     accept: (x, z) => (nearPlinth(x, z) < 0.95 ? 0 : 1), scaleAt: (x, z) => (nearPlinth(x, z) < 1.6 ? 0.75 : 1),
   })));
   scene.add(track(K.buildFlowers({
@@ -109,16 +109,23 @@ async function buildScene(game) {
   const treeMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 });
   try { MAT.windSway(treeMat, { strength: 0.2, speed: 0.9, heightScale: 8 }); } catch (e) { /* static */ }
   MAT.applyLook?.(treeMat, { rim: 0.8 });
-  const treeSpots = [[-7.5, -5.5, 1.2], [-4.2, -9.5, 1.05], [5.8, -7.8, 1.25], [9, -3.5, 1.0], [0.8, -13, 1.3], [-11, -1, 1.1], [12, -10, 1.2], [-8, -15, 1.3]];
+  const treeSpots = [[-9, -9.5, 1.15], [-4.5, -14, 1.05], [6.5, -12, 1.2], [11.5, -7, 1.0], [1.2, -17, 1.3], [-13, -4, 1.1], [14, -14, 1.2], [-9, -19, 1.3]];
   const trees = new THREE.InstancedMesh(treeGeo, treeMat, treeSpots.length);
   const m4 = new THREE.Matrix4(), q4 = new THREE.Quaternion(), s3 = new THREE.Vector3(), p3 = new THREE.Vector3(), e3 = new THREE.Euler();
   treeSpots.forEach(([x, z, s], i) => { trees.setMatrixAt(i, m4.compose(p3.set(x, heightAt(x, z) - 0.1, z), q4.setFromEuler(e3.set(0, i * 1.9, 0)), s3.set(s, s, s))); });
   trees.castShadow = true; trees.receiveShadow = true;
   scene.add(track(trees));
   const blobRng = seededRandom(hashStr('starter-treeline'));
-  const tl = [];
-  for (let i = 0; i < 60; i++) { const x = (blobRng() - 0.5) * 70, z = -16 - blobRng() * 22, s = 1.8 + blobRng() * 2.4; tl.push({ x, y: heightAt(x, z) + s * 0.8, z, sx: s, sy: s * 1.25, sz: s, ry: blobRng() * TAU }); }
-  scene.add(track(K.buildBlobField(tl, { lo: 0x3a5048, hi: 0x8a9a6a, detail: 1, seed: 4 })));
+  const tlGeo = K.softTreeGeometry({ seed: 17, detail: 1, lobes: 4, h: 4.6, crown: 2.1, leafLo: 0x3a5048, leafHi: 0x9aa070 });
+  const tlMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 });
+  MAT.applyLook?.(tlMat, { rim: 0.6 });
+  const tlCount = 44;
+  const tlTrees = new THREE.InstancedMesh(tlGeo, tlMat, tlCount);
+  for (let i = 0; i < tlCount; i++) {
+    const x = (blobRng() - 0.5) * 80, z = -20 - blobRng() * 22, sc = 1.0 + blobRng() * 0.8;
+    tlTrees.setMatrixAt(i, m4.compose(p3.set(x, heightAt(x, z) - 0.2, z), q4.setFromEuler(e3.set(0, blobRng() * TAU, 0)), s3.set(sc, sc * (0.9 + blobRng() * 0.3), sc)));
+  }
+  scene.add(track(tlTrees));
   scene.add(track(K.buildRidges({ r: 90, hMin: 5, hMax: 16, base: -6, cLo: 0x9a8098, cHi: 0xb89aa8, seed: 23 })));
 
   // ---- lights: dawn key behind (rim), sky fill, soft front fill
@@ -150,7 +157,7 @@ async function buildScene(game) {
   // owns the left), camera low enough that it looks a little heroic.
   const camFor = (i) => {
     const [px, pz] = PLINTHS[i];
-    return { pos: new THREE.Vector3(px - 1.15, 1.25, pz + 3.3), look: new THREE.Vector3(px - 0.72, 0.78, pz) };
+    return { pos: new THREE.Vector3(px - 1.3, 1.42, pz + 4.1), look: new THREE.Vector3(px - 0.78, 0.66, pz) };
   };
 
   const rigs = [];
@@ -191,7 +198,7 @@ async function buildScene(game) {
     if (game?.renderer) fxPass = applyAtmosphere(game.renderer, scene, camera);
   } catch (e) { fxPass = null; }
 
-  let time = 0, focusIdx = 1;
+  let time = 0, focusIdx = 1, settled = false;
   const camState = { pos: camFor(1).pos.clone().add(new THREE.Vector3(0, 0.4, 1.4)), look: camFor(1).look.clone() };
   function update(dt) {
     time += dt;
@@ -201,13 +208,14 @@ async function buildScene(game) {
       const focused = i === focusIdx;
       const k = Math.min(1, dt * 5);
       r.spot.intensity += ((focused ? 5.5 : 0) - r.spot.intensity) * k;
-      r.runeMat.emissiveIntensity += ((focused ? 2.4 + Math.sin(time * 3) * 0.4 : 0.55) - r.runeMat.emissiveIntensity) * k;
+      r.runeMat.emissiveIntensity += ((focused ? 1.25 + Math.sin(time * 3) * 0.25 : 0.35) - r.runeMat.emissiveIntensity) * k;
       r.aura.rate = focused ? 9 : 1.2;
     });
     const tgt = camFor(focusIdx);
-    const k = Math.min(1, dt * 3.0);
+    const k = 1 - Math.exp(-dt * 4.5); // frame-rate independent glide
     camState.pos.lerp(tgt.pos, k);
     camState.look.lerp(tgt.look, k);
+    settled = camState.pos.distanceTo(tgt.pos) < 0.02 && camState.look.distanceTo(tgt.look) < 0.02;
     camera.position.set(camState.pos.x + Math.sin(time * 0.35) * 0.05, camState.pos.y + Math.sin(time * 0.5) * 0.03, camState.pos.z);
     camera.lookAt(camState.look);
     particles.update(dt);
@@ -217,7 +225,7 @@ async function buildScene(game) {
     try { fxPass?.dispose(); } catch (e) { /* ignore */ }
     particles.dispose();
     for (const d of disposables) { d.userData?.unregisterSway?.(); d.dispose?.(); }
-    trees.dispose?.();
+    trees.dispose?.(); tlTrees.dispose?.();
     for (const r of rigs) {
       r.spot.dispose?.();
       r.rig?.group.traverse((o) => { if (o.isMesh) { o.geometry?.dispose(); (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => m?.dispose()); } });
@@ -227,7 +235,8 @@ async function buildScene(game) {
   return {
     scene, camera, update, dispose,
     render(renderer) { if (fxPass) fxPass.render(); else renderer.render(scene, camera); },
-    setFocus: (i) => { focusIdx = i; },
+    setFocus: (i) => { focusIdx = i; settled = false; },
+    isSettled: () => settled, // QA probe: the focus glide has landed
     playHappy: (i) => {
       rigs[i]?.rig?.animator?.play?.('happy');
       const [px, pz] = PLINTHS[i];

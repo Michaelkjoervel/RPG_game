@@ -26,8 +26,10 @@ export async function run(page, h) {
       window.__arenaPres = pres;
       game.mode = 'battle';
       game.setScene(pres);
-      await pres.handle({ type: 'send', side: 'e', mon: { speciesId: eId } });
-      await pres.handle({ type: 'send', side: 'p', mon: { speciesId: pId } });
+      await Promise.all([
+        pres.handle({ type: 'send', side: 'e', mon: { speciesId: eId } }),
+        pres.handle({ type: 'send', side: 'p', mon: { speciesId: pId } }),
+      ]);
       pres.handle({ type: 'turnStart', n: 0 });
       return 'ok';
     }, { kind, pId, eId, day }).catch((e) => `ERR ${e.message}`);

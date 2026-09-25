@@ -26,7 +26,7 @@ const STARTERS = ['kindlet', 'nixling', 'thistlit'];
 // glowing horizon under a deep indigo sky that keeps the gold logo crisp.
 // Built from the shared stage kit (battle/arenas.js); disposed on teardown.
 // ---------------------------------------------------------------------------
-const SUN_DIR = new THREE.Vector3(-0.72, 0.05, -1).normalize();
+const SUN_DIR = new THREE.Vector3(-0.44, 0.045, -1).normalize();
 const smooth01 = (t) => { const k = Math.min(1, Math.max(0, t)); return k * k * (3 - 2 * k); };
 
 // Soft cumulus puff texture (canvas) for billboard clouds.
@@ -144,6 +144,8 @@ async function buildScene(game) {
   // just under the menu, feet near the bottom edge).
   const SPOTS = { kindlet: [-1.38, 4.2, 0.5], nixling: [0, 4.85, 0], thistlit: [1.38, 4.2, -0.5] };
   const nearSpot = (x, z) => Math.min(...Object.values(SPOTS).map(([sx, sz]) => Math.hypot(x - sx, z - sz)));
+  // the wedge between each Kindred and the lens stays clear of tall stems
+  const inFrontOfTrio = (x, z) => Object.values(SPOTS).some(([sx, sz]) => z > sz - 0.2 && z < 8.4 && Math.abs(x - sx * (8.4 - z) / (8.4 - sz)) < 0.75);
 
   // grass and flowers: short in front of the lens, lush on the hilltop
   const grass = K.buildGrass({
@@ -155,34 +157,37 @@ async function buildScene(game) {
   scene.add(track(grass));
   const flowers = K.buildFlowers({
     count: 240, colors: [0xfff4f8, 0xffd94f, 0xff9fb0, 0xc9b0ff, 0xffffff], seed: 5, r0: 0.5, r1: 16, heightAt,
-    accept: (x, z) => (Math.hypot(x, z - 8.4) < 1.8 || nearSpot(x, z) < 0.6 ? 0 : z > -8 ? 1 : 0),
+    accept: (x, z) => (Math.hypot(x, z - 8.4) < 1.8 || nearSpot(x, z) < 0.6 || inFrontOfTrio(x, z) ? 0 : z > -8 ? 1 : 0),
   });
   scene.add(track(flowers));
 
-  // soft trees framing the valley on both sides (midground, never a dark lump)
-  const treeGeo = K.softTreeGeometry({ seed: 3, h: 4.6, crown: 2.3, lobes: 7, leafLo: 0x35502e, leafHi: 0xd0c070, trunk: 0x4a3424, trunkTop: 0x7a5a3c });
+  // Soft trees stand down in the valley and dot the far slopes as a real
+  // tree line — trunks and canopies, never backlit lumps near the lens.
+  const treeGeo = K.softTreeGeometry({ seed: 3, h: 4.6, crown: 2.3, lobes: 7, leafLo: 0x35502e, leafHi: 0xd8c47a, trunk: 0x4a3424, trunkTop: 0x7a5a3c });
   const treeMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 });
   try { MAT.windSway(treeMat, { strength: 0.22, speed: 0.9, heightScale: 8 }); } catch (e) { /* static */ }
   MAT.applyLook?.(treeMat, { rim: 1 });
-  const TREES = [[-9.5, -3.5, 1.25, 0.4], [-12.5, -9, 1.05, 2.3], [10.5, -6, 1.3, 1.9], [14, -12, 1.0, 3.1], [-20, -24, 1.2, 1.2], [22, -28, 1.1, 0.8]];
-  const trees = new THREE.InstancedMesh(treeGeo, treeMat, TREES.length);
-  const tm = new THREE.Matrix4(), tq = new THREE.Quaternion(), ts = new THREE.Vector3(), tp = new THREE.Vector3(), te = new THREE.Euler();
-  TREES.forEach(([x, z, sc, ry], i) => {
-    tm.compose(tp.set(x, heightAt(x, z) - 0.1, z), tq.setFromEuler(te.set(0, ry, 0)), ts.set(sc, sc, sc));
-    trees.setMatrixAt(i, tm);
-  });
-  trees.castShadow = true; trees.receiveShadow = true;
-  scene.add(track(trees));
-
-  // tree line + two ridges of hazy hills beyond the valley
+  const pineGeo = K.softTreeGeometry({ seed: 9, h: 5.4, crown: 1.5, pine: true, leafLo: 0x243a34, leafHi: 0x6a7a5a, trunk: 0x3a2a22, trunkTop: 0x5a4432 });
+  const pineMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92 });
+  MAT.applyLook?.(pineMat, { rim: 0.8 });
   const tlRng = seededRandom(hashStr('title-treeline'));
-  const tlItems = [];
-  for (let i = 0; i < 90; i++) {
-    const x = (tlRng() - 0.5) * 220, z = -48 - tlRng() * 40;
-    const s = 2.2 + tlRng() * 2.8;
-    tlItems.push({ x, y: heightAt(x, z) + s * 0.8, z, sx: s, sy: s * 1.2, sz: s, ry: tlRng() * TAU });
+  const broad = [[11.5, -19, 0.9, 1.1], [-13.5, -23, 1.0, 2.2], [7.5, -27, 0.85, 0.4]];
+  const pines = [];
+  for (let i = 0; i < 70; i++) {
+    const x = (tlRng() - 0.5) * 240, z = -38 - tlRng() * 55;
+    const sc = 0.75 + tlRng() * 0.6;
+    (tlRng() < 0.55 ? pines : broad).push([x, z, sc, tlRng() * TAU]);
   }
-  scene.add(track(K.buildBlobField(tlItems, { lo: 0x2c3a38, hi: 0x6a7a52, detail: 1, seed: 6 })));
+  const placeTrees = (geo, mat, list) => {
+    const im = new THREE.InstancedMesh(geo, mat, list.length);
+    const tm = new THREE.Matrix4(), tq = new THREE.Quaternion(), ts = new THREE.Vector3(), tp = new THREE.Vector3(), te = new THREE.Euler();
+    list.forEach(([x, z, sc, ry], i) => im.setMatrixAt(i, tm.compose(tp.set(x, heightAt(x, z) - 0.1, z), tq.setFromEuler(te.set(0, ry, 0)), ts.set(sc, sc, sc))));
+    im.castShadow = true; im.receiveShadow = true;
+    scene.add(track(im));
+    return im;
+  };
+  const trees = placeTrees(treeGeo, treeMat, broad);
+  const pineField = placeTrees(pineGeo, pineMat, pines);
   scene.add(track(K.buildRidges({ r: 150, hMin: 4, hMax: 18, base: -8, cLo: 0x5f5a88, cHi: 0x76689a, seed: 7, freq: 6 })));
   scene.add(track(K.buildRidges({ r: 250, hMin: 14, hMax: 44, base: -10, cLo: 0x7a6aa0, cHi: 0x8e78ac, seed: 15, freq: 8, sharp: 0.7 })));
 
@@ -278,7 +283,7 @@ async function buildScene(game) {
     try { fx?.dispose(); } catch (e) { /* ignore */ }
     particles.dispose();
     for (const d of disposables) { d.userData?.unregisterSway?.(); d.dispose?.(); }
-    trees.dispose?.();
+    trees.dispose?.(); pineField.dispose?.();
     for (const s of starterRigs) {
       s.group.traverse((o) => { if (o.isMesh) { o.geometry?.dispose(); (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => m?.dispose()); } });
     }

@@ -154,6 +154,7 @@ export function stageGroundMaterial(o = {}) {
     uStgHill: { value: new THREE.Vector4(...(o.hillR ?? [16, 40, 0.5]), 0) },
     uStgPaveR: { value: new THREE.Vector4(pave?.r ?? 0, pave?.w ?? 1.1, pave?.amt ?? 0, pave?.moss ?? 0) },
     uStgScale: { value: o.scale ?? 1 },
+    uStgDapple: { value: new THREE.Vector3(...(o.dapple ?? [0, 0.2, 8])) },
   };
   m.userData.stageUniforms = U;
   hookShader(m, 'stage-ground-v1', (shader) => {
@@ -167,6 +168,7 @@ varying vec3 vStgW;
 uniform vec3 uStgA, uStgB, uStgC, uStgDirt, uStgFar, uStgHillCol, uStgPave, uStgPave2;
 uniform vec4 uStgMarks, uStgWorn, uStgFarR, uStgHill, uStgPaveR;
 uniform float uStgScale;
+uniform vec3 uStgDapple;
 ${GLSL_NOISE}`)
       .replace('#include <color_fragment>', `#include <color_fragment>
 {
@@ -203,6 +205,12 @@ ${GLSL_NOISE}`)
     stone = mix(stone, uStgC * 0.8, (1.0 - grout) * uStgPaveR.w + smoothstep(0.62, 0.9, n2) * uStgPaveR.w * 0.6);
     float inside = 1.0 - smoothstep(uStgPaveR.x - 0.5, uStgPaveR.x + 0.3 + n2 * 1.2, r);
     col = mix(col, stone, inside * uStgPaveR.z);
+  }
+  if (uStgDapple.x > 0.0) { // canopy shade: dappled leaf light, a sunlit clearing
+    float dap = smoothstep(0.36, 0.64, stgFbm(p * uStgDapple.y + vec2(5.3, 1.1)));
+    float shade = mix(1.0 - uStgDapple.x, 1.0, dap * 0.55);
+    float clearing = 1.0 - smoothstep(uStgDapple.z, uStgDapple.z + 5.0, r + (n2 - 0.5) * 3.0);
+    col *= mix(shade, 0.9 + 0.1 * dap, clearing);
   }
   col = mix(col, uStgFar, smoothstep(uStgFarR.x, uStgFarR.y, r) * uStgFarR.z);
   diffuseColor.rgb *= col;
@@ -261,12 +269,13 @@ function bladeTuftGeometry({ blades = 6, h = 0.42, w = 0.05, spread = 0.13, seed
     const dx = Math.cos(dir), dz = Math.sin(dir);
     const sx = -dz, sz = dx; // blade width axis
     const ww = w * (0.8 + rng() * 0.5);
-    const rows = [0, 0.45, 0.8, 1];
+    // two quads' worth of curve is plenty at this size: base, bend, tip
+    const rows = [0, 0.55, 1];
     for (let k = 0; k < rows.length; k++) {
       const t = rows[k];
       const bend = lean * t * t * hh;
       const cx = bx + dx * bend, cz = bz + dz * bend, cy = hh * t;
-      const half = ww * (1 - t * 0.92) * 0.5;
+      const half = ww * (1 - t * 0.9) * 0.5;
       if (k < rows.length - 1) {
         pos.push(cx - sx * half, cy, cz - sz * half, cx + sx * half, cy, cz + sz * half);
         nrm.push(0, 1, 0, 0, 1, 0);
@@ -277,13 +286,10 @@ function bladeTuftGeometry({ blades = 6, h = 0.42, w = 0.05, spread = 0.13, seed
         col.push(1, 0, 0);
       }
     }
-    // rows 0..2 have 2 verts, row 3 (tip) 1 vert -> 7 verts per blade
-    for (let k = 0; k < 2; k++) {
-      const a0 = v + k * 2, a1 = a0 + 1, b0 = a0 + 2, b1 = a0 + 3;
-      idx.push(a0, a1, b0, a1, b1, b0);
-    }
-    idx.push(v + 4, v + 5, v + 6);
-    v += 7;
+    // rows 0..1 have 2 verts, the tip 1 -> 5 verts, 3 triangles per blade
+    idx.push(v, v + 1, v + 2, v + 1, v + 3, v + 2);
+    idx.push(v + 2, v + 3, v + 4);
+    v += 5;
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
@@ -303,8 +309,13 @@ export function buildGrass(o) {
   const q = stageQuality();
   const count = Math.max(0, Math.round((o.count ?? 3000) * [0.3, 0.6, 1][q]));
   const geo = bladeTuftGeometry({ blades: o.blades ?? 7, h: o.h ?? 0.4, w: o.w ?? 0.075, spread: o.spread ?? 0.16, seed: o.seed ?? 7 });
-  // paint base -> tip ramp into vertex colors (height fraction lives in r)
-  const base = new THREE.Color(o.base ?? 0x3b6a2c), tip = new THREE.Color(0xffffff);
+  // paint base -> tip ramp into vertex colors (height fraction lives in r).
+  // The instance color (the tip tint) MULTIPLIES this ramp, so the root is
+  // stored relative to the average tip — roots land on o.base, not near-black.
+  const tipAvg = new THREE.Color(o.tipA ?? 0xa8d86a).lerp(new THREE.Color(o.tipB ?? 0xd6df86), 0.5);
+  const base = new THREE.Color(o.base ?? 0x3b6a2c);
+  base.setRGB(Math.min(1, Math.max(0.12, base.r / Math.max(0.02, tipAvg.r))), Math.min(1, Math.max(0.12, base.g / Math.max(0.02, tipAvg.g))), Math.min(1, Math.max(0.12, base.b / Math.max(0.02, tipAvg.b))));
+  const tip = new THREE.Color(0xffffff);
   const c = geo.attributes.color;
   for (let i = 0; i < c.count; i++) {
     const t = c.getX(i);
@@ -313,6 +324,27 @@ export function buildGrass(o) {
   }
   const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0, side: THREE.DoubleSide });
   sway(mat, { strength: o.sway ?? 0.2, speed: 1.6, heightScale: (o.h ?? 0.42) * 1.1 });
+  // Camera-aware tufts: blades within a few meters of the lens duck down and
+  // thin out, so no low shot is ever walled off by giant foreground cards.
+  const near = o.near ?? [1.6, 4.2];
+  hookShader(mat, `stage-grass-near-${near[0]}-${near[1]}`, (shader) => {
+    // Blades are double-sided flat strips shaded like the ground (normal up):
+    // three flips the normal on back faces, which lit half the field as if it
+    // faced the soil — near-black blades. Keep the up-normal on both faces.
+    shader.fragmentShader = shader.fragmentShader.replace('#include <normal_fragment_begin>', `#include <normal_fragment_begin>
+  normal = normalize( vNormal );
+  nonPerturbedNormal = normal;`);
+    shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+#ifdef USE_INSTANCING
+  {
+    vec4 stgO = modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+    float stgD = length(stgO.xz - cameraPosition.xz) + max(0.0, cameraPosition.y - stgO.y - 1.4) * 1.5;
+    float stgK = smoothstep(${near[0].toFixed(2)}, ${near[1].toFixed(2)}, stgD);
+    transformed.y *= mix(0.22, 1.0, stgK);
+    transformed.xz *= mix(0.55, 1.0, stgK);
+  }
+#endif`);
+  });
   softLook(mat, { rim: 0.35, wrap: 1 });
   const mesh = new THREE.InstancedMesh(geo, mat, Math.max(1, count));
   mesh.receiveShadow = true;
@@ -457,11 +489,11 @@ function paintByHeight(geo, lo, hi, cLo, cHi, { noise = 0.05, seed = 1, exp = 1 
  */
 export function softTreeGeometry({
   seed = 1, h = 3.4, crown = 1.5, lobes = 6, squash = 0.85,
-  trunk = 0x5f452c, trunkTop = 0x8a6a48, leafLo = 0x2f5e2e, leafHi = 0x9fd46a, pine = false,
+  trunk = 0x5f452c, trunkTop = 0x8a6a48, leafLo = 0x2f5e2e, leafHi = 0x9fd46a, pine = false, detail = 2,
 } = {}) {
   const rng = seededRandom(seed);
   const trunkH = pine ? h * 0.35 : h * 0.55;
-  const tg = new THREE.CylinderGeometry(crown * 0.08, crown * 0.14, trunkH, 9, 5, false).toNonIndexed();
+  const tg = new THREE.CylinderGeometry(crown * 0.08, crown * 0.14, trunkH, detail > 1 ? 9 : 6, detail > 1 ? 5 : 2, false).toNonIndexed();
   tg.translate(0, trunkH / 2, 0);
   const tp = tg.attributes.position;
   for (let i = 0; i < tp.count; i++) { // root flare + gentle lean
@@ -477,7 +509,7 @@ export function softTreeGeometry({
   if (pine) {
     for (let k = 0; k < 4; k++) {
       const rr = crown * (1.05 - k * 0.22);
-      const cone = new THREE.ConeGeometry(rr, crown * 1.1, 10, 3).toNonIndexed();
+      const cone = new THREE.ConeGeometry(rr, crown * 1.1, detail > 1 ? 10 : 7, detail > 1 ? 3 : 1).toNonIndexed();
       cone.deleteAttribute('uv');
       MAT.jitterGeometry(cone, rr * 0.07, seed + k);
       cone.translate(0, cy + k * crown * 0.55, 0);
@@ -487,7 +519,7 @@ export function softTreeGeometry({
     for (let i = 0; i < lobes; i++) {
       const a = (i / lobes) * TAU + rng() * 0.9;
       const rr = crown * (0.52 + rng() * 0.3) * (i === 0 ? 1.25 : 1);
-      const g = new THREE.IcosahedronGeometry(rr, 2);
+      const g = new THREE.IcosahedronGeometry(rr, detail);
       g.deleteAttribute('uv');
       MAT.jitterGeometry(g, rr * 0.12, seed * 13 + i);
       const off = i === 0 ? 0 : crown * 0.62;
@@ -685,8 +717,10 @@ ${GLSL_NOISE}`)
   float foam = smoothstep(0.55, 0.9, stgNoise(p * 2.2 + uWTime * 0.3)) * (1.0 - smoothstep(uWR0, uWR0 + 0.9, r));
   c = mix(c, vec3(1.0), foam * 0.55);
   vec3 vdir = normalize(cameraPosition - vStgW);
-  float fres = pow(1.0 - clamp(vdir.y, 0.0, 1.0), 3.0);
-  c = mix(c, uWSky, fres * 0.7);
+  float fres = pow(1.0 - clamp(vdir.y, 0.0, 1.0), 4.0);
+  c = mix(c, uWSky, fres * 0.42);
+  float glint = smoothstep(0.78, 0.95, stgNoise(p * 1.7 + vec2(uWTime * 0.5, uWTime * 0.3))) * fres;
+  c += vec3(glint * 0.35);
   diffuseColor.rgb *= c;
 }`);
   });
@@ -708,8 +742,8 @@ const RING_TREES = (kind = 'tree_oak', alt = 'tree_birch') => [
   // far side (-z) — backdrop of the wide/side shots
   { kind, at: [3, -16], scale: 1.15 }, { kind: alt, at: [-4, -14.5], scale: 1.0 }, { kind, at: [-11.5, -12.5], scale: 1.1 },
   // behind the player (-x) and near side (+z) — seen in victory / reverse shots
-  { kind, at: [-16, -2], scale: 1.15 }, { kind: alt, at: [-14, 8.5], scale: 1.0 }, { kind, at: [-6, 16.5], scale: 1.1 },
-  { kind, at: [5.5, 17], scale: 1.0 },
+  { kind, at: [-16, -2], scale: 1.15 }, { kind: alt, at: [-15, 10.5], scale: 1.0 }, { kind, at: [-9.5, 20], scale: 1.1 },
+  { kind, at: [8, 20], scale: 1.0 },
 ];
 
 const STAGES = {
@@ -729,15 +763,17 @@ const STAGES = {
       { kind: 'tree_oak', density: 0.05, area: [0, 0, 32] },
       { kind: 'bush', density: 0.07, area: [0, 0, 30] },
     ],
-    treeline: { r0: 58, r1: 92, count: 170, lo: 0x3a6040, hi: 0x6f9460, s: [1.8, 3.2] },
+    treeline: { r0: 52, r1: 92, count: 150, lo: 0x33563a, hi: 0x6f9460, pine: 0.3, s: [1.4, 2.5] },
     ridges: [{ r: 125, hMin: 4, hMax: 15, cLo: 0x8aa894, cHi: 0x9cb8a8, seed: 3 }, { r: 205, hMin: 14, hMax: 42, cLo: 0xa4bccb, cHi: 0xb4c8d6, seed: 9, freq: 7, sharp: 0.5 }],
     ambient: { kind: 'pollen', color: 0xfff6c8, color2: 0xffe9b0 },
     rim: 0xfff0d0,
   },
   forest: {
-    ground: { a: 0x44703a, b: 0x5f8f45, c: 0x8a7a48, dirt: 0x6e5438, far: 0x3c5a3c, hill: 0x3f6a38, worn: [1.5, 1.5, 0.75, 0.06], farR: [22, 60, 0.6] },
+    ground: { a: 0x3a5530, b: 0x4f6e38, c: 0x6e6440, dirt: 0x5a4430, far: 0x33503a, hill: 0x344f2e, worn: [1.5, 1.5, 0.72, 0.06], farR: [22, 60, 0.6], dapple: [0.55, 0.24, 3.5] },
     height: 'forest',
-    grass: { count: 3000, base: 0x2c4a24, tipA: 0x6f9e48, tipB: 0xa9c060, h: 0.38 },
+    fillMul: 0.72,
+    keyMul: 0.68,
+    grass: { count: 3000, base: 0x2e4a26, tipA: 0x6a9446, tipB: 0x9aae58, h: 0.36 },
     flowers: { count: 70, colors: [0xfff4f8, 0xd8c8ff, 0xffe9b0] },
     props: [
       ...RING_TREES('tree_oak', 'tree_pine'),
@@ -751,7 +787,7 @@ const STAGES = {
       { kind: 'tree_oak', density: 0.12, area: [0, 0, 30] }, { kind: 'tree_pine', density: 0.1, area: [0, 0, 30] },
     ],
     canopy: { r0: 12, r1: 30, y: [10.5, 15], count: 70, lo: 0x1f3a22, hi: 0x4f7a3a },
-    treeline: { r0: 30, r1: 48, count: 140, lo: 0x1e3822, hi: 0x44683a },
+    treeline: { r0: 26, r1: 48, count: 150, lo: 0x1c3422, hi: 0x3f6036, pine: 0.6, s: [1.5, 2.6] },
     shafts: { count: 5, color: 0xfff0b8, opacity: 0.2, r: 8 },
     ambient: { kind: 'motes', color: 0xfff0b0, color2: 0xa9e07a },
     rim: 0xf0e0a0,
@@ -771,7 +807,7 @@ const STAGES = {
       { kind: 'flower_patch', density: 0.3, area: [0, -9, 6] },
       { kind: 'tree_oak', density: 0.06, area: [0, 0, 32] },
     ],
-    treeline: { r0: 32, r1: 56, count: 100, lo: 0x1c2a3a, hi: 0x3a5060 },
+    treeline: { r0: 30, r1: 56, count: 100, lo: 0x1c2a3a, hi: 0x3a5060, pine: 0.4 },
     ridges: [{ r: 110, hMin: 6, hMax: 18, cLo: 0x2c2a48, cHi: 0x3c3860, seed: 5 }],
     ambient: { kind: 'fireflies', color: 0xffe9b0, color2: 0xbfe8ff },
     rim: 0xc8b8ff,
@@ -779,7 +815,7 @@ const STAGES = {
   lake: {
     ground: { a: 0x77a85a, b: 0x9cc26a, c: 0xd8c9a0, dirt: 0xcdb892, far: 0xb8b0a0, hill: 0xd8c9a0, worn: [1.6, 1.6, 0.55, 0.06], hillR: [9, 12.5, 0.9] },
     height: 'island',
-    water: { r0: 10.5, y: -0.32, deep: 0x356f8a, shallow: 0x72b8b8 },
+    water: { r0: 10.5, y: -0.32, deep: 0x2a6484, shallow: 0x5fb0b4 },
     grass: { count: 2600, base: 0x3f6a30, tipA: 0x9dcc66, tipB: 0xd4dc8e, h: 0.4, rMax: 10.2 },
     flowers: { count: 90, colors: [0xfff4f8, 0xffc0d0, 0xffe9b0], rMax: 9.5 },
     props: [
@@ -790,7 +826,7 @@ const STAGES = {
       { kind: 'rock', at: [8.5, 4.5], scale: 0.8 }, { kind: 'rock_mossy', at: [-9, 2], scale: 0.8 },
       { kind: 'bush', at: [6.5, -8] }, { kind: 'bush', at: [-6, 7.5] },
     ],
-    treeline: { r0: 70, r1: 95, count: 120, lo: 0x3a5a44, hi: 0x6a8a62 },
+    treeline: { r0: 64, r1: 100, count: 120, lo: 0x3a5a44, hi: 0x6a8a62, pine: 0.25, s: [1.6, 2.6] },
     ridges: [{ r: 120, hMin: 6, hMax: 20, cLo: 0x8a8ca8, cHi: 0xa8a8c0, seed: 7 }, { r: 190, hMin: 20, hMax: 55, cLo: 0xb0acc4, cHi: 0xc4c0d4, seed: 13, snow: 0xeeeaf4 }],
     ambient: { kind: 'motes', color: 0xffffff, color2: 0xffd0e0 },
     rim: 0xffd8c0,
@@ -825,7 +861,7 @@ const STAGES = {
       { kind: 'rock_mossy', at: [9.8, 8.5] }, { kind: 'tree_willow', at: [16, -9], scale: 1.1 }, { kind: 'tree_oak', at: [-15, -10] },
       { kind: 'reeds', density: 0.5, area: [0, 0, 16] }, { kind: 'lilypad', density: 0.2, area: [0, 0, 24] },
     ],
-    treeline: { r0: 40, r1: 64, count: 90, lo: 0x2f4a40, hi: 0x5a7a60 },
+    treeline: { r0: 40, r1: 64, count: 90, lo: 0x2f4a40, hi: 0x5a7a60, pine: 0.3 },
     ridges: [{ r: 115, hMin: 6, hMax: 16, cLo: 0x5f8a86, cHi: 0x7fa49e, seed: 21 }],
     shafts: { count: 3, color: 0xe8fff0, opacity: 0.16, r: 6 },
     ambient: { kind: 'motes', color: 0xe8fff0, color2: 0x9fe0d0 },
@@ -1158,7 +1194,12 @@ export async function buildArena(biomeOrKind, particles, opts = {}) {
       id: `arena_${stageKey}`, biome: zone?.biome ?? kind, size: 90,
       terrain: { seed: 7 + (hashStr(stageKey) % 1000) },
       water: stage.water ? { level: stage.water.y, pos: [0, 0] } : null,
-      paths: [],
+      // the fight lane as a "path": scattered props keep off it and flower
+      // patches gather along its verges
+      paths: [{ from: [-8.5, 0], to: [8.5, 0], width: 3.4 }],
+      // camera corridors (resting over-the-shoulder, intro wide) as keep-outs:
+      // scattered trees and rocks never grow between the lens and the fight
+      npcs: [[-7.5, 3], [-10.5, 6], [-5, 1.8], [-2.5, 9.5], [-3, 14], [1.5, 6]].map((at) => ({ at })),
       props: q === 0 ? stage.props.filter((p) => p.at) : stage.props,
     };
     props = buildProps(pz, heightAt);
@@ -1182,20 +1223,30 @@ export async function buildArena(biomeOrKind, particles, opts = {}) {
 
   // ---- background layers
   if (stage.treeline) {
+    // A real tree line (trunks + canopies, low-detail, two draw calls), hazed
+    // by the fog — distant blobs read as boulders, trees read as a forest.
     const t = stage.treeline, rng = seededRandom(hashStr(stageKey + 'tl'));
-    const items = [];
-    for (let i = 0; i < t.count; i++) {
+    const broadItems = [], pineItems = [];
+    for (let i = 0; i < Math.round(t.count * [0.5, 0.75, 1][q]); i++) {
       const a = rng() * TAU, rr = t.r0 + rng() * (t.r1 - t.r0);
       const x = Math.cos(a) * rr, z = Math.sin(a) * rr;
       if (stage.water && heightAt(x, z) < stage.water.y) continue;
-      const [s0, s1] = t.s ?? [2.4, 5];
-      const s = s0 + rng() * (s1 - s0);
-      items.push({ x, y: heightAt(x, z) + s * 0.85, z, sx: s, sy: s * (1.1 + rng() * 0.5), sz: s, ry: rng() * TAU });
+      const [s0, s1] = t.s ?? [1.4, 2.4];
+      const sc = s0 + rng() * (s1 - s0);
+      (rng() < (t.pine ?? 0.35) ? pineItems : broadItems).push({ x, y: heightAt(x, z) - 0.2, z, s: sc, sy: sc * (0.9 + rng() * 0.3), ry: rng() * TAU });
     }
-    const tl = buildBlobField(items, { lo: t.lo, hi: t.hi, detail: 1, seed: 8 });
-    bag.geos.push(tl.geometry); bag.mats.push(tl.material);
-    tl.name = 'stage-treeline';
-    group.add(tl);
+    const mkLine = (items, opts) => {
+      if (!items.length) return;
+      const geo = softTreeGeometry({ detail: 1, lobes: 4, ...opts });
+      const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 });
+      softLook(mat, { rim: 0.5 });
+      bag.geos.push(geo); bag.mats.push(mat);
+      const im = instanceField(geo, mat, items, { shadow: false });
+      im.name = 'stage-treeline';
+      group.add(im);
+    };
+    mkLine(broadItems, { seed: 21, h: 4.6, crown: 2.2, leafLo: t.lo, leafHi: t.hi, trunk: 0x3e3024, trunkTop: 0x5a4636 });
+    mkLine(pineItems, { seed: 23, h: 5.6, crown: 1.5, pine: true, leafLo: t.lo, leafHi: t.pineHi ?? t.hi, trunk: 0x3a2c22, trunkTop: 0x524030 });
   }
   if (stage.canopy && q > 0) {
     const c = stage.canopy, rng = seededRandom(hashStr(stageKey + 'cn'));
@@ -1244,16 +1295,21 @@ export async function buildArena(biomeOrKind, particles, opts = {}) {
   const dayTime = opts.dayTime ?? G.calendar?.dayTime ?? 0.45;
   let lightMult = 1;
   const baseRim = rim.intensity;
-  const _v = new THREE.Vector3();
+  const _v = new THREE.Vector3(), _rd = new THREE.Vector3(), UPV = new THREE.Vector3(0, 1, 0);
   function update(dt, t, camera) {
     if (rig) {
       try { rig.sky.update(dt, dayTime); } catch (e) { /* sky mid-edit: keep last frame */ }
       if (!stage.indoor) {
         _v.copy(rig.sky.sunDir);
         key.position.copy(_v.multiplyScalar(40));
+        // the sky aims the shared rim light along ITS sun; ours is rotated
+        if (typeof MAT.setLookParams === 'function') {
+          _rd.copy(rig.sky.sunDir).applyAxisAngle(UPV, rig.holder.rotation.y).lerp(UPV, 0.35).normalize();
+          try { MAT.setLookParams({ rimDir: _rd }); } catch (e) { /* optional */ }
+        }
       }
-      key.intensity *= lightMult;
-      if (fill) fill.intensity *= lightMult;
+      key.intensity *= lightMult * (stage.keyMul ?? 1);
+      if (fill) fill.intensity *= lightMult * (stage.fillMul ?? 1);
     }
     rim.intensity = baseRim * lightMult;
     if (props) for (const u of props.updaters) { try { u(dt, t); } catch (e) { /* prop updater */ } }

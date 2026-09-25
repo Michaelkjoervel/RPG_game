@@ -43,12 +43,14 @@ export async function run(page, h) {
     if (await page.evaluate(() => !!document.querySelector('.starter-root'))) break;
     await h.press('Enter'); await h.sleep(700);
   }
-  await h.sleep(3200);                            // scene build + camera settle
+  // the focus glide runs on game time (0.05 s per software frame): wait for it
+  const settle = () => h.waitFor(`window.LF.game.activeScene?.isSettled?.() === true`, 40000, 300);
+  await h.sleep(1500); await settle();
   await h.shot('starter-nixling');
   console.log('STARTER RENDER', await renderInfo(page));
-  await h.press('ArrowLeft'); await h.sleep(1500);
+  await h.press('ArrowLeft'); await h.sleep(600); await settle();
   await h.shot('starter-kindlet');
-  await h.press('ArrowLeft'); await h.sleep(1500);
+  await h.press('ArrowLeft'); await h.sleep(600); await settle();
   await h.shot('starter-thistlit');
   await h.press('Enter'); await h.sleep(420);
   await h.shot('starter-confirm-flash');

@@ -250,9 +250,10 @@ export async function showAwakening({ mon, fromId, toId } = {}) {
   // hint's pulse animation overrides the stylesheet's .hidden opacity, so it
   // is held back with visibility until the reveal.)
   stage.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;border-radius:0;background:none;';
-  caption.style.cssText = 'position:absolute;left:0;right:0;bottom:15vh;margin:0;z-index:3;';
-  hintEl.style.cssText = 'position:absolute;left:0;right:0;bottom:9vh;margin:0;text-align:center;z-index:3;visibility:hidden;';
+  caption.style.cssText = 'position:absolute;left:0;right:0;bottom:7vh;margin:0;z-index:3;';
+  hintEl.style.cssText = 'position:absolute;left:0;right:0;bottom:2.5vh;margin:0;text-align:center;z-index:3;visibility:hidden;';
   eyebrow.style.cssText = 'text-shadow:0 2px 12px rgba(0,0,0,.8);';
+  titleEl.style.margin = '4px auto 0'; // center the capped-width title box
 
   requestAnimationFrame(() => root.classList.add('in'));
 
@@ -276,7 +277,7 @@ export async function showAwakening({ mon, fromId, toId } = {}) {
     };
     window.addEventListener('resize', onResize);
 
-    const cam = { y: 1.0, look: 0.75, dist: 6.2, orbit: 0 };
+    const cam = { y: 1.0, look: 0.55, dist: 6.2, orbit: 0 };
     let activeGroup = null, activeAnimator = null, last = performance.now();
     let pulse = 0, pulseRate = 0;
     const tick = (now) => {
@@ -303,7 +304,7 @@ export async function showAwakening({ mon, fromId, toId } = {}) {
     scene.add(fromGroup);
     activeGroup = fromGroup; activeAnimator = fromBuild.animator;
     try { fromBuild.animator?.play?.('idle'); } catch (e) { /* ignore */ }
-    cam.look = fromInfo.height * 0.5; cam.y = fromInfo.height * 0.55 + 0.35;
+    cam.look = fromInfo.height * 0.36; cam.y = fromInfo.height * 0.5 + 0.3;
     const center = { x: 0, y: fromInfo.height * 0.5, z: 0 };
     await delay(0.5);
 
@@ -366,8 +367,8 @@ export async function showAwakening({ mon, fromId, toId } = {}) {
         const k = Math.min(1, (performance.now() - popStart) / 900);
         const s = Math.max(0.001, easeOutBack(Math.min(1, k * 1.4)));
         toGroup.scale.setScalar(s * toInfo.appliedScale);
-        cam.look = 0.75 * toInfo.height * 0.66 + 0.25 * cam.look;
-        cam.y = toInfo.height * 0.5 + 0.35;
+        cam.look = 0.75 * toInfo.height * 0.4 + 0.25 * cam.look;
+        cam.y = toInfo.height * 0.48 + 0.3;
         cam.dist = 5.0 + easeOutCubic(k) * 0.9;
         S.pillarMat.opacity = 0.75 * (1 - k);
         S.glowLight.intensity = 6 * (1 - k) + 1.2;
