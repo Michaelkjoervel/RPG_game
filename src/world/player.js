@@ -152,7 +152,12 @@ function buildWarden() {
   function buildLeg(sideX) {
     const thigh = new THREE.Group();
     thigh.position.set(sideX, 0, 0);
-    const thighMesh = gmesh(taperCapsule(0.079, 0.061, 0.25), P.pants, { seed: 4 });
+    // thigh + a knee ball centred on the knee pivot: the joint stays closed at
+    // any bend (no gap between trouser and boot top when the shin swings)
+    const thighMesh = mesh(grad(bakeParts([
+      [taperCapsule(0.079, 0.061, 0.25)],
+      [new THREE.SphereGeometry(0.06, 18, 14), { p: [0, -0.21, 0] }],
+    ]), P.pants, { seed: 4 }), mats.cloth);
     thighMesh.position.y = -0.17;
     thigh.add(thighMesh);
     const shin = new THREE.Group();
