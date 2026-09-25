@@ -385,7 +385,11 @@ void main() {
   vec3 p = base + axis * (position.y * uLen) + side * (position.x * aShaft.w);
   vUv = vec2(position.x + 0.5, position.y);
   float d = length(rel);
-  vFade = smoothstep(3.5, 9.0, d) * (1.0 - smoothstep(uTile * 0.32, uTile * 0.5, d));
+  vFade = smoothstep(7.0, 13.0, d) * (1.0 - smoothstep(uTile * 0.32, uTile * 0.5, d));
+  // Light shafts only read against the dark under-canopy; seen against open
+  // sky (above eye level) additive beams turn into searchlights — fade them.
+  vec3 toP = p - cameraPosition;
+  vFade *= 1.0 - smoothstep(-0.02, 0.22, toP.y / max(length(toP), 1e-3));
   vPhase = aShaft.z;
   vec4 mv = viewMatrix * vec4(p, 1.0);
   vDist = -mv.z;
@@ -1004,7 +1008,7 @@ export function createSky(zone, scene) {
         uAmbC: { value: new THREE.Color() },
         uFogC: { value: new THREE.Color() },
         uSnowC: { value: new THREE.Color(0xe8eef8) },
-        uAerial: { value: clamp01(spec.aerial + hazeK * (1 - spec.aerial) * 0.45) },
+        uAerial: { value: clamp01(spec.aerial + hazeK * (1 - spec.aerial) * 0.25) },
         uMist: { value: spec.mist ?? 0.5 },
         uNearFog: { value: li === 0 ? 0.55 : li === 1 ? 0.2 : 0 },
         uHazeUp: { value: li === 0 ? 0.1 : li === 1 ? 0.25 : 0.42 },
@@ -1076,7 +1080,7 @@ export function createSky(zone, scene) {
     geo.setAttribute('aShaft', new THREE.InstancedBufferAttribute(a, 4));
     geo.instanceCount = COUNT;
     shaftU = {
-      uTile: { value: TILE }, uGroundY: { value: 0 }, uLen: { value: 24 },
+      uTile: { value: TILE }, uGroundY: { value: 0 }, uLen: { value: 15 },
       uShaftDir: { value: new THREE.Vector3(0.3, 1, 0.1).normalize() },
       uShaftColor: { value: new THREE.Color(0xe6f0a0) },
       uIntensity: { value: 0 }, uTime: { value: 0 }, uFogD: { value: 0.02 },

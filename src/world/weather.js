@@ -54,7 +54,7 @@ void main() {
   vAlong = position.y;
   vAcross = position.x * 2.0;
   // never a screen-crossing line: drops right at the lens dissolve, far ones thin out
-  vFade = smoothstep(1.2, 4.0, dist) * (1.0 - smoothstep(16.0, 26.0, dist))
+  vFade = smoothstep(2.5, 6.5, dist) * (1.0 - smoothstep(16.0, 26.0, dist))
         * smoothstep(0.0, 0.08, f) * (1.0 - smoothstep(0.9, 1.0, f));
   gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
 }`;

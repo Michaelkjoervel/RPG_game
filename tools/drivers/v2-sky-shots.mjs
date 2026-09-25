@@ -33,7 +33,7 @@ const STOPS = [
   ] },
   { id: 'sr', set: 'B', zone: 'skyreach', t: 0.5, views: [
     ['sr-pass', [0, 4, 104], [0, 10, 30]],
-    ['sr-east', [0, 4, 60], [80, 8, 40]],
+    ['sr-north', [-5, 5, -45], [-5, 14, -125]],
   ] },
   { id: 'sg', set: 'B', zone: 'starfallglade', t: 0.5, views: [
     ['sg-pool', [34, 4, 34], [0, 1, 0]],
