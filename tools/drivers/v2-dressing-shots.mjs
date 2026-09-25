@@ -58,6 +58,14 @@ async function stats(page, tag) {
     r.info.autoReset = false; r.info.reset();
     r.render(w.scene, w.camera);
     const full = { calls: r.info.render.calls, tris: r.info.render.triangles };
+    let noProps = null;
+    if (w.props?.group) { // same frame with the props layer hidden -> the props' own share
+      w.props.group.visible = false; r.info.reset();
+      r.render(w.scene, w.camera);
+      noProps = { calls: r.info.render.calls, tris: r.info.render.triangles };
+      w.props.group.visible = true;
+    }
+    const propsShare = noProps ? { calls: full.calls - noProps.calls, tris: full.tris - noProps.tris } : null;
     r.info.autoReset = true;
     let meshes = 0, inst = 0, tris = 0;
     w.props?.group.traverse((o) => {
@@ -75,7 +83,7 @@ async function stats(page, tag) {
       byKind[k] = (byKind[k] ?? 0) + ((gg.index ? gg.index.count : gg.attributes.position.count) / 3) * (o.isInstancedMesh ? o.count : 1);
     });
     const top = Object.entries(byKind).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, t]) => k + '=' + Math.round(t / 1000) + 'k').join(' ');
-    return JSON.stringify({ full, live: { ...r.info.render }, props: { meshes, inst, tris: Math.round(tris), top }, colliders: w.colliders.length, dressing: w.props?.group.userData.dressing });
+    return JSON.stringify({ full, propsShare, props: { meshes, inst, tris: Math.round(tris), top }, colliders: w.colliders.length, dressing: w.props?.group.userData.dressing });
   })()`);
   console.log(`STATS ${tag} ${s}`);
 }
