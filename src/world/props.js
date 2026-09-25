@@ -19,6 +19,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import * as MATS from '../gfx/materials.js';
 import { mat, windSway, jitterGeometry, smoothGeometry, sphericalNormals } from '../gfx/materials.js';
 import { G } from '../core/state.js';
 import { ZONES } from '../data/worldmap.js';
@@ -146,17 +147,19 @@ export function buildProps(zone, heightAt) {
   // that earlier hook's identity so different shader variants never share.
   function addLift(m, base) {
     const u = { value: base };
-    const prev = m.onBeforeCompile;
-    const prevKey = m.customProgramCacheKey();
-    m.onBeforeCompile = (shader, r) => {
-      prev.call(m, shader, r);
+    const hook = (shader) => {
       shader.uniforms.uLift = u;
       shader.fragmentShader = shader.fragmentShader
         .replace('#include <common>', '#include <common>\nuniform float uLift;')
         .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n\ttotalEmissiveRadiance += diffuseColor.rgb * uLift;');
     };
-    m.customProgramCacheKey = () => `lf-lift|${prevKey}`;
-    m.needsUpdate = true;
+    if (typeof MATS.chainShaderHook === 'function') MATS.chainShaderHook(m, 'dress-lift', hook);
+    else { // fallback: manual chain with a key that folds in the previous hook's identity
+      const prev = m.onBeforeCompile, prevKey = m.customProgramCacheKey();
+      m.onBeforeCompile = function (shader, r) { prev.call(this, shader, r); hook(shader); };
+      m.customProgramCacheKey = () => `lf-lift|${prevKey}`;
+      m.needsUpdate = true;
+    }
     liftSets.push({ u, base });
   }
 
@@ -176,6 +179,7 @@ export function buildProps(zone, heightAt) {
       emissive: opts.emissive ?? 0x000000,
       emissiveIntensity: opts.emissiveIntensity ?? 1,
       depthWrite: opts.depthWrite ?? true,
+      rim: opts.rim ?? 0.4, wrap: opts.wrap ?? 1,
     });
     if (opts.sway) {
       try { disposables.push({ fn: windSway(m, { strength: opts.sway }) }); } // fn = sway unregister
@@ -211,8 +215,8 @@ export function buildProps(zone, heightAt) {
   // Vertex-colored variants — merged prop geometries bake their palette +
   // gradients into geometry colors; instance color then only carries a subtle
   // per-instance brightness / warm-cool jitter (part.vjit).
-  const FOLIAGE_V  = std('foliage_v', { sway: 0.55, rough: 0.95, vcolor: true, lift: 0.13 });
-  const FOLIAGE2_V = std('foliage2_v', { sway: 0.28, rough: 0.95, vcolor: true, lift: 0.13 });
+  const FOLIAGE_V  = std('foliage_v', { sway: 0.55, rough: 0.95, vcolor: true, lift: 0.15, rim: 0.28 });
+  const FOLIAGE2_V = std('foliage2_v', { sway: 0.28, rough: 0.95, vcolor: true, lift: 0.15, rim: 0.28 });
   const SOLID_V    = std('solid_v', { vcolor: true, lift: 0.07 });
   const FROND_V    = std('frond_v', { sway: 0.8, side: THREE.DoubleSide, rough: 0.95, vcolor: true, lift: 0.16 });
   const CLOTH_V    = std('cloth_v', { sway: 0.25, side: THREE.DoubleSide, rough: 0.95, vcolor: true, lift: 0.12 });
@@ -412,10 +416,10 @@ export function buildProps(zone, heightAt) {
   // Unit petal disc: P rounded petals (4 ring points each), cupped upward,
   // top + underside faces (non-indexed, uv-compatible with the primitives).
   const petalDiscG = (P) => geo(`petal${P}`, () => {
-    const M = P * 4, prof = [0.36, 0.86, 1.0, 0.86];
+    const M = P * 3, prof = [0.34, 0.92, 0.92];
     const ring = [];
     for (let i = 0; i < M; i++) {
-      const a = (i / M) * TAU, r = prof[i % 4];
+      const a = ((i + 0.5) / M) * TAU, r = prof[i % 3];
       ring.push([Math.cos(a) * r, 0.28 * r * r, Math.sin(a) * r]);
     }
     const pos = [];
@@ -446,7 +450,7 @@ export function buildProps(zone, heightAt) {
   // Unit tulip bud: closed lathe cup with a scalloped shoulder.
   const tulipG = () => geo('tulip', () => {
     const pts = [[0.001, 0], [0.55, 0.12], [0.82, 0.42], [0.8, 0.8], [0.52, 1.0], [0.001, 0.9]].map(([x, y]) => new THREE.Vector2(x, y));
-    const g = new THREE.LatheGeometry(pts, 10);
+    const g = new THREE.LatheGeometry(pts, 8);
     const p = g.attributes.position;
     for (let i = 0; i < p.count; i++) {
       const y = p.getY(i);
@@ -651,13 +655,13 @@ export function buildProps(zone, heightAt) {
       ramp(bx, WOOD_D, WOOD, y + by - 0.1, y + by + 0.1, { noise: 0.03, seed: seed + 5, lift: 0.3 });
       out.push(bx);
       const r3 = seededRandom(seed * 7 + 11);
-      const n = 7;
+      const n = 6;
       for (let i = 0; i < n; i++) { // leafy cushion + blooms spilling over the box
         const lx = (i / (n - 1) - 0.5) * (w + 0.1);
-        const leaf = onWall(sphereG(1, 7, 5), x, y, z, ry, lx, by + 0.12, 0.14 + (r3() - 0.5) * 0.06, { s: [0.09, 0.07, 0.08] });
+        const leaf = onWall(sphereG(1, 6, 4), x, y, z, ry, lx, by + 0.12, 0.14 + (r3() - 0.5) * 0.06, { s: [0.09, 0.07, 0.08] });
         tintG(leaf, lerpColorHex(0x4c8c40, 0x6aa850, r3()), 0.02, seed + i, 0.15);
         out.push(leaf);
-        const bl = onWall(sphereG(1, 7, 5), x, y, z, ry, lx + (r3() - 0.5) * 0.06, by + 0.17 + r3() * 0.04, 0.16 + (r3() - 0.5) * 0.08, { s: 0.052 });
+        const bl = onWall(sphereG(1, 5, 4), x, y, z, ry, lx + (r3() - 0.5) * 0.06, by + 0.17 + r3() * 0.04, 0.16 + (r3() - 0.5) * 0.08, { s: 0.052 });
         tintG(bl, bloom[i % bloom.length], 0.02, seed + i + 9, 0.1);
         out.push(bl);
       }
@@ -829,7 +833,7 @@ export function buildProps(zone, heightAt) {
       t += dt;
       const day = daylight(G.calendar?.dayTime ?? 0.5);
       m.uniforms.uColor.value.setRGB(0.36 + 0.57 * day, 0.37 + 0.55 * day, 0.42 + 0.47 * day);
-      m.uniforms.uAlpha.value = 0.2 + 0.16 * day;
+      m.uniforms.uAlpha.value = 0.18 + 0.12 * day;
       for (let c = 0; c < src.length; c++) {
         const s0 = src[c];
         for (let k = 0; k < PER; k++) {
@@ -839,7 +843,7 @@ export function buildProps(zone, heightAt) {
           lifeA[i] = l;
           const sway = Math.sin(t * 0.7 + seedA[i] * 6.0) * 0.25;
           posA[i * 3] = s0.x + (0.9 * l * l + sway * l) * s0.s;
-          posA[i * 3 + 1] = s0.y + l * 3.2 * s0.s;
+          posA[i * 3 + 1] = s0.y + l * 2.6 * s0.s;
           posA[i * 3 + 2] = s0.z + (0.35 * l + Math.cos(t * 0.5 + seedA[i] * 4.0) * 0.12 * l) * s0.s;
         }
       }
@@ -1189,7 +1193,7 @@ export function buildProps(zone, heightAt) {
       },
     },
     mushroom_cluster: {
-      variants: 3, collider: 0, noPathAvoid: true,
+      variants: 3, noShadow: true, collider: 0, noPathAvoid: true,
       make: (rng) => {
         const vs = Math.floor(rng() * 1e6);
         const g = merged(`mushCM${vs}`, () => {
@@ -1268,7 +1272,7 @@ export function buildProps(zone, heightAt) {
       },
     },
     flower_patch: {
-      variants: 4, collider: 0, noPathAvoid: true, pathRing: true,
+      variants: 4, noShadow: true, collider: 0, noPathAvoid: true, pathRing: true,
       make: (rng) => {
         const vs = Math.floor(rng() * 1e6);
         const g = merged(`flowM${vs}`, () => {
@@ -1288,12 +1292,12 @@ export function buildProps(zone, heightAt) {
             const tilt = (r2() - 0.5) * 0.35;
             const h = (0.24 + r2() * 0.14) * s;
             const hx = x + tilt * 0.5 * h, hz = z + tilt * 0.5 * h;
-            const stem = piece(cylG(0.011, 0.016, 1, 5), { t: [x + tilt * 0.25 * h, h / 2, z + tilt * 0.25 * h], s: [1, h, 1], r: [tilt, 0, tilt] });
+            const stem = piece(cylG(0.011, 0.016, 1, 4), { t: [x + tilt * 0.25 * h, h / 2, z + tilt * 0.25 * h], s: [1, h, 1], r: [tilt, 0, tilt], sh: 'smooth' });
             ramp(stem, 0x3f7a38, 0x74b85c, 0, h, { seed: vs + i, lift: 0.1 });
             pieces.push(stem);
-            for (let l = 0; l < 2; l++) { // two soft leaves at the foot
+            for (let l = 0; l < 1; l++) { // a soft leaf at the foot
               const la = r2() * TAU;
-              const leaf = piece(sphereG(1, 6, 4), {
+              const leaf = piece(sphereG(1, 5, 3), {
                 t: [x + Math.cos(la) * 0.05, 0.035, z + Math.sin(la) * 0.05],
                 s: [0.075 * s, 0.014, 0.028 * s], r: [0, -la, 0.35], sh: 'smooth',
               });
@@ -1308,7 +1312,7 @@ export function buildProps(zone, heightAt) {
               const head = piece(disc, { t: [hx, h, hz], s: [0.085 * s, 0.085 * s, 0.085 * s], r: [tilt * 1.4, r2() * TAU, tilt * 1.4], sh: 'smooth' });
               ramp(head, lerpColorHex(cHex, 0x8a5a60, 0.22), cHex, h - 0.01, h + 0.02, { noise: 0.02, seed: vs + i, lift: 0 });
               pieces.push(head);
-              const eye = piece(sphereG(1, 6, 4), { t: [hx, h + 0.012 * s, hz], s: [0.026 * s, 0.018 * s, 0.026 * s], sh: 'smooth' });
+              const eye = piece(sphereG(1, 5, 3), { t: [hx, h + 0.012 * s, hz], s: [0.026 * s, 0.018 * s, 0.026 * s], sh: 'smooth' });
               tintG(eye, r2() > 0.5 ? 0xffc83a : 0xf29a3a, 0.02, vs + i, 0);
               pieces.push(eye);
             } else if (kind < 0.85) {
@@ -1319,7 +1323,7 @@ export function buildProps(zone, heightAt) {
             } else {
               // lavender-ish spike: three stacked soft beads
               for (let b = 0; b < 3; b++) {
-                const bead = piece(sphereG(1, 6, 4), {
+                const bead = piece(sphereG(1, 5, 3), {
                   t: [hx, h + b * 0.035 * s, hz], s: [(0.03 - b * 0.006) * s, 0.026 * s, (0.03 - b * 0.006) * s], sh: 'smooth',
                 });
                 tintG(bead, lerpColorHex(cHex, 0x9a78e0, 0.5), 0.03, vs + i + b, 0);
@@ -1333,7 +1337,7 @@ export function buildProps(zone, heightAt) {
       },
     },
     fern: {
-      variants: 3, collider: 0, noPathAvoid: true, cluster: true,
+      variants: 3, noShadow: true, collider: 0, noPathAvoid: true, cluster: true,
       make: (rng) => {
         const vs = Math.floor(rng() * 1e6);
         const g = merged(`fernM${vs}`, () => {
@@ -1358,7 +1362,7 @@ export function buildProps(zone, heightAt) {
       },
     },
     glowfern: {
-      variants: 2, collider: 0, noPathAvoid: true, cluster: true,
+      variants: 2, noShadow: true, collider: 0, noPathAvoid: true, cluster: true,
       make: (rng) => {
         const parts = [];
         for (let i = 0; i < 6; i++) {
@@ -1370,7 +1374,7 @@ export function buildProps(zone, heightAt) {
       },
     },
     grass_tuft: {
-      variants: 4, collider: 0, noPathAvoid: true, pathRing: true,
+      variants: 4, noShadow: true, collider: 0, noPathAvoid: true, pathRing: true,
       make: (rng) => {
         const vs = Math.floor(rng() * 1e6);
         const g = merged(`grassM${vs}`, () => {
@@ -1403,7 +1407,7 @@ export function buildProps(zone, heightAt) {
       },
     },
     reeds: {
-      variants: 3, collider: 0, noPathAvoid: true,
+      variants: 3, noShadow: true, collider: 0, noPathAvoid: true,
       make: (rng) => {
         const vs = Math.floor(rng() * 1e6);
         const g = merged(`reedM${vs}`, () => {
@@ -1429,7 +1433,7 @@ export function buildProps(zone, heightAt) {
       },
     },
     lilypad: {
-      variants: 3, collider: 0, ground: 'water', noPathAvoid: true,
+      variants: 3, noShadow: true, collider: 0, ground: 'water', noPathAvoid: true,
       make: (rng) => {
         const parts = [
           P(cylG(0.42, 0.42, 0.02, 9), FOLIAGE2, 0x4f9e57, [0, 0, 0], [1, 1, 1], [0, rng() * TAU, 0], 0.08, false),
@@ -2655,7 +2659,7 @@ export function buildProps(zone, heightAt) {
     },
     flower_bed: {
       // tended garden bed: low stone border, dark soil, rows of blooms
-      variants: 3, collider: 0, noPathAvoid: false,
+      variants: 3, collider: 0, noPathAvoid: false, noShadow: true,
       make: (rng, v) => {
         const vs = Math.floor(rng() * 1e6);
         const vi = (v ?? 0) % 3;
@@ -3222,7 +3226,8 @@ export function buildProps(zone, heightAt) {
       for (let pi = 0; pi < parts.length; pi++) {
         const part = parts[pi];
         const im = new THREE.InstancedMesh(part.g, part.m, bucket.length);
-        im.castShadow = part.shadow !== false;
+        im.name = `${kind}:${v}:${pi}`;
+        im.castShadow = part.shadow !== false && !def.noShadow;
         im.receiveShadow = !part.ro;
         if (part.ro) im.renderOrder = part.ro;
         for (let i = 0; i < bucket.length; i++) {

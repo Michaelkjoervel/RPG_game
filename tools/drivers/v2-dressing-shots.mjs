@@ -16,6 +16,7 @@ const ZONES = {
       ['bh-plaza', [20, 13, 30], [0, 1, 0]],
       ['bh-street', [-6, 3.2, 14], [-26, 2, 2]],
       ['bh-gate', [62, 3.5, -8], [38, 1.5, 2]],
+      ['bh-map', [0.1, 150, 12], [0, 0, 0]],
     ],
     walkTo: [72, 0],
     night: { t: 0.93, views: [['bh-night', [20, 13, 30], [0, 1, 0]]] },
@@ -26,17 +27,18 @@ const ZONES = {
       ['dm-gate', [-92, 2.6, 3], [-50, 2, 6]],
       ['dm-oak', [19, 2.2, 28], [25, 2.4, 22]],
       ['dm-rock', [-11, 1.4, 31], [-8, 0.4, 28]],
+      ['dm-map', [0.1, 190, 16], [0, 0, 0]],
     ],
     walkTo: [0, -50],
   },
   whisperwood: {
     t: 0.45, set: 'B',
-    views: [['ww-trail', [6, 3, 96], [22, 2, 50]]],
+    views: [['ww-trail', [6, 3, 96], [22, 2, 50]], ['ww-map', [0.1, 200, 16], [0, 0, 0]]],
     walkTo: [10, 70],
   },
   mirrorlake: {
     t: 0.5, set: 'B',
-    views: [['ml-driftmoor', [40, 6, 60], [66, 1.5, 76]]],
+    views: [['ml-driftmoor', [40, 6, 60], [66, 1.5, 76]], ['ml-map', [0.1, 220, 16], [0, 0, 0]]],
     walkTo: [-42, 50],
   },
 };
@@ -59,14 +61,23 @@ async function stats(page, tag) {
       const gg = o.geometry;
       tris += ((gg.index ? gg.index.count : gg.attributes.position.count) / 3) * n;
     });
-    return JSON.stringify({ full, live: { ...r.info.render }, props: { meshes, inst, tris: Math.round(tris) }, colliders: w.colliders.length });
+    const byKind = {};
+    w.props?.group.traverse((o) => {
+      if (!o.isMesh) return;
+      const k = (o.name || '?').split(':')[0], gg = o.geometry;
+      byKind[k] = (byKind[k] ?? 0) + ((gg.index ? gg.index.count : gg.attributes.position.count) / 3) * (o.isInstancedMesh ? o.count : 1);
+    });
+    const top = Object.entries(byKind).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, t]) => k + '=' + Math.round(t / 1000) + 'k').join(' ');
+    return JSON.stringify({ full, live: { ...r.info.render }, props: { meshes, inst, tris: Math.round(tris), top }, colliders: w.colliders.length, dressing: w.props?.group.userData.dressing });
   })()`);
   console.log(`STATS ${tag} ${s}`);
 }
 
 async function camView(page, h, name, pos, look) {
+  const map = name.endsWith('-map');
   await page.evaluate(`(() => {
     const w = window.LF.game.overworld, rig = w.cameraRig;
+    if (${map} && w.scene.fog && !w.__fog) { const f = w.scene.fog.clone(); f.density = 0.0007; w.__fog = w.scene.fog; w.scene.fog = f; }
     if (!rig._dressUpd) rig._dressUpd = rig.update;
     rig.update = () => {};
     const c = rig.camera, H = (x, z) => w.heightAt(x, z);
@@ -77,6 +88,7 @@ async function camView(page, h, name, pos, look) {
   await h.sleep(900);
   await h.shot(name);
   await stats(page, name);
+  if (map) await page.evaluate(`(() => { const w = window.LF.game.overworld; if (w.__fog) { w.scene.fog = w.__fog; delete w.__fog; } })()`);
 }
 
 async function releaseCam(page) {
