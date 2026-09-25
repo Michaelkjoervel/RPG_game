@@ -209,11 +209,11 @@ function buildWarden() {
     new THREE.Vector2(0.139, 0.35), new THREE.Vector2(0.146, 0.41), new THREE.Vector2(0.138, 0.465),
     new THREE.Vector2(0.112, 0.505), new THREE.Vector2(0.07, 0.535), new THREE.Vector2(0.002, 0.548),
   ];
-  const chest = mesh(grad(new THREE.LatheGeometry(chestPts, 14), P.tunic, { down: 0.09, up: 0.06, seed: 12 }), mats.cloth);
+  const chest = mesh(grad(new THREE.LatheGeometry(chestPts, 12), P.tunic, { down: 0.09, up: 0.06, seed: 12 }), mats.cloth);
   chest.scale.set(1.15, 1, 0.92);
   chest.userData.ownShell = true; // breathes (animated scale) — keeps its own ink shell
   torso.add(chest);
-  const beltG = new THREE.TorusGeometry(0.146, 0.021, 4, 20);
+  const beltG = new THREE.TorusGeometry(0.146, 0.021, 3, 18);
   beltG.rotateX(Math.PI / 2);
   beltG.scale(1.05, 1.45, 0.86);
   const belt = noInk(mesh(beltG, mats.belt));
@@ -221,7 +221,7 @@ function buildWarden() {
   torso.add(belt);
   /* gold bits on the torso (buckle + collar clasp): one mesh */
   torso.add(noInk(mesh(bakeParts([
-    [new RoundedBoxGeometry(0.058, 0.048, 0.022, 1, 0.009), { p: [0, 0.205, 0.143] }],
+    [new THREE.BoxGeometry(0.058, 0.048, 0.02), { p: [0, 0.205, 0.143] }],
     [new THREE.SphereGeometry(0.026, 8, 6), { p: [0, 0.47, 0.13] }],
   ]), mats.gold)));
   /* charm pouch on the left hip — where the Charms live */
@@ -267,7 +267,7 @@ function buildWarden() {
     cuffG.rotateX(Math.PI / 2);
     cuffG.scale(1, 1.5, 1);
     shoulder.add(mesh(bakeParts([   // shoulder cap + bent sleeve + cuff (cuff in belt colour)
-      [grad(new THREE.SphereGeometry(0.068, 10, 7), P.tunic, { seed: 18 }), { s: [1.08, 0.9, 1.0] }],
+      [grad(new THREE.SphereGeometry(0.068, 10, 7), P.tunic, { seed: 18 }), { p: [0, -0.012, 0], s: [1.08, 0.78, 1.0] }], // stays under the capelet
       [grad(sleeve.geometry, P.tunic, { down: 0.11, seed: 19 }), { p: [0, SLEEVE_Y, 0] }],
       [solidColor(cuffG, P.belt), { p: [0, e.y - fy * 0.012, e.z - fz * 0.012], r: [-b, 0, 0] }],
     ]), mats.cloth));
@@ -311,49 +311,6 @@ function buildWarden() {
     ]), mats.face, false)));
   }
 
-  /* hair: ONE sculpted shell (tucked hairline, rounded nape locks that flick
-     out at the sides, swept fringe) + a short tied tail at the nape — the
-     back of the head is the camera's view, so it gets the most shape */
-  {
-    const shell = hairShell({
-      radius: 0.172, center: [0, 0.115, -0.012], scale: [0.99, 1.0, 1.02], seg: [22, 14],
-      hairline: { back: -0.74, side: -0.1, temple: 0.18, front: 0.44 },
-      locks: { count: 9, depth: 0.2, flare: 0.07 },
-      fringe: { count: 4, depth: 0.1 },
-      volume: { crown: 0.07, back: 0.06, sides: 0.05 },
-      groove: 0.014, tuck: 0.62, seed: 2.1,
-    });
-    // short tied tail: a soft teardrop hanging from the nape, kicked back a
-    // little so it rests over the hood; the tie band in cuff leather
-    const tail = new THREE.LatheGeometry([
-      [0.0005, -0.1], [0.012, -0.096], [0.03, -0.07], [0.036, -0.04], [0.03, -0.012], [0.02, 0.004], [0.0005, 0.01],
-    ].map(([x, y]) => new THREE.Vector2(x, y)), 10);
-    lumpify(tail, 0.06, 7.7);
-    const tailParts = [[tail, { p: [0, 0.036, -0.166], r: [0.62, 0, 0] }]];
-    shell.deleteAttribute('lfOutlineNormal'); // recomputed for the merged hair below
-    const hairG = bakeParts([[shell], ...tailParts]);
-    // outline normals: the shell's radial set + the tail's own (computed on merge)
-    smoothGeometry(hairG);
-    grad(hairG, P.hair, { down: 0.1, up: 0.12, noise: 0.025, seed: 31 });
-    {
-      // radial ink normals from the head centre (clean hair silhouette line)
-      const pos = hairG.attributes.position, on = new Float32Array(pos.count * 3), v = new THREE.Vector3();
-      for (let i = 0; i < pos.count; i++) {
-        v.set(pos.getX(i), pos.getY(i) - 0.1, pos.getZ(i) + 0.012).normalize();
-        on[i * 3] = v.x; on[i * 3 + 1] = v.y; on[i * 3 + 2] = v.z;
-      }
-      hairG.setAttribute('lfOutlineNormal', new THREE.BufferAttribute(on, 3));
-    }
-    head.add(mesh(hairG, mats.hair));
-    const tie = new THREE.TorusGeometry(0.019, 0.007, 3, 8);
-    tie.rotateX(Math.PI / 2 - 0.62);
-    const tieM = noInk(mesh(solidColor(tie, P.bootCuff), mats.face, false));
-    tieM.position.set(0, 0.03, -0.172);
-    head.add(tieM);
-  }
-  /* springy cowlick (animated): one big swept curl + a small flick */
-  const hairTuft = new THREE.Group();
-  hairTuft.position.set(-0.02, 0.29, -0.015);
   function curlGeo(len, r0, bend) {
     const g = new THREE.CylinderGeometry(r0 * 0.12, r0, len, 7, 5, false);
     g.translate(0, len / 2, 0);
@@ -365,6 +322,56 @@ function buildWarden() {
     smoothGeometry(g, { creaseAngle: 1.2 });
     return g;
   }
+  /* hair: ONE sculpted shell — tucked hairline, chunky locks with darker
+     grooves ending in pointed tips that flick out at the nape, a swept
+     fringe — plus a tied tail at the nape. The back of the head is the
+     camera's view, so it gets the most shape (no bowl cut). */
+  {
+    const shell = hairShell({
+      radius: 0.172, center: [0, 0.115, -0.012], scale: [0.99, 1.0, 1.02], seg: [20, 13],
+      hairline: { back: -0.84, side: -0.08, temple: 0.18, front: 0.44 },
+      locks: { count: 6, depth: 0.26, flare: 0.13, sharp: 2.5, clump: 0.12 },
+      fringe: { count: 4, depth: 0.12, side: 0.35 },
+      volume: { crown: 0.07, back: 0.06, sides: 0.05, sweep: 0.35 },
+      groove: 0.012, tuck: 0.62, seed: 2.1,
+      color: { hex: P.hair, down: 0.12, up: 0.12, grooveShade: 0.42 },
+    });
+    // tied tail: a soft teardrop hanging from the nape, kicked back so it
+    // reads against the hood from the camera; its own ink normals, baked in
+    // hair space (bakeParts moves positions/normals, not custom attributes)
+    const tail = new THREE.LatheGeometry([
+      [0.0005, -0.17], [0.014, -0.162], [0.034, -0.12], [0.042, -0.07], [0.036, -0.025], [0.022, 0.004], [0.0005, 0.012],
+    ].map(([x, y]) => new THREE.Vector2(x, y)), 10);
+    lumpify(tail, 0.06, 7.7);
+    tail.scale(1, 1, 0.82);
+    smoothGeometry(tail);
+    tail.rotateX(0.5);
+    tail.translate(0, 0.03, -0.17);
+    grad(tail, P.hair, { down: 0.16, up: 0.06, noise: 0.025, seed: 33 });
+    tail.deleteAttribute('uv');
+    tail.setAttribute('lfOutlineNormal', tail.attributes.normal.clone());
+    // two locks flicking out over the hood at the nape sides: with the tail
+    // they give the back of the head three points, not a bowl's round hem
+    const flicks = [-1, 1].map((sgn) => {
+      const f = curlGeo(0.1, 0.034, -sgn * 0.9);
+      f.deleteAttribute('uv');
+      f.rotateZ(Math.PI + sgn * 0.32);   // hang down, tip curling outward
+      f.rotateX(0.42);                   // ... and back over the hood
+      f.translate(sgn * 0.104, 0.04, -0.1);
+      grad(f, P.hair, { down: 0.14, up: 0.04, noise: 0.02, seed: 34 + sgn });
+      f.setAttribute('lfOutlineNormal', f.attributes.normal.clone());
+      return [f];
+    });
+    head.add(mesh(bakeParts([[shell], [tail], ...flicks]), mats.hair));
+    const tie = new THREE.TorusGeometry(0.024, 0.009, 3, 8);
+    tie.rotateX(Math.PI / 2 - 0.5);
+    const tieM = noInk(mesh(solidColor(tie, P.scarf), mats.face, false));
+    tieM.position.set(0, 0.028, -0.176);
+    head.add(tieM);
+  }
+  /* springy cowlick (animated): one big swept curl + a small flick */
+  const hairTuft = new THREE.Group();
+  hairTuft.position.set(-0.02, 0.29, -0.015);
   hairTuft.add(noInk(mesh(bakeParts([
     [grad(curlGeo(0.12, 0.044, 1.05), P.hair, { down: 0.06, up: 0.14, seed: 41 }), { r: [-0.45, Math.PI / 2, 0.1] }],
     [grad(curlGeo(0.085, 0.026, 0.6), P.hair, { down: 0.12, up: 0.14, seed: 42 }), { p: [0.038, -0.01, 0.03], r: [0.35, -Math.PI / 2 + 0.5, -0.2] }],
@@ -412,7 +419,7 @@ function buildWarden() {
       { y: 0.43, rx: 0.3, rz: 0.228, cz: -0.02, span: 2.55 },
       { y: 0.315, rx: 0.312, rz: 0.24, cz: -0.024, span: 2.5 },
     ],
-    nu: 22, nv: 5, folds: 7, foldAmp: [0.004, 0.02], foldDrift: 0.5,
+    nu: 20, nv: 5, folds: 7, foldAmp: [0.004, 0.02], foldDrift: 0.5,
     hemWave: 0.035, hemSideLift: 0.08, thick: 0.014,
     outerTop: 0x7866b4, outerBot: 0x5c4b92, liningTop, liningBot,
     trim: trimGold, trimWidth: 0.12, seed: 3,
@@ -444,7 +451,7 @@ function buildWarden() {
       { y: -0.08, rx: 0.315, rz: 0.215, cz: -0.085, span: 1.68 },
       { y: -0.42, rx: 0.335, rz: 0.24, cz: -0.11, span: 1.6 },
     ],
-    nu: 30, nv: 10, folds: 7, foldAmp: [0.008, 0.066], foldDrift: 1.1,
+    nu: 30, nv: 8, folds: 7, foldAmp: [0.008, 0.066], foldDrift: 1.1,
     hemWave: 0.018, hemSideLift: 0.12, thick: 0.018,
     outerTop: cloakTop, outerBot: cloakBot, liningTop, liningBot,
     trim: trimGold, trimWidth: 0.05, seed: 7,

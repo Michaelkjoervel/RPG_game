@@ -205,14 +205,15 @@ function ringGeo(r, tube, radial, tubular, arc = Math.PI * 2) {
 }
 
 // Hair styles as hairShell parameters (head-local, radius in head radii).
+// tufts: springy crown curls that break the dome outline (short styles).
 const HAIR_STYLES = {
-  crop: { hairline: { back: -0.52, side: -0.04, temple: 0.26, front: 0.52 }, locks: { count: 7, depth: 0.1, flare: 0.035 }, fringe: { count: 3, depth: 0.08 }, volume: { crown: 0.08, back: 0.04, sides: 0.03 } },
-  side: { hairline: { back: -0.62, side: -0.1, temple: 0.2, front: 0.46 }, locks: { count: 8, depth: 0.14, flare: 0.05 }, fringe: { count: 2, depth: 0.1, side: 0.7 }, volume: { crown: 0.09, back: 0.05, sides: 0.05 } },
-  bob: { hairline: { back: -1.0, side: -0.8, temple: 0.3, front: 0.42 }, locks: { count: 12, depth: 0.07, flare: 0.1 }, fringe: { count: 4, depth: 0.12 }, volume: { crown: 0.06, back: 0.09, sides: 0.1 } },
-  bun: { hairline: { back: -0.6, side: -0.12, temple: 0.22, front: 0.5 }, locks: { count: 6, depth: 0.05, flare: 0.02 }, fringe: { count: 2, depth: 0.05 }, volume: { crown: 0.05, back: 0.04, sides: 0.04 } },
-  ponytail: { hairline: { back: -0.64, side: -0.08, temple: 0.22, front: 0.48 }, locks: { count: 7, depth: 0.08, flare: 0.03 }, fringe: { count: 3, depth: 0.08, side: -0.4 }, volume: { crown: 0.07, back: 0.04, sides: 0.04 } },
-  spiky: { hairline: { back: -0.6, side: -0.04, temple: 0.24, front: 0.4 }, locks: { count: 7, depth: 0.28, flare: 0.14 }, fringe: { count: 3, depth: 0.2, side: 0.5 }, volume: { crown: 0.13, back: 0.07, sides: 0.05 } },
-  bald: { bald: 0.3, hairline: { back: -0.58, side: -0.14, temple: 0.06, front: 0.7 }, locks: { count: 9, depth: 0.06, flare: 0.03 }, fringe: { count: 1, depth: 0 }, volume: { crown: 0, back: 0.05, sides: 0.05 } },
+  crop: { hairline: { back: -0.74, side: 0.0, temple: 0.26, front: 0.52 }, locks: { count: 9, depth: 0.14, flare: 0.05, sharp: 3, clump: 0.08 }, fringe: { count: 3, depth: 0.1 }, volume: { crown: 0.08, back: 0.04, sides: 0.03 }, tufts: 2 },
+  side: { hairline: { back: -0.72, side: -0.08, temple: 0.2, front: 0.46 }, locks: { count: 8, depth: 0.2, flare: 0.08, sharp: 3, clump: 0.09 }, fringe: { count: 2, depth: 0.12, side: 0.7 }, volume: { crown: 0.09, back: 0.05, sides: 0.05, sweep: 0.7 }, tufts: 1 },
+  bob: { hairline: { back: -1.0, side: -0.8, temple: 0.3, front: 0.42 }, locks: { count: 12, depth: 0.1, flare: 0.12, sharp: 3, clump: 0.06 }, fringe: { count: 4, depth: 0.14 }, volume: { crown: 0.06, back: 0.09, sides: 0.1 } },
+  bun: { hairline: { back: -0.6, side: -0.12, temple: 0.22, front: 0.5 }, locks: { count: 6, depth: 0.06, flare: 0.02, clump: 0.04 }, fringe: { count: 2, depth: 0.06 }, volume: { crown: 0.05, back: 0.04, sides: 0.04 } },
+  ponytail: { hairline: { back: -0.64, side: -0.08, temple: 0.22, front: 0.48 }, locks: { count: 7, depth: 0.08, flare: 0.03, clump: 0.04 }, fringe: { count: 3, depth: 0.1, side: -0.4 }, volume: { crown: 0.07, back: 0.04, sides: 0.04 } },
+  spiky: { hairline: { back: -0.62, side: -0.04, temple: 0.24, front: 0.4 }, locks: { count: 7, depth: 0.32, flare: 0.16, sharp: 3, clump: 0.1 }, fringe: { count: 3, depth: 0.22, side: 0.5 }, volume: { crown: 0.13, back: 0.07, sides: 0.05 } },
+  bald: { bald: 0.3, hairline: { back: -0.58, side: -0.14, temple: 0.06, front: 0.7 }, locks: { count: 9, depth: 0.08, flare: 0.04, sharp: 3, clump: 0.03 }, fringe: { count: 1, depth: 0 }, volume: { crown: 0, back: 0.05, sides: 0.05 } },
 };
 
 /**
@@ -228,7 +229,7 @@ function buildHuman(spec) {
   // colors
   const skin = spec.skin, hair = spec.hair;
   const primary = spec.primary, secondary = spec.secondary;
-  const boot = spec.bootColor ?? shade(secondary, -0.16, -0.12);
+  const boot = spec.bootColor ?? mixHex(shade(secondary, -0.2), 0x5a3e2c, 0.68); // leather, tinted by the palette
   const outfit = spec.robe ? 'robe' : (spec.outfit ?? 'tunic');
   const shirt = spec.shirt ?? 0xe8dcc0;
   const scarf = spec.scarf ?? 0xd9a23c;
@@ -261,9 +262,9 @@ function buildHuman(spec) {
   /* legs — tapered trousers into boots with a rolled cuff and a rounded foot */
   function buildLeg(sx) {
     const leg = new THREE.Group();
-    leg.position.set(sx * 0.095 * wide, 0, 0);
+    leg.position.set(sx * 0.09 * wide, 0, 0);
     const parts = [];
-    if (outfit !== 'robe') parts.push([paint(taperCapsule(0.08 * wide, 0.06 * wide, legLen * 0.5, 9, 2), secondary, { seed: 3 }), { p: [0, -legLen * 0.3, 0] }]);
+    if (outfit !== 'robe') parts.push([paint(taperCapsule(0.074 * wide, 0.058 * wide, legLen * 0.5, 9, 2), secondary, { seed: 3 }), { p: [0, -legLen * 0.3, 0] }]);
     parts.push([paint(bootShaftGeo(0.058 * wide, legLen * 0.3), boot, { down: 0.05, up: 0.1, seed: 4 }), { p: [0, -legLen * 0.6, 0] }]);
     parts.push([paint(bootFootGeo(0.05 * wide), boot, { down: 0.08, up: 0.04, seed: 6 }), { p: [0, -legLen + 0.033, 0.036] }]);
     leg.add(mesh(bake(parts), bodyM));
@@ -278,7 +279,7 @@ function buildHuman(spec) {
   const chestY = TL * 0.70, shoulderY = TL * 0.9;
   // torso-space V taper: wider across chest and shoulders, flatter front-to-back
   const taperX = (y) => 1.04 + 0.26 * sstep(TL * 0.35, TL * 0.86, y) * (1 - 0.6 * sstep(TL * 0.9, TL * 1.02, y));
-  const taperZ = (y) => 0.84 - 0.04 * sstep(TL * 0.35, TL * 0.86, y);
+  const taperZ = (y) => 0.9 - 0.1 * sstep(TL * 0.35, TL * 0.86, y);
   const vtaper = (g) => {
     const pos = g.attributes.position;
     for (let i = 0; i < pos.count; i++) {
@@ -300,8 +301,8 @@ function buildHuman(spec) {
   // hem / skirt flaring over the legs (tunic, shirt tail, knee smock, robe)
   const skirt = (len, flare, folds, hex, seed) => {
     const g = new THREE.LatheGeometry([
-      [0.12, -len + 0.014], [0.146 + flare, -len - 0.006], [0.156 + flare, -len + 0.012], [0.148 + flare * 0.7, -len * 0.55],
-      [0.138 + flare * 0.2, -len * 0.12], [0.128, TL * 0.16], [0.124, TL * 0.37],
+      [0.12, -len + 0.014], [0.16 + flare, -len - 0.006], [0.17 + flare, -len + 0.012], [0.165 + flare * 0.7, -len * 0.55],
+      [0.158 + flare * 0.2, -len * 0.12], [0.14, TL * 0.16], [0.124, TL * 0.37],
     ].map(([x, y]) => new THREE.Vector2(x * wide, y)), outfit === 'robe' ? 16 : 14);
     const pos = g.attributes.position;
     for (let i = 0; i < pos.count; i++) { // soft folds deepening toward the hem
@@ -320,7 +321,7 @@ function buildHuman(spec) {
     const g = ringGeo(0.126 * wide, 0.017, 3, 16);
     g.scale(1, 1.4, 1);
     g.translate(0, TL * 0.37, 0);
-    tparts.push([paint(vtaper(g), shade(boot, 0.04), { down: 0.04, up: 0.04, seed: 10 })]);
+    tparts.push([paint(vtaper(g), mixHex(boot, 0x3a2a20, 0.45), { down: 0.04, up: 0.05, seed: 10 })]);
   }
   // neck
   tparts.push([paint(taperCapsule(0.042, 0.05, TL * 0.12, 8, 2), skin, { down: 0.06, up: 0.0, noise: 0.01, seed: 11 }), { p: [0, TL * 1.07, 0] }]);
@@ -355,8 +356,8 @@ function buildHuman(spec) {
     const g = drapeShell({ // waist apron over the tunic front
       profile: [
         { y: TL * 0.38, rx: 0.14 * wide, rz: 0.125 * wide, cz: 0, span: 0.78 },
-        { y: TL * 0.05, rx: 0.16 * wide, rz: 0.15 * wide, cz: 0, span: 0.8 },
-        { y: -TL * 0.42, rx: 0.19 * wide, rz: 0.19 * wide, cz: -0.01, span: 0.74 },
+        { y: TL * 0.05, rx: 0.17 * wide, rz: 0.165 * wide, cz: 0, span: 0.8 },
+        { y: -TL * 0.42, rx: 0.2 * wide, rz: 0.215 * wide, cz: -0.01, span: 0.74 },
       ],
       nu: 10, nv: 5, folds: 3, foldAmp: [0.002, 0.012], hemWave: 0.02, hemSideLift: 0.05, thick: 0.012,
       outerTop: shirt, outerBot: shade(shirt, -0.1), liningTop: shade(shirt, -0.2), liningBot: shade(shirt, -0.26), seed: 10,
@@ -368,9 +369,9 @@ function buildHuman(spec) {
     tparts.push([drapeShell({
       profile: [
         { y: TL * 1.0, rx: 0.11 * wide, rz: 0.1 * wide, cz: 0, span: 2.75 },
-        { y: TL * 0.95, rx: 0.24 * wide, rz: 0.19 * wide, cz: -0.005, span: 2.72 },
-        { y: TL * 0.84, rx: 0.29 * wide, rz: 0.215 * wide, cz: -0.01, span: 2.68 },
-        { y: TL * 0.62, rx: 0.3 * wide, rz: 0.222 * wide, cz: -0.012, span: 2.62 },
+        { y: TL * 0.95, rx: 0.25 * wide, rz: 0.21 * wide, cz: -0.008, span: 2.72 },
+        { y: TL * 0.84, rx: 0.3 * wide, rz: 0.245 * wide, cz: -0.012, span: 2.68 },
+        { y: TL * 0.62, rx: 0.315 * wide, rz: 0.255 * wide, cz: -0.02, span: 2.62 },
       ],
       nu: 18, nv: 4, folds: 8, foldAmp: [0.003, 0.014], hemWave: 0.03, hemSideLift: 0.05, thick: 0.013,
       outerTop: shade(secondary, 0.05), outerBot: shade(secondary, -0.08), liningTop: shade(secondary, -0.2), liningBot: shade(secondary, -0.25), seed: 11,
@@ -414,7 +415,6 @@ function buildHuman(spec) {
     const parts = [];
     const ra = 0.05 * wide, rb = 0.042 * wide, armK = h / 1.6;
     const bend = onHip ? 1.05 : 0.22 + (spec.stance ?? 0.5) * 0.14;
-    parts.push([paint(new THREE.SphereGeometry(0.058 * wide, 8, 5), sleeveHex, { seed: 12 }), { p: [0, -0.005, 0], s: [1.1, 0.9, 1] }]);
     const wrist = new THREE.Vector3();
     if (rolled) {
       const up = 0.14 * armK, fl = 0.15 * armK;
@@ -454,7 +454,7 @@ function buildHuman(spec) {
 
   /* head — skull, ears, hair (or hood) and hat in one mesh; the face in another */
   const headGrp = new THREE.Group();
-  headGrp.position.y = TL * 1.3;
+  headGrp.position.y = TL * 1.36;
   torso.add(headGrp);
   const R = headR;
   const hparts = [];
@@ -479,8 +479,17 @@ function buildHuman(spec) {
       radius: R * (1.05 + hv * 0.03), center: [0, R * 0.07, -R * 0.04], scale: [1.0, 1.0, 1.02], seg: [18, 12],
       hairline: st.hairline, locks: st.locks, fringe: st.fringe,
       volume: { ...st.volume, crown: st.volume.crown + hv * 0.03 }, groove: 0.012, tuck: 0.62, bald: st.bald ?? 0, seed: 1 + hv * 5,
+      color: { hex: hair, down: 0.1, up: 0.12, grooveShade: 0.36 },
     });
-    hparts.push([paint(hs, hair, { down: 0.1, up: 0.12, noise: 0.025, seed: 31 })]);
+    hparts.push([hs]);
+    for (let k = 0; k < (st.tufts ?? 0); k++) { // springy crown curls, swept sideways so they read in silhouette
+      const side = (k === 0 ? 1 : -1) * (hv < 0.5 ? 1 : -1);
+      const t = softSpikeGeo(R * (0.52 + 0.12 * hv - k * 0.16), R * (0.21 - k * 0.05), 0.95, 6, 3);
+      if (side < 0) t.rotateY(Math.PI);          // curl toward the lean
+      t.rotateZ(-side * (0.8 + 0.2 * hv - k * 0.12));
+      t.rotateX(-0.3);                           // lean back a touch
+      hparts.push([paint(t, hair, { down: 0.02, up: 0.14, seed: 43 + k }), { p: [side * R * 0.1, R * 0.96, -R * (0.1 + k * 0.1)] }]);
+    }
     if (style === 'bun') {
       hparts.push([paint(smoothGeometry(lumpify(new THREE.SphereGeometry(R * 0.36, 8, 6), 0.05, 36)), hair, { down: 0.08, up: 0.1, seed: 36 }), { p: [0, R * 0.78, -R * 0.78] }]);
     } else if (style === 'ponytail') {
@@ -522,7 +531,7 @@ function buildHuman(spec) {
       cap.rotateX(Math.PI / 2); // cap facing +Z
       const parts = [[solidColor(cap, 0xdedad2), { p: [0, -0.01, R * 0.02] }]];
       for (const s of [-1, 1]) { // two slit "eyes" so the mask reads at distance
-        parts.push([solidColor(new THREE.CapsuleGeometry(R * 0.028, R * 0.12, 1, 4), 0x2a2530), { p: [s * R * 0.3, R * 0.1, R * 1.01], r: [0, 0, Math.PI / 2 + s * 0.35] }]);
+        parts.push([solidColor(new THREE.CapsuleGeometry(R * 0.045, R * 0.2, 1, 4), 0x2a2530), { p: [s * R * 0.31, R * 0.08, R * 0.985], r: [0, s * 0.3, Math.PI / 2 + s * 0.35], s: [1, 1, 0.6] }]);
       }
       maskMesh = noInk(mesh(bake(parts), stdMat(0xffffff, { rough: 0.45, vertexColors: true, emissive: 0xdedad2, ei: 0.06 }), false));
     }
@@ -656,7 +665,9 @@ function archetypeFor(id, kind, appearance) {
   const primary = num(pal?.[0], num(a.primary, p.primary));
   const secondary = num(pal?.[1], num(a.secondary, p.secondary));
   const accent = num(pal?.[2], num(a.accentColor, GOLD));
-  let hatFromData = a.hat ?? (a.hood ? 'hood' : a.mask ? 'mask' : undefined);
+  // hood + a (worn) mask = the masked hood; mask 'removed' = just the hood
+  const masked = !!a.mask && a.mask !== 'removed';
+  let hatFromData = a.hat ?? (masked ? 'mask' : a.hood ? 'hood' : undefined);
   const build = BUILD_MAP[a.build] ?? 'avg';
 
   const base = {

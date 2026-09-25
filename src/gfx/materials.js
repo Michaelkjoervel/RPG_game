@@ -1008,12 +1008,22 @@ export function drapeShell({
   const S = { y: 0, rx: 0, rz: 0, cz: 0, span: 0 };
   const ripple = (u, s) => Math.sin(u * folds * Math.PI + s * foldDrift + seed * 0.37);
   const cols = [], outer = [], inner = [], sArr = [], rip = [];
+  // Row positions (0 = top edge, 1 = hem). With a trim, two extra rows hug
+  // the trim's upper edge so it reads as a crisp band, not a long gradient.
+  const rowS = [];
+  for (let j = 0; j <= nv; j++) rowS.push(j / nv);
+  if (trim != null && trimWidth > 0 && trimWidth < 1) {
+    const e = 1 - trimWidth;
+    for (const t of [e - 0.004, e + 0.004]) if (!rowS.some((r) => Math.abs(r - t) < 0.003)) rowS.push(t);
+    rowS.sort((a, b) => a - b);
+  }
+  const NV = rowS.length - 1;
   // grid of outer + inner points
   for (let i = 0; i <= nu; i++) {
     const u = -1 + (2 * i) / nu;
     const hemLen = 1 - hemSideLift * u * u + hemWave * ripple(u, 1);
-    for (let j = 0; j <= nv; j++) {
-      const s = (j / nv) * hemLen;
+    for (let j = 0; j <= NV; j++) {
+      const s = rowS[j] * hemLen;
       sample(Math.min(1.12, s), S);
       const th = u * S.span;
       const amp = foldAmp[0] + (foldAmp[1] - foldAmp[0]) * Math.pow(Math.min(1, s), 1.4);
@@ -1024,11 +1034,11 @@ export function drapeShell({
       let nx = S.rz * sx, nz = -S.rx * cx; const nl = Math.hypot(nx, nz) || 1; nx /= nl; nz /= nl;
       outer.push([x, S.y, z]);
       inner.push([x - nx * thick, S.y, z - nz * thick]);
-      sArr.push(j / nv); rip.push(ripple(u, s));
+      sArr.push(rowS[j]); rip.push(ripple(u, s));
     }
     cols.push(u);
   }
-  const W = nv + 1;
+  const W = NV + 1;
   const pos = [], col = [], idx = [];
   const cOT = new THREE.Color(outerTop), cOB = new THREE.Color(outerBot);
   const cLT = new THREE.Color(liningTop), cLB = new THREE.Color(liningBot);
@@ -1050,7 +1060,7 @@ export function drapeShell({
   const iBase = pos.length / 3;
   for (let k = 0; k < inner.length; k++) push(inner[k], innerColor(k));
   for (let i = 0; i < nu; i++) {
-    for (let j = 0; j < nv; j++) {
+    for (let j = 0; j < NV; j++) {
       const a = i * W + j, b = (i + 1) * W + j, c = (i + 1) * W + j + 1, d = i * W + j + 1;
       idx.push(oBase + a, oBase + b, oBase + d, oBase + b, oBase + c, oBase + d);
       idx.push(iBase + a, iBase + d, iBase + b, iBase + b, iBase + d, iBase + c);
@@ -1067,8 +1077,8 @@ export function drapeShell({
     }
   };
   const hemKs = [], topKs = [], leftKs = [], rightKs = [];
-  for (let i = 0; i <= nu; i++) { hemKs.push(i * W + nv); topKs.push(i * W); }
-  for (let j = 0; j <= nv; j++) { leftKs.push(j); rightKs.push(nu * W + j); }
+  for (let i = 0; i <= nu; i++) { hemKs.push(i * W + NV); topKs.push(i * W); }
+  for (let j = 0; j <= NV; j++) { leftKs.push(j); rightKs.push(nu * W + j); }
   rim(hemKs, outerColor, true);
   rim(topKs, outerColor, false);
   rim(leftKs, outerColor, true);
@@ -1094,7 +1104,12 @@ const _ss = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a)))
  * outer shape, not every lock). Coordinates: head-local, face toward +Z.
  *   hairline: elevations (rad) where the hair ends at the back (nape), the
  *             sides (over the ears), the temples and the forehead.
- *   locks:    { count, depth, flare } scallops around the back half.
+ *   locks:    { count, depth, flare, sharp=2, clump=0 } scallops around the
+ *             back half; sharp > 2 points the tips, clump raises a ridge
+ *             down each lock (and darkens the grooves when `color` is set).
+ *   volume:   { crown, back, sides, sweep? } extra radius (sweep -1..1 leans
+ *             the whole volume toward -X / +X).
+ *   color:    { hex, down, up, grooveShade } bakes vertex colors (optional).
  *   fringe:   { count, depth, side? } bangs across the forehead; side (-1..1)
  *             sweeps them longer toward -X or +X.
  *   bald:     elevation above which the crown is bare (0 = full head).
@@ -1105,12 +1120,14 @@ export function hairShell({
   locks = { count: 9, depth: 0.14, flare: 0.04 },
   fringe = { count: 5, depth: 0.08 },
   volume = { crown: 0.06, back: 0.05, sides: 0.03 },
-  groove = 0.012, tuck = 0.62, bald = 0, seed = 1,
+  groove = 0.012, tuck = 0.62, bald = 0, seed = 1, color = null,
 } = {}) {
   const g = new THREE.SphereGeometry(1, seg[0], seg[1]);
   const pos = g.attributes.position;
   const [cx, cy, cz] = center;
   const hl0 = hairline;
+  const sharp = locks.sharp ?? 2, clump = locks.clump ?? 0;
+  const lockShade = new Float32Array(pos.count);
   for (let i = 0; i < pos.count; i++) {
     let dx = pos.getX(i), dy = pos.getY(i), dz = pos.getZ(i);
     const l = Math.hypot(dx, dy, dz) || 1; dx /= l; dy /= l; dz /= l;
@@ -1123,17 +1140,24 @@ export function hairShell({
         : hl0.temple + (hl0.front - hl0.temple) * _ss(0.75, 1, u);
     const backW = 1 - _ss(0.42, 0.78, u), frontW = _ss(0.74, 0.95, u);
     const lockW = 0.5 + 0.5 * Math.cos(az * locks.count + seed);
+    const tipW = Math.pow(lockW, sharp);                // sharp > 2 = pointier lock tips
     const fringeW = 0.5 + 0.5 * Math.cos(az * fringe.count * 2 + seed * 0.7);
     const fringeSide = fringe.side ? Math.max(0, 1 + fringe.side * dx * 2.4) : 1; // side-swept bangs
-    hl -= locks.depth * lockW * lockW * backW + fringe.depth * fringeW * fringeW * frontW * fringeSide;
+    hl -= locks.depth * tipW * backW + fringe.depth * Math.pow(fringeW, sharp) * frontW * fringeSide;
     // volume
     let r = 1
       + volume.crown * _ss(0.05, 1.1, el) * (0.6 + 0.4 * Math.cos(az))
       + volume.back * Math.max(0, Math.cos(az)) * _ss(-0.9, 0.3, el)
       + volume.sides * Math.sin(az) * Math.sin(az) * (1 - Math.abs(el) / 1.6)
+      + (volume.sweep ?? 0) * 0.1 * dx * _ss(-0.4, 0.9, el)   // side-swept: volume leans to one side
       + groove * Math.sin(az * 19 + el * 5 + seed) * _ss(-0.7, 0.9, el);
+    // clumps: raised ridges running from below the crown down into each lock
+    // tip (they fade out at the crown, where the meridians converge)
+    const clumpZone = _ss(hl - 0.1, hl + 0.35, el) * (1 - _ss(0.55, 1.15, el)) * (1 - 0.7 * frontW);
+    r += clump * lockW * lockW * clumpZone;
+    lockShade[i] = 1 - (1 - lockW) * clumpZone;         // 0 deep in a groove, 1 on a ridge
     const hemW = _ss(hl + 0.32, hl + 0.02, el);        // 1 at the hem, 0 higher up
-    r += (locks.flare ?? 0) * hemW * (0.35 + 0.65 * lockW) * backW;
+    r += (locks.flare ?? 0) * hemW * (0.35 + 0.65 * tipW) * backW;
     // tuck under the hairline (and off a bald crown)
     let t = _ss(hl - 0.05, hl + 0.12, el);
     if (bald > 0) t *= 1 - _ss(bald - 0.1, bald + 0.06, el);
@@ -1149,8 +1173,22 @@ export function hairShell({
     on[i * 3] = x / l; on[i * 3 + 1] = y / l; on[i * 3 + 2] = z / l;
   }
   g.setAttribute('lfOutlineNormal', new THREE.BufferAttribute(on, 3));
+  if (color) {
+    // nape-to-crown ramp + darker grooves between the locks (so the locks
+    // read as separate clumps from the back camera, not one bowl)
+    const { hex, down = 0.1, up = 0.12, noise = 0.025, grooveShade = 0.25, seed: cs = 31 } = color;
+    g.computeBoundingBox();
+    applyVertexGradient(g, { from: _hsl(hex, -down), to: _hsl(hex, up), noise, seed: cs });
+    const col = g.attributes.color;
+    for (let i = 0; i < col.count; i++) {
+      const k = 1 - grooveShade * (1 - lockShade[i]);
+      col.setXYZ(i, col.getX(i) * k, col.getY(i) * k, col.getZ(i) * k);
+    }
+  }
   return g;
 }
+const _hslC = new THREE.Color();
+function _hsl(hex, dl) { return _hslC.setHex(hex).offsetHSL(0, 0, dl).getHex(); }
 
 /**
  * Tapered sleeve/limb with an ELBOW: a capsule-ended lathe (r0 at the top, r1
