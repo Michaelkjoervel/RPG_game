@@ -4,7 +4,9 @@
 // zone. Shots: game-camera back view, back/front/side close-ups, a walking
 // beat (cloak in motion), NPC row front + back, plus stats.
 //   QA_BEAUTY=1 QA_VIEWPORT=1120x630 node tools/shoot.mjs tools/drivers/v2-lookdev-stage.mjs <out>
-const NPC_IDS = (process.env.LOOK_NPCS ?? 'elder_maren,bryn,keeper_liora,merchant_wren,lt_vess,keeper_maro').split(',');
+const ALL_NPCS = 'elder_maren,bryn,merchant_pip,v_bh_1,v_bh_2,v_bh_3,v_bh_4,keeper_bramwell,keeper_liora,herbalist_syl,lanternkeeper_ode,deserter_finn,seeker_a,seeker_b,keeper_maro,ferryman_juno,merchant_wren,v_dm_1,v_dm_2,keeper_sera,climber_bo,scholar_imre,seeker_c,lt_vess,lt_dorn,seeker_d,archon_sol';
+const NPC_IDS = (process.env.LOOK_NPCS === 'all' ? ALL_NPCS : (process.env.LOOK_NPCS ?? 'elder_maren,bryn,keeper_liora,merchant_wren,lt_vess,keeper_maro')).split(',');
+const ROW = 7;
 
 const SETUP = `async (npcIds) => {
   const THREE = await import('/vendor/three.module.js');
@@ -29,7 +31,11 @@ const SETUP = `async (npcIds) => {
   const ground = new THREE.Mesh(new THREE.CircleGeometry(60, 64), new THREE.MeshStandardMaterial({ color: 0x7aa35a, roughness: 0.95 }));
   ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
   const cam = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 400);
-  const placements = npcIds.map((id, i) => ({ id, at: [(i - (npcIds.length - 1) / 2) * 1.5, -7], face: 0 }));
+  const perRow = 7;
+  const placements = npcIds.map((id, i) => {
+    const row = Math.floor(i / perRow), col = i % perRow, n = Math.min(perRow, npcIds.length - row * perRow);
+    return { id, at: [(col - (n - 1) / 2) * 1.25, -7 - row * 3], face: 0 };
+  });
   const world = {
     zone: { id: 'stage', biome: 'meadow', size: 200, spawn: [0, 0], spawnFace: 0, npcs: placements },
     scene, colliders: [], heightAt: () => 0, get camera() { return cam; },
@@ -63,11 +69,12 @@ const VIEW = (dx, dy, dz, ty, fov = 50) => `(() => {
   s.cam.lookAt(p.x, p.y + (${ty}), p.z);
   return true;
 })()`;
-const NPC_ROW = (front) => `(() => {
-  const s = window.__stage;
+const NPC_ROW = (front, row = 0) => `(() => {
+  const s = window.__stage, z = -7 - ${row} * 3;
+  s.scene.traverse((o) => { if (o.name === 'npc') o.visible = Math.abs(o.position.z - z) < 0.5; });
   s.cam.fov = 44; s.cam.updateProjectionMatrix();
-  s.cam.position.set(0, 1.6, ${front ? -0.4 : -13.6});
-  s.cam.lookAt(0, 0.95, -7);
+  s.cam.position.set(0, 1.6, ${front ? 'z + 6.2' : 'z - 6.2'});
+  s.cam.lookAt(0, 0.95, z);
   return true;
 })()`;
 const STATS = `(() => {
@@ -106,8 +113,21 @@ export async function run(page, h) {
   await h.shot('warden-walk');
   await page.evaluate(`window.__stage.walk = 0; true`);
   await h.sleep(1500);
-  await page.evaluate(NPC_ROW(true)); await h.sleep(700);
-  await h.shot('npcs-front');
-  await page.evaluate(NPC_ROW(false)); await h.sleep(700);
-  await h.shot('npcs-back');
+  const rows = Math.ceil(NPC_IDS.length / ROW);
+  for (let r = 0; r < rows; r++) {
+    await page.evaluate(NPC_ROW(true, r)); await h.sleep(700);
+    await h.shot(`npcs-front-${r + 1}`);
+    await page.evaluate(NPC_ROW(false, r)); await h.sleep(700);
+    await h.shot(`npcs-back-${r + 1}`);
+  }
+  // LOOK_TUNE=1: A/B the shared soft-look params on one close framing.
+  if (process.env.LOOK_TUNE === '1') {
+    await page.evaluate(NPC_ROW(true)); await h.sleep(300);
+    const sets = JSON.parse(process.env.LOOK_SETS ?? '[{"rimStrength":0,"wrap":0,"outline":0},{"rimStrength":0.3,"wrap":0.3,"outline":1},{"rimStrength":0.55,"wrap":0.45,"outline":1.35}]');
+    for (const [i, p] of sets.entries()) {
+      await page.evaluate(`import('/src/gfx/materials.js').then((m) => { m.setLookParams(${JSON.stringify(p)}); return true; })`);
+      await h.sleep(600);
+      await h.shot(`tune-${i}`);
+    }
+  }
 }

@@ -21,6 +21,27 @@ export const STATS = `(() => {
   return JSON.stringify(o);
 })()`;
 
+// Linear-HDR luminance stats of the live frame (FloatType target, no tone
+// mapping) — where to put the bloom threshold so only glow content blooms.
+export const LUMA = `(async () => {
+  const THREE = await import('/vendor/three.module.js');
+  const g = window.LF.game, r = g.renderer, s = g.activeScene;
+  if (!s || !s.scene || !s.camera) return 'n/a';
+  const W = 320, H = 180;
+  const rt = new THREE.WebGLRenderTarget(W, H, { type: THREE.FloatType });
+  const prev = r.getRenderTarget();
+  r.setRenderTarget(rt); r.render(s.scene, s.camera); r.setRenderTarget(prev);
+  const buf = new Float32Array(W * H * 4);
+  r.readRenderTargetPixels(rt, 0, 0, W, H, buf);
+  rt.dispose();
+  const L = new Float32Array(W * H);
+  for (let i = 0; i < W * H; i++) L[i] = 0.2126 * buf[i * 4] + 0.7152 * buf[i * 4 + 1] + 0.0722 * buf[i * 4 + 2];
+  const sorted = Array.from(L).sort((a, b) => a - b);
+  const q = (p) => sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))].toFixed(3);
+  let over = 0; for (const v of L) if (v > 1.08) over++;
+  return JSON.stringify({ p50: q(0.5), p90: q(0.9), p99: q(0.99), p999: q(0.999), max: sorted[sorted.length - 1].toFixed(3), over108: (over / L.length * 100).toFixed(2) + '%' });
+})()`;
+
 const HUD = (on) => `(() => { const u = document.getElementById('ui-root'); if (u) u.style.visibility = ${on ? "''" : "'hidden'"}; return true; })()`;
 const PAUSE = (on) => `(() => { window.LF.game._paused = ${on}; return true; })()`;
 
@@ -94,6 +115,7 @@ export async function run(page, h) {
     await h.sleep(1500);
     await h.shot('bh-default');
     console.log('STATS brighthollow:', await page.evaluate(STATS));
+    console.log('LUMA brighthollow:', await page.evaluate(LUMA));
     await page.evaluate(HUD(false));
     await page.evaluate(PAUSE(true));
     await page.evaluate(WARDEN_VIEW(0.35, 1.45, -2.6, 0.95)); await h.sleep(700);
@@ -110,6 +132,7 @@ export async function run(page, h) {
   if (PART.includes('b')) {
     await goZone(page, h, 'dawnmeadow', 'dm-default', 0.5);
     console.log('STATS dawnmeadow:', await page.evaluate(STATS));
+    console.log('LUMA dawnmeadow:', await page.evaluate(LUMA));
     await page.evaluate(HUD(false));
     await page.evaluate(PAUSE(true));
     console.log('LINEUP:', await page.evaluate(LINEUP(['kindlet', 'nixling', 'thistlit', 'pebbin', 'vellit', 'aurelark'])));

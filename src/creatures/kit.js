@@ -102,9 +102,21 @@
 //     spherical "one soft ball" normals; still returns a Group.
 //   - eye(): finer spheres, sclera gets a whisper of self-light so eyes stay
 //     bright in shade; eyes are excluded from the creature ink outline
-//     (registry.js adds outlines to every creature — see addOutline).
+//     (registry.js adds outlines to every creature — see addOutline). The
+//     iris rim/iris/pupil caps are one mesh ('eyeIris') and both catchlights
+//     one mesh ('eyeGlint') — same look, fewer draws. 'eyeSclera' and the
+//     blinkable 'eyelid' are unchanged.
 //   - Outlines skip transparent/unlit/glowing parts automatically; flag any
 //     other part with `mesh.userData.noOutline = true` to keep it ink-free.
+//   - GOTCHA for hand-built geometry: THREE.LatheGeometry faces point OUTWARD
+//     only when the profile runs bottom -> top (y increasing). A top -> bottom
+//     profile is inside-out: v1's flat shading hid it, but under smooth
+//     shading it lights inverted (dark) and its ink outline goes inward.
+//     Reverse such profiles (kit's teardrop()/bulb() now do).
+//   - Shared soft-form helpers live in gfx/materials.js: taperCapsule(),
+//     lumpify(), drapeShell() (capes/manes with folds + soft hem), bakeParts()
+//     (merge same-material parts into one mesh), smoothGeometry(),
+//     sphericalNormals().
 //
 // EXAMPLE — a tiny two-part creature (see kindlet.js etc. for full builds):
 //   import * as THREE from 'three';
@@ -137,6 +149,9 @@ import {
   applyLook,
   smoothGeometry,
   sphericalNormals,
+  taperCapsule,
+  bakeParts,
+  solidColor,
   contactShadow as _contactShadow,
   lobedMass as _lobedMass,
 } from '../gfx/materials.js';
@@ -295,8 +310,13 @@ export function box(w, h, d, m, opts = {}) {
   return new THREE.Mesh(new THREE.BoxGeometry(w, h, d, segments, segments, segments), m);
 }
 
+// Profiles below are authored top -> bottom; three's lathe winds faces
+// OUTWARD only for bottom -> top profiles, so reverse here. (Under v1's flat
+// shading the inside-out winding went unnoticed — derivative normals always
+// face the camera — but smooth shading and the ink outline both need the
+// true outward normals.)
 function lathePoints(pts, segments) {
-  return new THREE.LatheGeometry(pts.map((p) => new THREE.Vector2(Math.max(p[0], 0.0006), p[1])), segments);
+  return new THREE.LatheGeometry(pts.slice().reverse().map((p) => new THREE.Vector2(Math.max(p[0], 0.0006), p[1])), segments);
 }
 
 /**
@@ -549,34 +569,31 @@ export function eye(r = 0.05, opts = {}) {
     // a googly white ball; a wrapped cap stays a stylized eye from every
     // angle — the classic "painted eyeball".
     const capTheta = Math.min(1.05 * irisScale, 1.45); // iris angular radius (rad from +Z)
-    const capMesh = (radius, theta, color, wSeg) => {
+    // v2: rim + iris + pupil caps (layered at slightly growing radii) are
+    // baked into ONE unlit vertex-colored mesh named 'eyeIris' — one draw
+    // instead of three, identical look.
+    const cap = (radius, theta, color, wSeg) => {
       const geo = new THREE.SphereGeometry(radius, wSeg, 6, 0, Math.PI * 2, 0, theta);
       geo.rotateX(Math.PI / 2); // cap pole from +Y onto +Z
-      return new THREE.Mesh(geo, mat(color, { unlit: true }));
+      return [solidColor(geo, color)];
     };
-    const rim = capMesh(r * 1.025, Math.min(capTheta * 1.18, 1.5), pupilC.getHex(), 28);
-    rim.name = 'eyeIrisRim';
-    group.add(rim);
-    const iris = capMesh(r * 1.05, capTheta, irisC.getHex(), 28);
+    const iris = new THREE.Mesh(bakeParts([
+      cap(r * 1.025, Math.min(capTheta * 1.18, 1.5), pupilC.getHex(), 28),
+      cap(r * 1.05, capTheta, irisC.getHex(), 28),
+      cap(r * 1.075, capTheta * 0.52, pupilC.getHex(), 22),
+    ]), mat(0xffffff, { unlit: true, vertexColors: true }));
     iris.name = 'eyeIris';
     group.add(iris);
-    const pup = capMesh(r * 1.075, capTheta * 0.52, pupilC.getHex(), 22);
-    pup.name = 'eyePupil';
-    group.add(pup);
   }
-  // Main catchlight: floored so no model ends up with an invisible speck —
-  // the always-on specular highlight is what makes an eye read as ALIVE.
+  // Main catchlight (+ the tiny secondary one, baked into the same mesh):
+  // floored so no model ends up with an invisible speck — the always-on
+  // specular highlight is what makes an eye read as ALIVE.
   const gR = Math.max(glintSize, r * 0.26);
-  const glint = new THREE.Mesh(new THREE.SphereGeometry(gR, 12, 8), mat(0xffffff, { unlit: true }));
+  const glintParts = [[new THREE.SphereGeometry(gR, 12, 8), { p: [r * 0.3, r * 0.34, r * 0.8] }]];
+  if (microGlint) glintParts.push([new THREE.SphereGeometry(gR * 0.45, 8, 6), { p: [-r * 0.28, -r * 0.22, r * 0.92] }]);
+  const glint = new THREE.Mesh(bakeParts(glintParts), mat(0xffffff, { unlit: true }));
   glint.name = 'eyeGlint';
-  glint.position.set(r * 0.3, r * 0.34, r * 0.8);
   group.add(glint);
-  if (microGlint) {
-    const g2 = new THREE.Mesh(new THREE.SphereGeometry(gR * 0.45, 8, 6), mat(0xffffff, { unlit: true, transparent: true, opacity: 0.85 }));
-    g2.name = 'eyeGlint2';
-    g2.position.set(-r * 0.28, -r * 0.22, r * 0.92);
-    group.add(g2);
-  }
   // Eyelid: slightly darker than the skin so a blink reads as a lid, not a
   // glitch. Y-scale = openness (0.06 open sliver .. ~1 closed).
   const lidC = new THREE.Color(skinColor).multiplyScalar(0.82);
@@ -814,13 +831,15 @@ export function leg(len, m, opts = {}) {
   const { footMat = m, thighR = len * 0.16, shinR = len * 0.11, footLen = len * 0.3 } = opts;
   const hip = new THREE.Group(); hip.name = 'legHip';
   const thighLen = len * 0.5, shinLen = len * 0.42;
-  const thigh = capsule(thighR, thighLen, m);
+  // v2: tapered limbs (full at the hip, slimmer at the knee/ankle) read as
+  // muscle instead of pillars. Same pivots/extent as the old capsules.
+  const thigh = new THREE.Mesh(taperCapsule(thighR * 1.1, thighR * 0.82, thighLen, 18), m);
   thigh.position.y = -thighLen / 2 - thighR * 0.25;
   hip.add(thigh);
   const knee = new THREE.Group(); knee.name = 'legKnee';
   knee.position.y = -thighLen - thighR * 0.25;
   hip.add(knee);
-  const shin = capsule(shinR, shinLen, m);
+  const shin = new THREE.Mesh(taperCapsule(shinR * 1.04, shinR * 0.84, shinLen, 16), m);
   shin.position.y = -shinLen / 2 - shinR * 0.2;
   knee.add(shin);
   // Rounded paw instead of the old box — a squashed orb with a slight toe
@@ -964,30 +983,41 @@ export function mote(count = 6, opts = {}) {
   const group = new THREE.Group(); group.name = 'motes';
   const rng = seededRandom(seed * 7919 + count * 101);
   const n = Math.max(1, count);
-  const items = new Array(n);
+  // v2: ONE instanced draw for the whole swarm (was one mesh + one cloned
+  // material per mote). Flicker now modulates per-instance brightness
+  // (instanceColor) instead of per-mote opacity, which also lets whole-figure
+  // fades (follower near the lens, battle faint) drive the shared opacity.
   const m = mat(color, { unlit: true, transparent: true, opacity: 0.85 });
+  const inst = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 8, 6), m, n);
+  inst.name = 'mote';
+  inst.frustumCulled = false; // instances orbit the group origin; bounds would be stale
+  inst.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(n * 3).fill(1), 3);
+  group.add(inst);
+  const items = new Array(n);
   for (let i = 0; i < n; i++) {
-    const s = size * (0.7 + rng() * 0.6);
-    const mesh = new THREE.Mesh(new THREE.SphereGeometry(s, 6, 5), m.clone());
-    mesh.name = 'mote';
-    group.add(mesh);
     items[i] = {
-      mesh, a: rng() * Math.PI * 2, r: radius * (0.5 + rng() * 0.6), h: height * (0.4 + rng() * 0.8),
+      s: size * (0.7 + rng() * 0.6), a: rng() * Math.PI * 2, r: radius * (0.5 + rng() * 0.6), h: height * (0.4 + rng() * 0.8),
       sp: (0.4 + rng() * 0.8) * speed, ph: rng() * Math.PI * 2, by: rng() * Math.PI * 2,
     };
   }
+  const _m4 = new THREE.Matrix4(), _p = new THREE.Vector3(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _c = new THREE.Color();
   let t = 0;
   function update(dt) {
     t += dt;
-    for (let i = 0; i < items.length; i++) {
+    for (let i = 0; i < n; i++) {
       const it = items[i];
       const ang = it.a + t * it.sp * 0.6;
-      it.mesh.position.set(Math.cos(ang) * it.r, it.h * 0.5 + Math.sin(t * it.sp + it.by) * it.h * 0.5, Math.sin(ang) * it.r);
+      _p.set(Math.cos(ang) * it.r, it.h * 0.5 + Math.sin(t * it.sp + it.by) * it.h * 0.5, Math.sin(ang) * it.r);
       const flick = 0.65 + 0.35 * Math.sin(t * it.sp * 3 + it.ph);
-      it.mesh.material.opacity = 0.5 + 0.42 * flick;
-      it.mesh.scale.setScalar(0.75 + 0.35 * flick);
+      _m4.compose(_p, _q, _s.setScalar(it.s * (0.75 + 0.35 * flick)));
+      inst.setMatrixAt(i, _m4);
+      const b = 0.5 + 0.5 * flick;
+      inst.setColorAt(i, _c.setRGB(b, b, b));
     }
+    inst.instanceMatrix.needsUpdate = true;
+    inst.instanceColor.needsUpdate = true;
   }
+  update(0);
   return { group, update };
 }
 
@@ -1120,7 +1150,7 @@ export function palette(aspectIds = ['neutral']) {
 export function hollowify(group, parts) {
   group.traverse((node) => {
     if (!node.isMesh || !node.material || !node.material.color) return;
-    if (node.name === 'eyeGlint' || node.name === 'eyeGlint2') { node.scale.multiplyScalar(0.45); node.material.opacity = 0.5; node.material.transparent = true; return; }
+    if (node.name === 'eyeGlint' || node.name === 'eyeGlint2') { node.material.opacity = 0.5; node.material.transparent = true; return; }
     const hsl = { h: 0, s: 0, l: 0 };
     node.material.color.getHSL(hsl);
     node.material.color.setHSL(hsl.h, hsl.s * 0.12, clamp(hsl.l * 0.7 + 0.12, 0.18, 0.55));

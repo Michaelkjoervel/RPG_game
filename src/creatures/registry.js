@@ -183,6 +183,7 @@ export function buildCreature(speciesId, variant = {}) {
   if (gleaming) kit.gleamify(group, parts);
 
   group.traverse((node) => { if (node.isMesh) node.castShadow = true; });
+  pruneShadowCasters(group);
 
   try {
     addOutline(group, { color: hollowed ? 0x2a2a30 : OUTLINE_COLOR, thickness: OUTLINE_PX });
@@ -192,6 +193,31 @@ export function buildCreature(speciesId, variant = {}) {
 
   const animator = new CreatureAnimator(group, { parts, hints });
   return { group, animator };
+}
+
+// Shadow-map draws are the silent cost of 50-80-part creatures: eyes (sclera,
+// iris, catchlight, lid), unlit glow bits, transparent fx and crumbs a few
+// centimetres across can't cast a visible shadow, yet each one is an extra
+// draw in every shadow pass. Pin them off (callers such as battle
+// presentation blanket-enable castShadow on every mesh afterwards).
+const _noShadow = { get: () => false, set: () => {}, configurable: true };
+const _psV = new THREE.Vector3(), _psQ = new THREE.Quaternion(), _psS = new THREE.Vector3();
+function pruneShadowCasters(group) {
+  group.updateMatrixWorld(true);
+  group.traverse((o) => {
+    if (!o.isMesh || !o.castShadow) return;
+    let kill = false;
+    const mats = Array.isArray(o.material) ? o.material : [o.material];
+    if (mats.some((m) => !m || m.isMeshBasicMaterial || m.transparent || m.opacity < 1)) kill = true;
+    for (let n = o; n && !kill && n !== group; n = n.parent) if (n.name === 'eye' || n.name === 'motes' || n.name === 'flame') kill = true;
+    if (!kill && o.geometry) {
+      if (!o.geometry.boundingSphere) o.geometry.computeBoundingSphere();
+      o.matrixWorld.decompose(_psV, _psQ, _psS);
+      const r = o.geometry.boundingSphere.radius * Math.max(Math.abs(_psS.x), Math.abs(_psS.y), Math.abs(_psS.z));
+      if (r < 0.03) kill = true;
+    }
+    if (kill) Object.defineProperty(o, 'castShadow', _noShadow);
+  });
 }
 
 function measureHeight(group) {

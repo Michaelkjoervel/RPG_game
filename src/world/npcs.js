@@ -28,7 +28,10 @@ import { bus } from '../core/events.js';
 import { G, hasFlag } from '../core/state.js';
 import { clamp, damp, dampAngle, lerp, TAU } from '../core/math.js';
 import { hashStr, seededRandom } from '../core/rng.js';
-import { windSway, disposeGroup, applyVertexGradient, jitterGeometry, contactShadow, applyLook, addOutline, smoothGeometry, sphericalNormals } from '../gfx/materials.js';
+import {
+  windSway, disposeGroup, applyVertexGradient, contactShadow, applyLook, addOutline, smoothGeometry,
+  taperCapsule, lumpify, drapeShell, bakeParts, solidColor,
+} from '../gfx/materials.js';
 
 const INTERACT_RADIUS = 2.3;
 const INTERACT_CONE = Math.cos((50 * Math.PI) / 180); // half-angle cutoff -> ~100deg total talk cone
@@ -71,19 +74,6 @@ function vgrad(g, opts = {}) {
     from: opts.from ?? 0xb4a89c, to: opts.to ?? 0xffffff,
     noise: opts.noise ?? 0.04, seed: opts.seed ?? 5, exp: opts.exp ?? 1, axis: opts.axis ?? 'y',
   });
-  return g;
-}
-
-// Trapezoid cloth panel (capes, aprons, scarf tails): topW at y=0 -> bottomW at y=-len.
-function panelGeo(topW, bottomW, len, thick = 0.024, wSegs = 3, hSegs = 3) {
-  const g = new THREE.BoxGeometry(1, len, thick, wSegs, hSegs, 1);
-  const pos = g.attributes.position;
-  for (let i = 0; i < pos.count; i++) {
-    const u = 0.5 - pos.getY(i) / len;
-    pos.setX(i, pos.getX(i) * lerp(topW, bottomW, u));
-  }
-  g.translate(0, -len / 2, 0);
-  g.computeVertexNormals();
   return g;
 }
 
@@ -130,6 +120,63 @@ function basePalette(id) {
 }
 
 // ---------------------------------------------------------------- humanoid builder
+// v2 SOFT-STYLIZED PEOPLE: every part is smooth and rounded (tapered-capsule
+// limbs, rolled boot cuffs, rounded boots and mitt hands, lathed torsos with
+// soft hems), hair is softly lumped volume instead of crumpled facets, and all
+// cloth — capes, mantles, aprons, coats, hoods — is a real draped shell
+// (gfx/materials.js drapeShell: folds, soft hem, thickness, lining) instead of
+// flat box panels. Capes hang-sway from the shoulders in the wind. Cached
+// geometry bakes a NEUTRAL brightness ramp (vgrad / neutral drape colors) so
+// one geometry serves every palette; the per-NPC material color tints it.
+// The figure gets the shared soft ink outline (eyes/glows excluded).
+
+// Neutral drape colors for cached, material-tinted cloth.
+const DRAPE_NEUTRAL = { outerTop: 0xffffff, outerBot: 0xa99f97, liningTop: 0x8c8279, liningBot: 0x6f6660 };
+
+/** Rounded boot: a squashed capsule along Z with a flattened, softly rolled sole. */
+function roundedBootGeo(r) {
+  const g = new THREE.CapsuleGeometry(r, r * 1.8, 4, 14);
+  g.rotateX(Math.PI / 2);
+  g.scale(1.0, 0.7, 1.0);
+  const pos = g.attributes.position;
+  const sole = -r * 0.32;
+  for (let i = 0; i < pos.count; i++) {
+    const y = pos.getY(i);
+    if (y < sole) pos.setY(i, sole + (y - sole) * 0.28);
+    const z = pos.getZ(i);
+    if (z > r * 0.35) pos.setY(i, pos.getY(i) - (z - r * 0.35) * 0.08);
+  }
+  smoothGeometry(g);
+  return g;
+}
+/** Folded boot top / sleeve cuff: a short flared ring with a soft rolled lip. */
+function cuffRingGeo(r, h) {
+  return new THREE.LatheGeometry([
+    new THREE.Vector2(r * 0.9, -h * 0.55), new THREE.Vector2(r * 1.05, -h * 0.5), new THREE.Vector2(r * 1.14, -h * 0.1),
+    new THREE.Vector2(r * 1.17, h * 0.25), new THREE.Vector2(r * 1.07, h * 0.46), new THREE.Vector2(r * 0.92, h * 0.42),
+  ], 18);
+}
+/** Smooth tapered, gently curved spike (antlers, spiky locks, horns). */
+function softSpikeGeo(len, r0, bend = 0.3, seg = 12) {
+  const g = new THREE.CylinderGeometry(r0 * 0.14, r0, len, seg, 6, false);
+  g.translate(0, len / 2, 0);
+  const pos = g.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const t = Math.max(0, Math.min(1, pos.getY(i) / len));
+    pos.setX(i, pos.getX(i) + bend * t * t * len);
+  }
+  smoothGeometry(g, { creaseAngle: 1.2 });
+  return g;
+}
+/** A soft lock of hair: a rounded teardrop hanging from its root (origin). */
+function hairLockGeo(r, len) {
+  const g = new THREE.LatheGeometry([ // bottom -> top so faces point outward
+    [0.0005, -len], [r * 0.2, -len * 0.97], [r * 0.6, -len * 0.75], [r * 0.92, -len * 0.42], [r, -len * 0.1], [r * 0.75, r * 0.3], [0.0005, r * 0.4],
+  ].map(([x, y]) => new THREE.Vector2(x, y)), 12);
+  g.scale(1, 1, 0.72);
+  return g;
+}
+
 /**
  * spec: { height, build:'slim'|'avg'|'broad', skin, hair, primary, secondary,
  *         accent, hat:'none'|'hood'|'straw'|'mask'|'circlet'|'goggles',
@@ -140,15 +187,13 @@ function buildHuman(spec) {
   const h = spec.height ?? 1.6;
   const wide = spec.build === 'broad' ? 1.22 : spec.build === 'slim' ? 0.86 : 1;
   const skinM = stdMat(spec.skin, { rough: 0.62 });
-  const hairM = stdMat(spec.hair, { rough: 0.74, vertexColors: true });
+  const hairM = stdMat(spec.hair, { rough: 0.68, vertexColors: true });
   const primaryM = stdMat(spec.primary, { rough: 0.88, vertexColors: true });
   const secondaryM = stdMat(spec.secondary, { rough: 0.86, vertexColors: true });
-  const bootM = stdMat(spec.bootColor ?? shade(spec.secondary, -0.16, -0.12), { rough: 0.85, vertexColors: true });
+  const bootM = stdMat(spec.bootColor ?? shade(spec.secondary, -0.16, -0.12), { rough: 0.8, vertexColors: true });
   const accentM = stdMat(spec.accent ?? GOLD, { rough: 0.4, metal: 0.3, emissive: spec.accent ?? GOLD, ei: 0.25 });
-  const scleraM = stdMat(0xfdf8ee, { rough: 0.35 });
-  const irisM = stdMat(spec.iris ?? 0x5a4632, { rough: 0.3, emissive: spec.iris ?? 0x5a4632, ei: 0.15 });
-  const pupilM = stdMat(0x221a14, { rough: 0.25 });
-  const glintM = stdMat(0xffffff, { rough: 0.2, emissive: 0xffffff, ei: 0.8 });
+  // eyes: sclera/iris/pupil/glint baked into one vertex-colored mesh per eye
+  const eyeM = stdMat(0xffffff, { rough: 0.3, vertexColors: true, emissive: 0xffffff, ei: 0.08, rim: 0.4 });
 
   const group = new THREE.Group();
   const rig = new THREE.Group(); // idle bob / breath / stoop lives here
@@ -158,6 +203,7 @@ function buildHuman(spec) {
   const hipY = legLen;
   const TL = torsoLen;
   const K = (n) => `${n}_${h.toFixed(2)}_${wide.toFixed(2)}`; // size-keyed cache id
+  const noInk = (o) => { o.userData.noOutline = true; return o; };
 
   group.add(shadowDisc(0.42 * (wide > 1 ? 1.15 : 1)));
 
@@ -167,26 +213,19 @@ function buildHuman(spec) {
 
   if (spec.stoop) rig.rotation.x = spec.stoop * 0.22;
 
-  /* legs — tapered trousers into boots with a heel + toe hint */
+  /* legs — tapered trouser capsules into boots with a rolled cuff and a rounded foot */
   function buildLeg(sx) {
     const leg = new THREE.Group();
     leg.position.set(sx * 0.095 * wide, 0, 0);
-    const trouser = mesh(geo(K('npc_trouser'), () => vgrad(new THREE.CylinderGeometry(0.085 * wide, 0.06 * wide, legLen * 0.62, 7), { seed: 3 })), secondaryM);
+    const trouser = mesh(geo(K('v2_trouser'), () => vgrad(taperCapsule(0.084 * wide, 0.06 * wide, legLen * 0.5, 14), { seed: 3 })), secondaryM);
     trouser.position.y = -legLen * 0.32;
     leg.add(trouser);
-    const shaft = mesh(geo(K('npc_bootshaft'), () => vgrad(new THREE.CylinderGeometry(0.062 * wide, 0.056 * wide, legLen * 0.34, 7), { seed: 4 })), bootM);
-    shaft.position.y = -legLen * 0.79;
-    leg.add(shaft);
-    const cuff = mesh(geo(K('npc_bootcuff'), () => vgrad(new THREE.CylinderGeometry(0.078 * wide, 0.068 * wide, 0.06, 7), { seed: 5 })), bootM);
-    cuff.position.y = -legLen * 0.63;
-    leg.add(cuff);
-    const heel = mesh(geo(K('npc_heel'), () => vgrad(new THREE.BoxGeometry(0.105 * wide, 0.062, 0.13), { seed: 6 })), bootM);
-    heel.position.set(0, -legLen + 0.031, 0.012);
-    leg.add(heel);
-    const toe = mesh(geo(K('npc_toe'), () => vgrad(new THREE.SphereGeometry(0.052 * wide, 7, 5), { seed: 7 })), bootM);
-    toe.scale.set(1, 0.62, 1.15);
-    toe.position.set(0, -legLen + 0.030, 0.088);
-    leg.add(toe);
+    // boot shaft + rolled cuff + rounded boot: one cached mesh
+    leg.add(mesh(geo(K('v2_bootset'), () => bakeParts([
+      [vgrad(taperCapsule(0.062 * wide, 0.056 * wide, legLen * 0.26, 14), { seed: 4 }), { p: [0, -legLen * 0.78, 0] }],
+      [vgrad(cuffRingGeo(0.064 * wide, 0.06), { seed: 5 }), { p: [0, -legLen * 0.6, 0] }],
+      [vgrad(roundedBootGeo(0.052 * wide), { seed: 6 }), { p: [0, -legLen + 0.033, 0.036] }],
+    ])), bootM));
     hips.add(leg);
     return leg;
   }
@@ -195,76 +234,110 @@ function buildHuman(spec) {
   /* torso — one lathe from flared hem through waist pinch to rounded shoulders */
   const torso = new THREE.Group();
   hips.add(torso);
-  const torsoMesh = mesh(geo(K('npc_torso'), () => {
+  const torsoMesh = mesh(geo(K('v2_torso'), () => {
     const pts = [
-      new THREE.Vector2(0.118 * wide, 0.0), new THREE.Vector2(0.172 * wide, 0.02),
-      new THREE.Vector2(0.158 * wide, TL * 0.26), new THREE.Vector2(0.132 * wide, TL * 0.45),
-      new THREE.Vector2(0.15 * wide, TL * 0.70), new THREE.Vector2(0.158 * wide, TL * 0.86),
-      new THREE.Vector2(0.10 * wide, TL * 0.99), new THREE.Vector2(0.028 * wide, TL * 1.03),
+      new THREE.Vector2(0.118 * wide, -0.004), new THREE.Vector2(0.168 * wide, 0.012), new THREE.Vector2(0.172 * wide, 0.03),
+      new THREE.Vector2(0.158 * wide, TL * 0.26), new THREE.Vector2(0.133 * wide, TL * 0.45),
+      new THREE.Vector2(0.148 * wide, TL * 0.68), new THREE.Vector2(0.157 * wide, TL * 0.84),
+      new THREE.Vector2(0.126 * wide, TL * 0.96), new THREE.Vector2(0.07 * wide, TL * 1.02), new THREE.Vector2(0.002, TL * 1.04),
     ];
-    return vgrad(new THREE.LatheGeometry(pts, 10), { seed: 8, from: 0xa0948a, noise: 0.05 });
+    return vgrad(new THREE.LatheGeometry(pts, 24), { seed: 8, from: 0xa0948a, noise: 0.05 });
   }), primaryM);
   torsoMesh.scale.set(1.06, 1, 0.88); // oval cross-section
   torso.add(torsoMesh);
   const chestY = TL * 0.70, shoulderY = TL * 0.92;
-  const belt = mesh(geo(K('npc_belt'), () => new THREE.CylinderGeometry(0.148 * wide, 0.156 * wide, 0.055, 9)), accentM, false);
+  const belt = mesh(geo(K('v2_belt'), () => {
+    const g = new THREE.TorusGeometry(0.148 * wide, 0.019, 8, 28);
+    g.rotateX(Math.PI / 2);
+    g.scale(1, 1.45, 1);
+    return g;
+  }), accentM, false);
   belt.scale.set(1.06, 1, 0.88);
   belt.position.y = TL * 0.36;
   torso.add(belt);
 
   /* long robe skirt (elders, scholars): hangs from the waist over the legs */
   if (spec.robe) {
-    const robe = mesh(geo(K('npc_robe'), () => {
+    const robe = mesh(geo(K('v2_robe'), () => {
       const pts = [
-        new THREE.Vector2(0.235 * wide, -legLen * 0.92), new THREE.Vector2(0.20 * wide, -legLen * 0.5),
-        new THREE.Vector2(0.155 * wide, 0.0), new THREE.Vector2(0.16 * wide, TL * 0.3),
-      ];
-      return vgrad(new THREE.LatheGeometry(pts, 10), { seed: 9, exp: 0.85, from: 0x9a8e84, noise: 0.05 });
+        new THREE.Vector2(0.16 * wide, TL * 0.3), new THREE.Vector2(0.156 * wide, 0.0), new THREE.Vector2(0.2 * wide, -legLen * 0.5),
+        new THREE.Vector2(0.235 * wide, -legLen * 0.9), new THREE.Vector2(0.232 * wide, -legLen * 0.935), new THREE.Vector2(0.2 * wide, -legLen * 0.93),
+      ].reverse();
+      const g = new THREE.LatheGeometry(pts, 26);
+      const pos = g.attributes.position;
+      for (let i = 0; i < pos.count; i++) { // soft folds deepening toward the hem
+        const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+        const w = Math.max(0, Math.min(1, -y / (legLen * 0.9)));
+        const f = 1 + 0.05 * w * Math.sin(Math.atan2(z, x) * 9 + 0.4);
+        pos.setXYZ(i, x * f, y, z * f);
+      }
+      smoothGeometry(g);
+      return vgrad(g, { seed: 9, exp: 0.85, from: 0x9a8e84, noise: 0.05 });
     }), primaryM);
     robe.scale.set(1.04, 1, 0.9);
     torso.add(robe);
   }
 
-  /* work apron (merchants): panel from the chest over the knees + waist tie */
+  /* work apron (merchants): a gently curved drape over the front + waist tie */
   if (spec.apron) {
-    const apron = mesh(geo(K('npc_apron'), () => vgrad(panelGeo(0.19 * wide, 0.26 * wide, TL * 1.05, 0.02), { seed: 10 })), secondaryM);
-    apron.position.set(0, TL * 0.78, 0.135 * wide);
-    apron.rotation.x = 0.07;
+    const apron = mesh(geo(K('v2_apron'), () => {
+      const g = drapeShell({
+        profile: [
+          { y: TL * 0.8, rx: 0.15 * wide, rz: 0.132 * wide, cz: 0, span: 0.62 },
+          { y: TL * 0.42, rx: 0.15 * wide, rz: 0.13 * wide, cz: 0, span: 0.68 },
+          { y: -TL * 0.3, rx: 0.2 * wide, rz: 0.17 * wide, cz: -0.012, span: 0.66 },
+        ],
+        nu: 20, nv: 12, folds: 3, foldAmp: [0.002, 0.012], hemWave: 0.02, hemSideLift: 0.04, thick: 0.012,
+        ...DRAPE_NEUTRAL, seed: 10,
+      });
+      g.rotateY(Math.PI); // drapeShell's θ = 0 is the back; turn it to the front
+      return g;
+    }), secondaryM);
+    apron.scale.set(1.06, 1, 0.88);
     torso.add(apron);
-    const tie = mesh(geo(K('npc_aprontie'), () => vgrad(new THREE.BoxGeometry(0.20 * wide, 0.035, 0.02), { seed: 15 })), bootM, false);
-    tie.position.set(0, TL * 0.38, 0.145 * wide);
+    const tie = mesh(geo(K('v2_aprontie'), () => {
+      const g = new THREE.TorusGeometry(0.152 * wide, 0.011, 8, 30);
+      g.rotateX(Math.PI / 2);
+      return g;
+    }), bootM, false);
+    tie.scale.set(1.06, 1, 0.88);
+    tie.position.y = TL * 0.4;
     torso.add(tie);
   }
 
-  /* shoulder mantle (the Order): stern collar cone over the shoulders */
+  /* shoulder mantle (the Order): stern collar-cape over the shoulders */
   if (spec.mantle) {
-    const mantleM = stdMat(spec.secondary, { rough: 0.9, side: THREE.DoubleSide, vertexColors: true });
-    const mantle = mesh(geo(K('npc_mantle'), () => vgrad(new THREE.CylinderGeometry(0.14 * wide, 0.235 * wide, TL * 0.28, 9, 1, true), { seed: 11 })), mantleM);
-    mantle.position.y = TL * 0.80;
+    const mantleM = stdMat(spec.secondary, { rough: 0.9, vertexColors: true });
+    const mantle = mesh(geo(K('v2_mantle'), () => drapeShell({
+      profile: [
+        { y: TL * 1.0, rx: 0.11 * wide, rz: 0.1 * wide, cz: 0, span: 2.75 },
+        { y: TL * 0.95, rx: 0.24 * wide, rz: 0.19 * wide, cz: -0.005, span: 2.72 },
+        { y: TL * 0.84, rx: 0.29 * wide, rz: 0.215 * wide, cz: -0.01, span: 2.68 },
+        { y: TL * 0.62, rx: 0.3 * wide, rz: 0.222 * wide, cz: -0.012, span: 2.62 },
+      ],
+      nu: 40, nv: 7, folds: 8, foldAmp: [0.003, 0.014], hemWave: 0.03, hemSideLift: 0.05, thick: 0.013,
+      ...DRAPE_NEUTRAL, seed: 11,
+    })), mantleM);
     torso.add(mantle);
   }
 
-  /* arms — shoulder cap, tapered sleeve, cuff, mitt hand with a thumb */
+  /* arms — shoulder cap, tapered sleeve, rolled cuff, rounded mitt hand + thumb */
   function buildArm(sx) {
     const arm = new THREE.Group();
     arm.position.set(sx * 0.205 * wide, shoulderY, 0);
-    const cap = mesh(geo(K('npc_armcap'), () => vgrad(new THREE.SphereGeometry(0.058 * wide, 7, 5), { seed: 12 })), primaryM);
-    cap.scale.set(1.1, 0.82, 1);
-    cap.position.y = -0.005;
-    arm.add(cap);
-    const sleeve = mesh(geo(K('npc_sleeve'), () => vgrad(new THREE.CylinderGeometry(0.054 * wide, 0.045 * wide, 0.26, 7), { seed: 13 })), primaryM);
-    sleeve.position.y = -0.15;
-    arm.add(sleeve);
-    const cuff = mesh(geo(K('npc_cuff'), () => vgrad(new THREE.CylinderGeometry(0.047 * wide, 0.051 * wide, 0.05, 7), { seed: 14 })), secondaryM, false);
-    cuff.position.y = -0.29;
+    arm.add(mesh(geo(K('v2_armupper'), () => bakeParts([   // shoulder cap + tapered sleeve
+      [vgrad(new THREE.SphereGeometry(0.058 * wide, 16, 12), { seed: 12 }), { p: [0, -0.005, 0], s: [1.08, 0.86, 1] }],
+      [vgrad(taperCapsule(0.054 * wide, 0.045 * wide, 0.18, 14), { seed: 13 }), { p: [0, -0.15, 0] }],
+    ])), primaryM));
+    const cuff = mesh(geo(K('v2_cuff'), () => vgrad(cuffRingGeo(0.045 * wide, 0.045), { seed: 14 })), secondaryM, false);
+    cuff.position.y = -0.285;
     arm.add(cuff);
     const hand = new THREE.Group();
-    hand.position.y = -0.35;
-    const palm = mesh(geo('npc_palm', () => new THREE.SphereGeometry(0.048, 7, 5)), skinM, false);
-    palm.scale.set(0.88, 1.08, 0.96);
-    const thumb = mesh(geo('npc_thumb', () => new THREE.SphereGeometry(0.021, 5, 4)), skinM, false);
-    thumb.position.set(-sx * 0.034, 0.012, 0.02);
-    hand.add(palm, thumb);
+    hand.position.y = -0.345;
+    hand.add(mesh(geo(`v2_hand_${sx}`, () => bakeParts([   // rounded mitt + thumb
+      [new THREE.SphereGeometry(0.047, 14, 10), { s: [0.9, 1.08, 0.96] }],
+      [new THREE.CapsuleGeometry(0.017, 0.022, 3, 10), { p: [-sx * 0.033, 0.008, 0.022], r: [0.35, 0, -sx * 0.55] }],
+    ])), skinM, false));
     arm.add(hand);
     arm.rotation.z = sx * (0.10 + (spec.stance ?? 0.5) * 0.10);
     torso.add(arm);
@@ -274,153 +347,221 @@ function buildHuman(spec) {
   if (spec.armPose === 'hip') { armR.pivot.rotation.z = -0.62; armR.pivot.rotation.x = -0.18; }
 
   /* neck + head */
-  const neck = mesh(geo(K('npc_neck'), () => new THREE.CylinderGeometry(0.042, 0.052, TL * 0.22, 7)), skinM, false);
+  const neck = mesh(geo(K('v2_neck'), () => taperCapsule(0.042, 0.05, TL * 0.12, 16)), skinM, false);
   neck.position.y = TL * 1.08;
   torso.add(neck);
   const headGrp = new THREE.Group();
   headGrp.position.y = TL * 1.32;
   torso.add(headGrp);
-  const head = mesh(geo(K('npc_head'), () => new THREE.SphereGeometry(headR, 11, 9)), skinM);
-  head.scale.set(0.98, 1.04, 1);
-  headGrp.add(head);
-  for (const sx of [-1, 1]) {
-    const ear = mesh(geo(K('npc_ear'), () => new THREE.SphereGeometry(headR * 0.17, 6, 4)), skinM, false);
-    ear.position.set(sx * headR * 0.95, headR * 0.02, 0.01);
-    headGrp.add(ear);
-  }
+  headGrp.add(mesh(geo(K('v2_headears'), () => bakeParts([   // head + ears
+    [new THREE.SphereGeometry(headR, 26, 18), { s: [0.98, 1.04, 1] }],
+    [new THREE.SphereGeometry(headR * 0.17, 10, 8), { p: [-headR * 0.95, headR * 0.02, 0.01], s: [0.62, 1, 0.82] }],
+    [new THREE.SphereGeometry(headR * 0.17, 10, 8), { p: [headR * 0.95, headR * 0.02, 0.01], s: [0.62, 1, 0.82] }],
+  ])), skinM));
 
   const masked = spec.hat === 'mask';
   if (!masked) {
     /* stylized face: flattened sclera + iris + pupil + glint, brows, nose, smile */
-    const nose = mesh(geo(K('npc_nose'), () => new THREE.SphereGeometry(headR * 0.09, 5, 4)), skinM, false);
+    const nose = noInk(mesh(geo(K('v2_nose'), () => new THREE.SphereGeometry(headR * 0.09, 12, 10)), skinM, false));
+    nose.scale.set(1, 0.9, 0.85);
     nose.position.set(0, -headR * 0.06, headR * 0.97);
     headGrp.add(nose);
+    const irisHex = spec.iris ?? 0x5a4632;
+    const eyeG = geo(`${K('v2_eye')}_${irisHex}`, () => bakeParts([
+      [solidColor(new THREE.SphereGeometry(headR * 0.17, 14, 10), 0xfdf8ee), { s: [1, 1.12, 0.5] }],
+      [solidColor(new THREE.SphereGeometry(headR * 0.105, 12, 8), irisHex), { p: [0, 0, headR * 0.07], s: [1, 1.06, 0.7] }],
+      [solidColor(new THREE.SphereGeometry(headR * 0.055, 10, 6), 0x221a14), { p: [0, 0, headR * 0.125], s: [1, 1.06, 0.7] }],
+      [solidColor(new THREE.SphereGeometry(headR * 0.034, 8, 6), 0xffffff), { p: [headR * 0.045, headR * 0.05, headR * 0.155] }],
+    ]));
     for (const sx of [-1, 1]) {
-      const eye = new THREE.Group();
+      const eye = noInk(mesh(eyeG, eyeM, false));
       eye.position.set(sx * headR * 0.36, headR * 0.10, headR * 0.92);
-      const sclera = mesh(geo(K('npc_sclera'), () => new THREE.SphereGeometry(headR * 0.17, 8, 6)), scleraM, false);
-      sclera.scale.set(1, 1.12, 0.5);
-      const iris = mesh(geo(K('npc_iris'), () => new THREE.SphereGeometry(headR * 0.105, 7, 5)), irisM, false);
-      iris.position.z = headR * 0.07;
-      const pupil = mesh(geo(K('npc_pupil'), () => new THREE.SphereGeometry(headR * 0.055, 6, 4)), pupilM, false);
-      pupil.position.z = headR * 0.13;
-      const glint = mesh(geo(K('npc_glint'), () => new THREE.SphereGeometry(headR * 0.034, 5, 4)), glintM, false);
-      glint.position.set(headR * 0.045, headR * 0.05, headR * 0.16);
-      eye.add(sclera, iris, pupil, glint);
-      eye.userData.noOutline = true;
       headGrp.add(eye);
-      const brow = mesh(geo(K('npc_brow'), () => vgrad(new THREE.BoxGeometry(headR * 0.36, headR * 0.085, headR * 0.08), { from: 0xf2ede8, seed: 25 })), hairM, false);
-      brow.position.set(sx * headR * 0.36, headR * 0.42, headR * 0.97);
-      brow.rotation.z = -sx * 0.1;
-      headGrp.add(brow);
     }
-    const smile = mesh(geo(K('npc_smile'), () => new THREE.TorusGeometry(headR * 0.115, headR * 0.036, 5, 8, Math.PI * 0.75)), stdMat(0xb5765a, { rough: 0.6 }), false);
-    smile.position.set(0, -headR * 0.30, headR * 0.97);
+    headGrp.add(noInk(mesh(geo(K('v2_brows'), () => bakeParts([-1, 1].map((sx) => [
+      vgrad(new THREE.CapsuleGeometry(headR * 0.045, headR * 0.26, 4, 10), { from: 0xf2ede8, seed: 25 }),
+      { p: [sx * headR * 0.36, headR * 0.42, headR * 0.95], r: [0, 0, Math.PI / 2 - sx * 0.1] },
+    ]))), hairM, false)));
+    const smile = noInk(mesh(geo(K('v2_smile'), () => new THREE.TorusGeometry(headR * 0.115, headR * 0.034, 8, 16, Math.PI * 0.75)), stdMat(0xb5765a, { rough: 0.6 }), false));
+    smile.position.set(0, -headR * 0.30, headR * 0.96);
     smile.rotation.z = -Math.PI * 0.875;
     headGrp.add(smile);
   }
 
-  /* hair — per-id style with actual shaped volume (jittered lobes, not a cap).
-     A hood or masked hood replaces the hair entirely — lobes would poke
-     straight through the fabric shell otherwise. */
-  const hairPart = (key, make, x, y, z, sx = 1, sy = 1, sz = 1, rx = 0, rz = 0) => {
-    const m = mesh(geo(key, () => vgrad(make(), { from: 0xa89a8c, seed: 17, noise: 0.05 })), hairM, false);
-    m.position.set(x * headR, y * headR, z * headR);
-    m.scale.set(sx, sy, sz);
-    m.rotation.x = rx; m.rotation.z = rz;
-    headGrp.add(m);
-    return m;
-  };
+  /* hair — per-id style with soft, smoothly lumped volume (never crumpled
+     facets). A hood or masked hood replaces the hair entirely — lobes would
+     poke straight through the fabric shell otherwise. */
+  // All of a style's pieces are baked into ONE cached geometry per style/size:
+  // one draw call, one continuous gradient (nape -> crown), and an ink outline
+  // pushed radially from the head so overlapping locks don't web the back of
+  // the head with inner lines.
+  const lobe = (r, lump, seed, ws = 16, hs = 12) => lumpify(new THREE.SphereGeometry(r, ws, hs), lump, seed);
   const hooded = spec.hat === 'hood' || spec.hat === 'mask';
   const style = hooded ? 'none' : (spec.hairStyle ?? 'crop');
-  if (style !== 'bald' && style !== 'none') {
-    hairPart(K('npc_hairmain'), () => jitterGeometry(new THREE.SphereGeometry(headR * 1.03, 9, 7), headR * 0.05, 31), 0, 0.34, -0.10, 1.02, 0.9, 1.0);
-  }
-  if (style === 'crop' || style === 'side' || style === 'spiky') {
-    hairPart(K('npc_hairnape'), () => jitterGeometry(new THREE.SphereGeometry(headR * 0.5, 7, 5), headR * 0.05, 32), 0, -0.12, -0.62, 1.35, 0.8, 0.7);
-  }
-  if (style === 'crop' || style === 'bun' || style === 'ponytail' || style === 'spiky') {
-    hairPart(K('npc_hairline'), () => jitterGeometry(new THREE.SphereGeometry(headR * 0.46, 7, 5), headR * 0.04, 40), 0, 1.0, 0.42, 1.75, 0.5, 0.85);
-  }
-  if (style === 'side' || style === 'bob') {
-    hairPart(K('npc_hairfringe'), () => jitterGeometry(new THREE.SphereGeometry(headR * 0.42, 7, 5), headR * 0.05, 33), -0.28, 1.02, 0.55, 1.5, 0.6, 0.9);
-    hairPart(K('npc_hairfringe2'), () => jitterGeometry(new THREE.SphereGeometry(headR * 0.34, 7, 5), headR * 0.05, 34), 0.45, 0.98, 0.5, 1.2, 0.55, 0.9);
-  }
-  if (style === 'bob') {
-    for (const sx of [-1, 1]) {
-      hairPart(K('npc_haircurtain'), () => jitterGeometry(new THREE.SphereGeometry(headR * 0.4, 7, 5), headR * 0.04, 35), sx * 0.85, -0.1, -0.1, 0.55, 1.35, 0.85);
+  const hairKey = `${K('v2_hair')}_${style}_${spec.beard ? 1 : 0}`;
+  const hairG = style === 'none' && !spec.beard ? null : geo(hairKey, () => {
+    const parts = [];
+    const add = (g, x, y, z, sx = 1, sy = 1, sz = 1, rx = 0, rz = 0) =>
+      parts.push([g, { p: [x * headR, y * headR, z * headR], r: [rx, 0, rz], s: [sx, sy, sz] }]);
+    if (style !== 'bald' && style !== 'none') {
+      add(lobe(headR * 1.04, 0.05, 31, 22, 16), 0, 0.34, -0.10, 1.02, 0.9, 1.0);
+      // soft locks hanging around the back of the head — structure for the camera's view
+      if (style !== 'bob') {
+        for (let i = 0; i < 5; i++) {
+          const a = (i / 4 - 0.5) * 2.6;
+          const g = lumpify(hairLockGeo(headR * 0.36, headR * 0.72), 0.05, 44 + i);
+          g.rotateX(0.28); g.rotateY(a);          // tip tucks out, then swung around the head
+          add(g, -Math.sin(a) * 0.9, 0.06, -0.12 - Math.cos(a) * 0.86);
+        }
+      }
     }
-  }
-  if (style === 'bun') {
-    hairPart(K('npc_hairbun'), () => jitterGeometry(new THREE.SphereGeometry(headR * 0.38, 7, 5), headR * 0.04, 36), 0, 0.78, -0.85);
-  }
-  if (style === 'ponytail') {
-    hairPart(K('npc_hairtail'), () => jitterGeometry(new THREE.ConeGeometry(headR * 0.3, headR * 1.7, 6), headR * 0.05, 37), 0, 0.05, -1.0, 1, 1, 1, 2.65, 0);
-  }
-  if (style === 'spiky') {
-    hairPart(K('npc_hairspike1'), () => new THREE.ConeGeometry(headR * 0.24, headR * 0.72, 5), -0.35, 1.12, 0.1, 1, 1, 1, -0.15, 0.5);
-    hairPart(K('npc_hairspike2'), () => new THREE.ConeGeometry(headR * 0.22, headR * 0.62, 5), 0.15, 1.2, 0.05, 1, 1, 1, 0.1, -0.35);
-    hairPart(K('npc_hairspike3'), () => new THREE.ConeGeometry(headR * 0.2, headR * 0.55, 5), 0.35, 1.05, -0.35, 1, 1, 1, -0.55, -0.7);
-  }
-  if (style === 'bald') {
-    hairPart(K('npc_hairrim'), () => jitterGeometry(new THREE.SphereGeometry(headR * 1.0, 9, 6), headR * 0.04, 38), 0, -0.02, -0.15, 1.04, 0.42, 1.0);
-  }
-  if (spec.beard) {
-    hairPart(K('npc_beard'), () => jitterGeometry(new THREE.ConeGeometry(headR * 0.42, headR * 1.05, 7), headR * 0.05, 39), 0, -0.78, 0.42, 1.15, 1, 0.8, Math.PI - 0.3, 0);
-  }
+    if (style === 'crop' || style === 'side' || style === 'spiky') add(lobe(headR * 0.5, 0.05, 32), 0, -0.12, -0.62, 1.35, 0.8, 0.7);
+    if (style === 'crop' || style === 'bun' || style === 'ponytail' || style === 'spiky') add(lobe(headR * 0.46, 0.04, 40), 0, 1.0, 0.42, 1.75, 0.5, 0.85);
+    if (style === 'side' || style === 'bob') {
+      add(lobe(headR * 0.42, 0.05, 33), -0.28, 1.02, 0.55, 1.5, 0.6, 0.9);
+      add(lobe(headR * 0.34, 0.05, 34), 0.45, 0.98, 0.5, 1.2, 0.55, 0.9);
+    }
+    if (style === 'bob') {
+      for (const sx of [-1, 1]) add(lobe(headR * 0.42, 0.04, 35), sx * 0.85, -0.1, -0.12, 0.58, 1.38, 0.88);
+      add(lobe(headR * 0.62, 0.04, 36), 0, -0.05, -0.62, 1.5, 1.2, 0.72);
+    }
+    if (style === 'bun') add(lobe(headR * 0.38, 0.04, 36), 0, 0.78, -0.85);
+    if (style === 'ponytail') add(lumpify(hairLockGeo(headR * 0.3, headR * 1.7), 0.05, 37), 0, 0.3, -1.0, 1, 1, 1, 0.35, 0);
+    if (style === 'spiky') {
+      add(softSpikeGeo(headR * 0.72, headR * 0.24, 0.35), -0.35, 1.05, 0.1, 1, 1, 1, -0.15, 0.5);
+      add(softSpikeGeo(headR * 0.62, headR * 0.22, -0.3), 0.15, 1.15, 0.05, 1, 1, 1, 0.1, -0.35);
+      add(softSpikeGeo(headR * 0.55, headR * 0.2, 0.3), 0.35, 1.0, -0.35, 1, 1, 1, -0.55, -0.7);
+    }
+    if (style === 'bald') add(lobe(headR * 1.0, 0.04, 38, 24, 16), 0, -0.02, -0.15, 1.04, 0.42, 1.0);
+    if (spec.beard) {
+      const g = lumpify(hairLockGeo(headR * 0.46, headR * 1.0), 0.06, 39);
+      g.scale(1.15, 1, 0.8);
+      add(g, 0, -0.42, 0.55, 1, 1, 1, 0.15, 0);
+    }
+    if (!parts.length) return null;
+    for (const [g] of parts) { if (g.attributes.normal == null) g.computeVertexNormals(); }
+    const merged = bakeParts(parts);
+    smoothGeometry(merged);
+    const hc = new THREE.Vector3(0, headR * 0.1, -headR * 0.1);
+    const pos = merged.attributes.position, on = new Float32Array(pos.count * 3), v = new THREE.Vector3();
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).sub(hc).normalize();
+      on[i * 3] = v.x; on[i * 3 + 1] = v.y; on[i * 3 + 2] = v.z;
+    }
+    merged.setAttribute('lfOutlineNormal', new THREE.BufferAttribute(on, 3));
+    return vgrad(merged, { from: 0xa89a8c, seed: 17, noise: 0.05 });
+  });
+  if (hairG) headGrp.add(mesh(hairG, hairM, false));
 
   // ---- hat / headwear
   let hatMesh = null;
-  if (spec.hat === 'hood') {
-    hatMesh = mesh(geo(K('hat_hood'), () => vgrad(jitterGeometry(new THREE.ConeGeometry(headR * 1.32, headR * 2.05, 8), headR * 0.05, 41), { seed: 19 })), secondaryM, false);
-    hatMesh.position.y = headR * 0.38;
+  if (spec.hat === 'hood' || spec.hat === 'mask') {
+    // a real hood: draped shell over the head, open at the face, soft point at the back
+    hatMesh = mesh(geo(K('v2_hood'), () => drapeShell({
+      profile: [
+        { y: headR * 1.28, rx: headR * 0.06, rz: headR * 0.07, cz: -headR * 0.36, span: 2.3 },
+        { y: headR * 1.0, rx: headR * 0.94, rz: headR * 1.0, cz: -headR * 0.14, span: 2.34 },
+        { y: headR * 0.2, rx: headR * 1.14, rz: headR * 1.14, cz: -headR * 0.06, span: 2.36 },
+        { y: -headR * 0.75, rx: headR * 1.24, rz: headR * 1.14, cz: -headR * 0.1, span: 2.5 },
+      ],
+      nu: 34, nv: 10, folds: 5, foldAmp: [0.002, 0.012], hemWave: 0.02, hemSideLift: 0.04, thick: 0.014,
+      ...DRAPE_NEUTRAL, seed: 19,
+    })), secondaryM);
+    headGrp.add(hatMesh);
+    if (spec.hat === 'mask') {
+      const maskM = stdMat(0xdedad2, { rough: 0.45, emissive: 0xdedad2, ei: 0.06 });
+      const maskG = geo(K('v2_mask'), () => {
+        const g = new THREE.SphereGeometry(headR * 1.02, 28, 14, 0, Math.PI * 2, 0, 0.95);
+        g.rotateX(Math.PI / 2); // cap facing +Z
+        return g;
+      });
+      const face = mesh(maskG, maskM, false);
+      face.position.set(0, -0.01, headR * 0.02);
+      hatMesh.add(face);
+      /* two slit "eyes" painted on the mask so it reads at distance */
+      for (const sx of [-1, 1]) {
+        const slit = noInk(mesh(geo(K('v2_mask_slit'), () => new THREE.CapsuleGeometry(headR * 0.028, headR * 0.12, 4, 8)), stdMat(0x2a2530, { rough: 0.4 }), false));
+        slit.rotation.z = Math.PI / 2 + sx * 0.35;
+        slit.position.set(sx * headR * 0.3, headR * 0.12, headR * 1.0);
+        hatMesh.add(slit);
+      }
+    }
   } else if (spec.hat === 'straw') {
     const strawM = stdMat(0xd9b96e, { rough: 0.9, vertexColors: true });
     hatMesh = new THREE.Group();
-    const brim = mesh(geo(K('hat_brim'), () => vgrad(new THREE.CylinderGeometry(headR * 1.85, headR * 1.95, 0.025, 12), { seed: 20 })), strawM, false);
-    const top = mesh(geo(K('hat_top'), () => vgrad(new THREE.ConeGeometry(headR * 1.05, headR * 1.05, 10), { seed: 21 })), strawM, false);
-    top.position.y = headR * 0.52;
-    const band = mesh(geo(K('hat_bandr'), () => vgrad(new THREE.CylinderGeometry(headR * 0.72, headR * 0.78, headR * 0.22, 10), { seed: 24 })), bootM, false);
-    band.position.y = headR * 0.12;
-    hatMesh.add(brim, top, band);
-    hatMesh.position.y = headR * 0.85;
-  } else if (spec.hat === 'mask') {
-    hatMesh = mesh(geo(K('hat_mask'), () => new THREE.CircleGeometry(headR * 0.82, 10)), stdMat(0xdedad2, { rough: 0.5, emissive: 0xdedad2, ei: 0.06 }), false);
-    hatMesh.position.set(0, -0.01, headR * 0.96);
-    const hood = mesh(geo(K('hat_hood2'), () => vgrad(new THREE.SphereGeometry(headR * 1.22, 8, 6, 0, TAU, 0, Math.PI * 0.55), { seed: 22 })), secondaryM, false);
-    hood.position.y = headR * 0.3;
-    hatMesh.add(hood);
-    /* two slit "eyes" painted on the mask so it reads at distance */
-    for (const sx of [-1, 1]) {
-      const slit = mesh(geo(K('mask_slit'), () => new THREE.BoxGeometry(headR * 0.16, headR * 0.05, 0.008)), stdMat(0x2a2530, { rough: 0.4 }), false);
-      slit.position.set(sx * headR * 0.3, headR * 0.12, 0.006);
-      slit.rotation.z = sx * 0.35;
-      hatMesh.add(slit);
-    }
+    const hat = mesh(geo(K('v2_strawhat'), () => {
+      const H = headR;
+      // profile walks crown -> brim edge -> brim underside; reversed below so
+      // the lathe's faces point outward (three expects bottom -> top order)
+      const g = new THREE.LatheGeometry([
+        [0.001, 0.98 * H], [0.22 * H, 0.94 * H], [0.62 * H, 0.6 * H], [0.98 * H, 0.16 * H], [1.08 * H, 0.08 * H],
+        [1.6 * H, 0.01 * H], [1.95 * H, -0.1 * H], [1.97 * H, -0.13 * H], [1.9 * H, -0.12 * H], [1.55 * H, -0.03 * H],
+        [1.02 * H, 0.0], [0.92 * H, 0.03 * H],
+      ].reverse().map(([x, y]) => new THREE.Vector2(x, y)), 40);
+      return vgrad(g, { seed: 20 });
+    }), strawM, false);
+    const band = mesh(geo(K('v2_hat_band'), () => {
+      const g = new THREE.TorusGeometry(headR * 1.0, headR * 0.07, 8, 34);
+      g.rotateX(Math.PI / 2);
+      g.scale(1, 1.6, 1);
+      return vgrad(g, { seed: 24 });
+    }), bootM, false);
+    band.position.y = headR * 0.14;
+    hatMesh.add(hat, band);
+    hatMesh.position.y = headR * 0.8;
   } else if (spec.hat === 'circlet') {
-    hatMesh = mesh(geo(K('hat_circlet'), () => new THREE.TorusGeometry(headR * 0.98, 0.012, 6, 14)), accentM, false);
+    hatMesh = mesh(geo(K('v2_circlet'), () => new THREE.TorusGeometry(headR * 0.98, 0.012, 8, 40)), accentM, false);
     hatMesh.rotation.x = Math.PI / 2;
     hatMesh.position.y = headR * 0.62;
   } else if (spec.hat === 'goggles') {
     hatMesh = new THREE.Group();
-    const band = mesh(geo(K('hat_band'), () => vgrad(new THREE.TorusGeometry(headR * 1.0, 0.012, 6, 14), { from: 0xf2ede8, seed: 26 })), hairM, false);
+    const band = mesh(geo(K('v2_gog_band'), () => vgrad(new THREE.TorusGeometry(headR * 1.0, 0.012, 8, 40), { from: 0xf2ede8, seed: 26 })), hairM, false);
     band.rotation.y = Math.PI / 2;
-    const lensGeo = geo(K('hat_lens'), () => new THREE.CircleGeometry(headR * 0.32, 10));
+    const lensGeo = geo(K('v2_gog_lens'), () => new THREE.CircleGeometry(headR * 0.32, 24));
+    const rimGeo = geo(K('v2_gog_rim'), () => new THREE.TorusGeometry(headR * 0.33, 0.01, 8, 24));
     const lensM = stdMat(0xbfe4ff, { rough: 0.2, metal: 0.4, transparent: true, opacity: 0.85, emissive: 0xbfe4ff, ei: 0.2 });
-    const lL = mesh(lensGeo, lensM, false); lL.position.set(-headR * 0.4, 0.02, headR * 0.9);
-    const lR = mesh(lensGeo, lensM, false); lR.position.set(headR * 0.4, 0.02, headR * 0.9);
-    hatMesh.add(band, lL, lR);
+    const rimM = stdMat(0x5a4e44, { rough: 0.5, metal: 0.4 });
+    for (const sx of [-1, 1]) {
+      const l = mesh(lensGeo, lensM, false); l.position.set(sx * headR * 0.4, 0.02, headR * 0.9);
+      const r = mesh(rimGeo, rimM, false); r.position.set(sx * headR * 0.4, 0.02, headR * 0.9);
+      hatMesh.add(l, r);
+    }
+    hatMesh.add(band);
   }
   if (hatMesh) headGrp.add(hatMesh);
 
-  // ---- cape: tapered panel flaring toward the hem, cloth sway
-  let cape = null;
+  // ---- cape: a draped, folded shell over the shoulders that hang-sways in the wind
   if (spec.cape) {
-    const capeM = stdMat(spec.cape === true ? spec.secondary : spec.cape, { rough: 1, side: THREE.DoubleSide, sway: 0.5, vertexColors: true });
-    cape = mesh(geo(K('npc_cape'), () => vgrad(panelGeo(0.30 * wide, 0.44 * wide, TL * 1.35, 0.02, 4, 4), { seed: 23, exp: 0.9, from: 0x968a80, noise: 0.05 })), capeM, true);
-    cape.position.set(0, TL * 0.98, -0.115 * wide);
-    cape.rotation.x = 0.16;
+    const capeLen = TL * 1.0 + legLen * 0.55;
+    const capeM = stdMat(spec.cape === true ? spec.secondary : spec.cape, { rough: 0.95, vertexColors: true });
+    windSway(capeM, { strength: 0.35, speed: 1.1, heightScale: capeLen, hang: true });
+    const cape = mesh(geo(K('v2_cape'), () => {
+      const top = TL * 1.0;
+      const g = drapeShell({ // rolls over the shoulders from the collar, then falls behind the arms
+        profile: [
+          { y: top, rx: 0.11 * wide, rz: 0.1 * wide, cz: 0, span: 2.2 },
+          { y: TL * 0.94, rx: 0.25 * wide, rz: 0.18 * wide, cz: -0.02, span: 2.0 },
+          { y: TL * 0.8, rx: 0.3 * wide, rz: 0.2 * wide, cz: -0.04, span: 1.85 },
+          { y: TL * 0.2, rx: 0.31 * wide, rz: 0.21 * wide, cz: -0.07, span: 1.72 },
+          { y: -legLen * 0.55, rx: 0.34 * wide, rz: 0.24 * wide, cz: -0.11, span: 1.6 },
+        ],
+        nu: 52, nv: 14, folds: 7, foldAmp: [0.006, 0.055], foldDrift: 1.1, hemWave: 0.018, hemSideLift: 0.12, thick: 0.016,
+        ...DRAPE_NEUTRAL, seed: 23,
+      });
+      g.translate(0, -top, 0); // hang from the origin (hang-sway reads -y as the drop)
+      return g;
+    }), capeM, true);
+    cape.position.y = TL * 1.0;
     torso.add(cape);
+    // shoulder yoke so the cape reads as worn, not glued: a soft rolled collar
+    const yoke = mesh(geo(K('v2_capeyoke'), () => {
+      const g = new THREE.TorusGeometry(0.13 * wide, 0.03, 8, 24, Math.PI * 1.3);
+      g.rotateZ(-Math.PI * 1.15);
+      g.rotateX(Math.PI / 2);
+      return vgrad(g, { seed: 27 });
+    }), capeM, false);
+    yoke.position.set(0, TL * 0.94, -0.015);
+    torso.add(yoke);
   }
 
   const ctx = {
@@ -490,7 +631,11 @@ function archetypeFor(id, kind, appearance) {
 // ---------------------------------------------------------------- bespoke silhouettes (bible-pinned)
 function pauldron(ctx, side = 1) {
   const rockM = stdMat(0x8d8a84, { rough: 0.95 });
-  const p = mesh(geo('pauldron', () => new THREE.IcosahedronGeometry(0.12, 0)), rockM);
+  const p = mesh(geo('v2_pauldron', () => {
+    const g = lumpify(new THREE.IcosahedronGeometry(0.12, 3), 0.16, 12);
+    smoothGeometry(g);
+    return g;
+  }), rockM);
   p.position.set(side * 0.215 * ctx.wide, ctx.shoulderY + 0.05, 0);
   p.scale.set(1, 0.7, 0.9);
   ctx.torso.add(p);
@@ -499,48 +644,70 @@ function spectacles(ctx) {
   const rimM = stdMat(0x4a4038, { rough: 0.45, metal: 0.5 });
   const r = ctx.headR;
   for (const sx of [-1, 1]) {
-    const rim = mesh(geo('spec_rim', () => new THREE.TorusGeometry(0.032, 0.008, 5, 10)), rimM, false);
-    rim.position.set(sx * r * 0.36, r * 0.10, r * 0.94);
+    const rim = mesh(geo('v2_spec_rim', () => new THREE.TorusGeometry(0.032, 0.007, 8, 24)), rimM, false);
+    rim.userData.noOutline = true;
+    rim.position.set(sx * r * 0.36, r * 0.10, r * 0.95);
     ctx.headGrp.add(rim);
   }
-  const bridge = mesh(geo('spec_bridge', () => new THREE.BoxGeometry(0.026, 0.007, 0.007)), rimM, false);
-  bridge.position.set(0, r * 0.12, r * 0.95);
+  const bridge = mesh(geo('v2_spec_bridge', () => new THREE.CapsuleGeometry(0.004, 0.02, 3, 8).rotateZ(Math.PI / 2)), rimM, false);
+  bridge.userData.noOutline = true;
+  bridge.position.set(0, r * 0.12, r * 0.96);
   ctx.headGrp.add(bridge);
 }
 function halfCape(ctx, outer = 0x2a2f3f, lining = 0xff8a4a) {
-  // one-shoulder rival cape — asymmetric silhouette, warm lining flash
-  const capeM = stdMat(outer, { rough: 0.95, side: THREE.DoubleSide, sway: 0.45, vertexColors: true });
-  const capeG = geo(`halfcape_${ctx.torsoLen.toFixed(2)}`, () => vgrad(panelGeo(0.20, 0.30, ctx.torsoLen * 1.1, 0.018, 3, 4), { seed: 51 }));
+  // one-shoulder rival cape — asymmetric silhouette, warm lining flash. A real
+  // draped shell hanging off the right shoulder (bespoke colors, not tinted).
+  const len = ctx.torsoLen * 0.95 + ctx.legLen * 0.2;
+  const capeM = stdMat(0xffffff, { rough: 0.92, vertexColors: true });
+  windSway(capeM, { strength: 0.4, speed: 1.2, heightScale: len, hang: true });
+  const top = ctx.shoulderY + 0.06;
+  const capeG = geo(`v2_halfcape_${ctx.torsoLen.toFixed(2)}_${ctx.wide.toFixed(2)}`, () => {
+    const w = ctx.wide;
+    const g = drapeShell({
+      profile: [
+        { y: 0, rx: 0.16 * w, rz: 0.12 * w, cz: 0, span: 1.15 },
+        { y: -0.12, rx: 0.25 * w, rz: 0.17 * w, cz: -0.02, span: 1.1 },
+        { y: -len, rx: 0.29 * w, rz: 0.2 * w, cz: -0.06, span: 1.0 },
+      ],
+      nu: 36, nv: 14, folds: 4, foldAmp: [0.004, 0.04], hemWave: 0.03, hemSideLift: 0.14, thick: 0.014,
+      outerTop: shade(outer, 0.08), outerBot: shade(outer, -0.04), liningTop: lining, liningBot: shade(lining, -0.12),
+      trim: shade(lining, 0.05), trimWidth: 0.06, seed: 51,
+    });
+    g.rotateY(0.85); // swing the drape round onto the right shoulder (-X)
+    return g;
+  });
   const cape = mesh(capeG, capeM, true);
-  cape.position.set(-0.13 * ctx.wide, ctx.shoulderY + 0.06, -0.075 * ctx.wide);
-  cape.rotation.set(0.14, 0, -0.18);
+  cape.position.set(0, top, -0.01);
   ctx.torso.add(cape);
-  const liningM = stdMat(lining, { rough: 0.8, emissive: lining, ei: 0.1 });
-  const trim = mesh(geo('halfcape_trim', () => new THREE.BoxGeometry(0.21, 0.03, 0.024)), liningM, false);
-  trim.position.set(-0.13 * ctx.wide, ctx.shoulderY + 0.07, -0.07 * ctx.wide);
-  trim.rotation.z = -0.18;
-  ctx.torso.add(trim);
 }
 function antlerCirclet(ctx) {
   // On the HEAD (rides head turns), rising clear of the hair volume.
   const antlerM = stdMat(0xe8dcc2, { rough: 0.5, emissive: 0x6fce5c, ei: 0.08 });
   for (const side of [-1, 1]) {
-    const horn = mesh(geo('antler', () => new THREE.ConeGeometry(0.026, 0.28, 5)), antlerM, false);
-    horn.position.set(side * 0.085, ctx.headR * 1.05, -ctx.headR * 0.1);
+    const horn = mesh(geo('v2_antler', () => softSpikeGeo(0.28, 0.026, 0.28, 12)), antlerM, false);
+    horn.position.set(side * 0.085, ctx.headR * 1.0, -ctx.headR * 0.1);
     horn.rotation.z = side * -0.42;
     horn.rotation.x = -0.15;
+    horn.scale.x = side;
     ctx.headGrp.add(horn);
-    const tine = mesh(geo('antler_tine', () => new THREE.ConeGeometry(0.016, 0.12, 4)), antlerM, false);
-    tine.position.set(side * 0.135, ctx.headR * 1.15, -ctx.headR * 0.08);
+    const tine = mesh(geo('v2_antler_tine', () => softSpikeGeo(0.12, 0.016, 0.3, 10)), antlerM, false);
+    tine.position.set(side * 0.13, ctx.headR * 1.12, -ctx.headR * 0.08);
     tine.rotation.z = side * -1.0;
+    tine.scale.x = side;
     ctx.headGrp.add(tine);
   }
 }
 function lantern(ctx, side = 1) {
   const grp = new THREE.Group();
-  const cage = mesh(geo('lantern_cage', () => new THREE.CylinderGeometry(0.05, 0.05, 0.1, 6, 1, true)), stdMat(0x3a3f4a, { rough: 0.7 }), false);
-  const glow = mesh(geo('lantern_glow', () => new THREE.SphereGeometry(0.035, 6, 5)), stdMat(0xffd9a0, { emissive: 0xffd9a0, ei: 1.4 }), false);
-  grp.add(cage, glow);
+  const cage = mesh(geo('v2_lantern_cage', () => {
+    const g = new THREE.LatheGeometry([
+      [0.001, 0.07], [0.022, 0.066], [0.05, 0.045], [0.052, -0.04], [0.04, -0.056], [0.001, -0.058],
+    ].reverse().map(([x, y]) => new THREE.Vector2(x, y)), 8);
+    return g;
+  }), stdMat(0x3a3f4a, { rough: 0.7, transparent: true, opacity: 0.55 }), false);
+  const glow = mesh(geo('v2_lantern_glow', () => new THREE.SphereGeometry(0.034, 14, 10)), stdMat(0xffd9a0, { emissive: 0xffd9a0, ei: 1.6 }), false);
+  const cap = mesh(geo('v2_lantern_cap', () => new THREE.ConeGeometry(0.05, 0.035, 8).translate(0, 0.085, 0)), stdMat(0x3a3f4a, { rough: 0.6, flat: true }), false);
+  grp.add(cage, glow, cap);
   const light = new THREE.PointLight(0xffd9a0, 0.9, 4, 2);
   grp.add(light);
   grp.position.set(side * 0.26 * ctx.wide, ctx.chestY - 0.16, 0.1);
@@ -552,7 +719,7 @@ function crackedHalo(ctx) {
   // bodies — anchor off headR, not a fixed offset, or the hair swallows it).
   const haloY = ctx.headGrp.position.y + ctx.headR * 1.7;
   const haloM = stdMat(GOLD, { emissive: GOLD, ei: 1.3, rough: 0.3, transparent: true, opacity: 0.92 });
-  const halo = mesh(geo('halo', () => new THREE.TorusGeometry(0.16, 0.014, 6, 20, Math.PI * 1.5)), haloM, false);
+  const halo = mesh(geo('v2_halo', () => new THREE.TorusGeometry(0.16, 0.014, 10, 48, Math.PI * 1.5)), haloM, false);
   halo.rotation.x = Math.PI / 2;
   halo.position.y = haloY;
   ctx.torso.add(halo);
@@ -562,18 +729,36 @@ function crackedHalo(ctx) {
   ctx.extra = (ctx.extra ?? []).concat([{ type: 'halo', node: halo }]);
 }
 function coatTails(ctx) {
-  const coatM = stdMat(0x5a6a7a, { rough: 0.95, side: THREE.DoubleSide, sway: 0.75, vertexColors: true });
+  // two narrow draped tails hanging from the back of the waist, hang-swaying
+  const coatM = stdMat(0x5a6a7a, { rough: 0.95, vertexColors: true });
+  windSway(coatM, { strength: 0.55, speed: 1.3, heightScale: 0.5, hang: true });
   for (const side of [-1, 1]) {
-    const tail = mesh(geo('coattail', () => vgrad(panelGeo(0.13, 0.17, 0.5, 0.016, 2, 3), { seed: 53 })), coatM, false);
-    tail.position.set(side * 0.13 * ctx.wide, ctx.chestY - 0.05, -0.11);
-    tail.rotation.x = 0.2;
+    const tail = mesh(geo(`v2_coattail_${ctx.wide.toFixed(2)}`, () => drapeShell({
+      profile: [
+        { y: 0, rx: 0.15 * ctx.wide, rz: 0.125 * ctx.wide, cz: 0, span: 0.34 },
+        { y: -0.5, rx: 0.19 * ctx.wide, rz: 0.16 * ctx.wide, cz: -0.03, span: 0.36 },
+      ],
+      nu: 12, nv: 10, folds: 1, foldAmp: [0.002, 0.012], hemWave: 0.01, hemSideLift: 0.2, thick: 0.013,
+      ...DRAPE_NEUTRAL, seed: 53,
+    })), coatM, false);
+    tail.position.set(0, ctx.chestY - 0.05, 0);
+    tail.rotation.y = side * 0.36;
     ctx.torso.add(tail);
   }
 }
 function fisherCoat(ctx) {
-  const coatM = stdMat(0x3a5a68, { rough: 0.9, side: THREE.DoubleSide, sway: 0.35, vertexColors: true });
-  const coat = mesh(geo('fisher_coat', () => vgrad(new THREE.CylinderGeometry(0.22, 0.3, 0.5, 9, 1, true), { seed: 54 })), coatM, false);
-  coat.position.y = ctx.chestY - 0.20;
+  // long oilskin coat: a draped shell wrapping the lower body, open at the front
+  const coatM = stdMat(0xffffff, { rough: 0.8, vertexColors: true });
+  const g = geo(`v2_fisher_coat_${ctx.wide.toFixed(2)}`, () => drapeShell({
+    profile: [
+      { y: ctx.chestY - 0.02, rx: 0.19 * ctx.wide, rz: 0.165 * ctx.wide, cz: -0.005, span: 2.7 },
+      { y: ctx.torsoLen * 0.36, rx: 0.2 * ctx.wide, rz: 0.17 * ctx.wide, cz: -0.01, span: 2.72 },
+      { y: -ctx.legLen * 0.45, rx: 0.29 * ctx.wide, rz: 0.24 * ctx.wide, cz: -0.02, span: 2.75 },
+    ],
+    nu: 44, nv: 12, folds: 7, foldAmp: [0.003, 0.03], hemWave: 0.02, hemSideLift: 0.03, thick: 0.015,
+    outerTop: 0x4a7482, outerBot: 0x2f4b57, liningTop: 0x9a7a52, liningBot: 0x7a5e40, trim: 0x2a3a42, trimWidth: 0.06, seed: 54,
+  }));
+  const coat = mesh(g, coatM, true);
   ctx.torso.add(coat);
 }
 

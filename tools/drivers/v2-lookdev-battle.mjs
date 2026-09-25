@@ -3,7 +3,7 @@
 // menu and an action beat, plus renderer stats for the battle scene (one
 // direct scene render with info.autoReset off).
 //   QA_BEAUTY=1 QA_VIEWPORT=1120x630 node tools/shoot.mjs tools/drivers/v2-lookdev-battle.mjs <out>
-import { STATS } from './v2-lookdev-world.mjs';
+import { STATS, LUMA } from './v2-lookdev-world.mjs';
 
 const M = (m) => `window.LF?.game.mode === '${m}'`;
 const WILD = process.env.LOOK_WILD ?? 'pebbin';
@@ -50,6 +50,7 @@ export async function run(page, h) {
   await h.shot('battle-open');
   console.log('READY:', !!ready, 'MODE:', await page.evaluate(`window.LF.game.mode`));
   console.log('STATS battle:', await page.evaluate(STATS));
+  console.log('LUMA battle:', await page.evaluate(LUMA));
   if (!ready) return;
   await h.press('Enter'); await h.sleep(1100);
   await h.shot('battle-moves');

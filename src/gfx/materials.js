@@ -46,7 +46,11 @@
 //       emissive parts, flat sheets, tiny parts, anything flagged
 //       `userData.noOutline` (or under a flagged ancestor). One material per
 //       call, so per-creature fades/dims (battle faint, follower fade) never
-//       leak across creatures. handle: { material, meshes, setVisible(b), dispose() }
+//       leak across creatures. Swaying cloth gets an ink twin that sways
+//       with it. handle: { material, materials, meshes, setVisible(b), dispose() }
+//   taperCapsule / lumpify / ribbonGeo / drapeShell — soft-form geometry kit
+//       (rounded limbs, organic lumps, straps, draped cloth with folds, soft
+//       hem, thickness, lining + trim) — see "Soft-form geometry kit" below.
 //   chainShaderHook(material, tag, fn(shader, renderer, material)) -> bool
 //       Chain an onBeforeCompile hook with a STABLE, DISTINCT program cache
 //       key (tag-based). Use it instead of assigning onBeforeCompile directly
@@ -59,6 +63,7 @@
 // advances it once per frame via `tickWind(dt)`.
 // ============================================================================
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 // ---------------------------------------------------------------- shader hook chaining
 // Three reuses a compiled program for any two materials whose cache keys
@@ -103,6 +108,7 @@ export function chainShaderHook(material, tag, fn) {
 const _swayUniformSets = []; // every sway material's own uniform object
 const _windTime = { value: 0 }; // ONE shared clock uniform for every sway material
 const _swayState = new WeakMap(); // material -> its uniform set (re-sway updates in place)
+const _swayHang = new WeakSet();  // materials swaying in 'hang' mode
 let _windClock = 0;
 
 /**
@@ -112,7 +118,11 @@ let _windClock = 0;
  * and is desynchronized per-instance (for InstancedMesh) or per-object (for
  * plain Meshes) using its own world position as a phase seed, so a whole
  * forest/field never sways in lockstep.
- *   opts: { strength=0.3 (~0..1), speed=1.3, heightScale=3.2 }
+ *   opts: { strength=0.3 (~0..1), speed=1.3, heightScale=3.2,
+ *           hang=false — HANGING cloth (capes, banners, coat tails): the
+ *           geometry hangs DOWN from its origin (y <= 0) and sway grows with
+ *           the drop below it, so the attachment line stays put and the hem
+ *           swings. heightScale = the cloth's length. }
  * Returns an unregister function that removes this material's uniforms from
  * the shared sway clock — call it when the material is disposed (disposeGroup
  * does this automatically via `userData.unregisterSway`).
@@ -137,9 +147,11 @@ export function windSway(material, opts = {}) {
     uSwayHeight: { value: Math.max(heightScale, 0.001) },
   };
   _swayState.set(material, uniforms);
+  const hang = !!opts.hang;
+  if (hang) _swayHang.add(material);
   // The tag carries nothing material-specific: every sway material shares one
   // program per base variant (strength/speed/height live in uniforms).
-  chainShaderHook(material, 'sway1', (shader) => {
+  chainShaderHook(material, hang ? 'sway1h' : 'sway1', (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
       .replace(
@@ -158,7 +170,7 @@ uniform float uSwayHeight;`,
 #else
   float swayPhase = (modelMatrix[3].x + modelMatrix[3].z) * 0.7;
 #endif
-  float swayFactor = clamp(transformed.y, 0.0, uSwayHeight) / uSwayHeight;
+  float swayFactor = clamp(${hang ? '-transformed.y' : 'transformed.y'}, 0.0, uSwayHeight) / uSwayHeight;
   swayFactor *= swayFactor;
   float swayT = uWindTime * uSwaySpeed + swayPhase;
   transformed.x += sin(swayT) * uSwayStrength * swayFactor * 0.34;
@@ -315,7 +327,7 @@ function _lookClone() {
   const st = _lookState.get(this);
   if (st) applyLook(c, { rim: st.uLfRimScale.value, wrap: st.uLfWrapScale.value });
   const sw = _swayState.get(this);
-  if (sw) windSway(c, { strength: sw.uSwayStrength.value, speed: sw.uSwaySpeed.value, heightScale: sw.uSwayHeight.value });
+  if (sw) windSway(c, { strength: sw.uSwayStrength.value, speed: sw.uSwaySpeed.value, heightScale: sw.uSwayHeight.value, hang: _swayHang.has(this) });
   return c;
 }
 
@@ -475,24 +487,45 @@ export function addOutline(root, opts = {}) {
     const h = box.isEmpty() ? 1 : Math.max(0.05, box.max.y - box.min.y);
     maxWorld = h * 0.035;
   }
-  const material = new THREE.MeshBasicMaterial({ color, side: THREE.BackSide, fog: true });
-  material.name = 'lfOutline';
-  material.userData.isOutline = true;
   const own = {
     uLfOutlineW: { value: thickness / OUTLINE_REF_PX },
     uLfOutlineMax: { value: maxWorld },
     uLfOutlineScale: OUTLINE_SCALE,
   };
-  chainShaderHook(material, 'outline1', (shader) => {
-    Object.assign(shader.uniforms, own);
-    shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', `#include <common>\n${OUTLINE_VERT_PARS}`)
-      .replace('#include <project_vertex>', `#include <project_vertex>\n${OUTLINE_VERT}`);
-    // When a whole figure fades (follower near the lens, battle faint), the
-    // ink goes first — a half-faded body must not show its shell through it.
-    shader.fragmentShader = shader.fragmentShader
-      .replace('vec4 diffuseColor = vec4( diffuse, opacity );', 'vec4 diffuseColor = vec4( diffuse, opacity * opacity * opacity );');
-  });
+  const makeInk = () => {
+    const m = new THREE.MeshBasicMaterial({ color, side: THREE.BackSide, fog: true });
+    m.name = 'lfOutline';
+    m.userData.isOutline = true;
+    chainShaderHook(m, 'outline1', (shader) => {
+      Object.assign(shader.uniforms, own);
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', `#include <common>\n${OUTLINE_VERT_PARS}`)
+        .replace('#include <project_vertex>', `#include <project_vertex>\n${OUTLINE_VERT}`);
+      // When a whole figure fades (follower near the lens, battle faint), the
+      // ink goes first — a half-faded body must not show its shell through it.
+      shader.fragmentShader = shader.fragmentShader
+        .replace('vec4 diffuseColor = vec4( diffuse, opacity );', 'vec4 diffuseColor = vec4( diffuse, opacity * opacity * opacity );');
+    });
+    return m;
+  };
+  const material = makeInk();
+  const materials = [material];
+  // Hosts whose material sways in the wind (NPC capes, coat tails) get an ink
+  // twin that sways identically — a static shell would peel off the cloth.
+  const swayInk = new Map();
+  const inkFor = (host) => {
+    const hm = Array.isArray(host.material) ? host.material[0] : host.material;
+    const sw = hm && _swayState.get(hm);
+    if (!sw) return material;
+    let m = swayInk.get(hm);
+    if (!m) {
+      m = makeInk();
+      windSway(m, { strength: sw.uSwayStrength.value, speed: sw.uSwaySpeed.value, heightScale: sw.uSwayHeight.value, hang: _swayHang.has(hm) });
+      swayInk.set(hm, m);
+      materials.push(m);
+    }
+    return m;
+  };
 
   const targets = [];
   root.traverse((o) => {
@@ -517,18 +550,19 @@ export function addOutline(root, opts = {}) {
   const meshes = [];
   for (const o of targets) {
     _ensureOutlineNormals(o.geometry);
+    const ink = inkFor(o);
     let ol;
     if (o.isInstancedMesh) {
-      ol = new THREE.InstancedMesh(o.geometry, material, o.count);
+      ol = new THREE.InstancedMesh(o.geometry, ink, o.count);
       ol.instanceMatrix = o.instanceMatrix;
     } else if (o.isSkinnedMesh) {
       // Same skeleton, same bind matrix, identity under the host: the shell
       // deforms with the host (the normal push is skinned in the shader too).
-      ol = new THREE.SkinnedMesh(o.geometry, material);
+      ol = new THREE.SkinnedMesh(o.geometry, ink);
       ol.bind(o.skeleton, o.bindMatrix);
       ol.bindMode = o.bindMode;
     } else {
-      ol = new THREE.Mesh(o.geometry, material);
+      ol = new THREE.Mesh(o.geometry, ink);
     }
     ol.name = 'lfOutline';
     ol.userData.lfOutline = true;
@@ -543,12 +577,12 @@ export function addOutline(root, opts = {}) {
     meshes.push(ol);
   }
   const handle = {
-    material, meshes,
+    material, materials, meshes,
     setVisible(v) { for (const m of meshes) m.visible = !!v; },
     dispose() {
       for (const m of meshes) m.parent?.remove(m);
       meshes.length = 0;
-      material.dispose();
+      for (const m of materials) { m.userData?.unregisterSway?.(); m.dispose(); }
     },
   };
   root.userData.outline = handle.meshes.length ? { count: meshes.length } : root.userData.outline;
@@ -748,6 +782,207 @@ export function sphericalNormals(geometry, { center = null, blend = 0.8 } = {}) 
   }
   nrm.needsUpdate = true;
   return geometry;
+}
+
+
+/* ============================================================================
+   Soft-form geometry kit (v2) — shared by the Warden, NPCs and anyone who
+   needs rounded limbs, organic lumps, straps or draped cloth. All build-time.
+     taperCapsule(r0, r1, len, seg)          closed smooth tapered limb along Y
+     lumpify(geo, amp, seed)                 smooth low-frequency organic lumps
+     ribbonGeo(pts, width, thick, axisOf)    flat strap with thickness along a curve
+     drapeShell({ profile, ... })            draped cloth shell (capes, cloaks,
+                                             capelets, coats, aprons) with folds,
+                                             soft hem, thickness, lining + trim colors
+   ========================================================================== */
+/** Closed, smooth, tapered limb: hemisphere r1 at the bottom, r0 at the top,
+ *  straight taper of length `len` between; centered on the origin, along Y. */
+export function taperCapsule(r0, r1, len, seg = 18) {
+  const pts = [];
+  for (let i = 0; i <= 6; i++) { const a = -Math.PI / 2 + (i / 6) * (Math.PI / 2); pts.push(new THREE.Vector2(Math.max(1e-4, r1 * Math.cos(a)), -len / 2 + r1 * Math.sin(a))); }
+  for (let i = 0; i <= 6; i++) { const a = (i / 6) * (Math.PI / 2); pts.push(new THREE.Vector2(Math.max(1e-4, r0 * Math.cos(a)), len / 2 + r0 * Math.sin(a))); }
+  return new THREE.LatheGeometry(pts, seg);
+}
+
+/** Smooth low-frequency lumps (a few crossed sines on the direction from the
+ *  geometry's center) — organic volume that looks the same at any tessellation. */
+const _lv = new THREE.Vector3(), _lc = new THREE.Vector3();
+export function lumpify(geo, amp, seed) {
+  geo.computeBoundingBox();
+  geo.boundingBox.getCenter(_lc);
+  const pos = geo.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    _lv.fromBufferAttribute(pos, i).sub(_lc);
+    const l = _lv.length() || 1;
+    const nx = _lv.x / l, ny = _lv.y / l, nz = _lv.z / l;
+    const f = 1 + amp * (Math.sin(nx * 3.1 + seed) * Math.cos(ny * 2.3 - seed * 0.7) + Math.sin(nz * 2.7 + nx * 1.3 + seed * 1.7) * 0.6) / 1.6;
+    pos.setXYZ(i, _lc.x + _lv.x * f, _lc.y + _lv.y * f, _lc.z + _lv.z * f);
+  }
+  pos.needsUpdate = true;
+  return geo;
+}
+
+/** A flat strap/ribbon with real thickness following `pts` (Vector3[]); the
+ *  width lies across the path, the thickness points away from `axisOf(p)`. */
+export function ribbonGeo(pts, width, thick, axisOf) {
+  const curve = new THREE.CatmullRomCurve3(pts);
+  const n = 28, verts = [], idx = [];
+  const p = new THREE.Vector3(), t = new THREE.Vector3(), o = new THREE.Vector3(), b = new THREE.Vector3();
+  for (let i = 0; i <= n; i++) {
+    const u = i / n;
+    curve.getPointAt(u, p); curve.getTangentAt(u, t);
+    axisOf(p, o); o.normalize();
+    b.crossVectors(t, o).normalize();
+    const w = width * (i === 0 || i === n ? 0.92 : 1) / 2, h = thick / 2;
+    for (const [sb, so] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+      verts.push(p.x + b.x * w * sb + o.x * h * so, p.y + b.y * w * sb + o.y * h * so, p.z + b.z * w * sb + o.z * h * so);
+    }
+  }
+  for (let i = 0; i < n; i++) {
+    for (let k = 0; k < 4; k++) {
+      const a = i * 4 + k, c = i * 4 + ((k + 1) % 4), a2 = a + 4, c2 = c + 4;
+      idx.push(a, a2, c, c, a2, c2);
+    }
+  }
+  idx.push(0, 1, 2, 0, 2, 3); // end caps
+  const e = n * 4; idx.push(e, e + 2, e + 1, e, e + 3, e + 2);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+  g.setIndex(idx);
+  smoothGeometry(g, { creaseAngle: 1.1 });
+  return g;
+}
+
+/**
+ * A draped cloth shell around the vertical axis — capes, capelets, cloaks.
+ * Rows follow `profile` keyframes [{ y, rx, rz, cz, span }] from the top edge
+ * (s=0) to the hem (s=1); columns sweep θ ∈ [-span, span] with θ = 0 at the
+ * BACK (-Z). Vertical folds ripple the radius (deepening toward the hem), the
+ * hem hangs lower on fold crests and lifts toward the open side edges, and the
+ * cloth has real thickness (outer + lining + stitched rims) so it reads from
+ * any angle and takes the ink outline. Vertex colors: outer gradient with
+ * baked fold occlusion, a trim band along the hem, lining inside.
+ */
+export function drapeShell({
+  profile, nu = 40, nv = 18, folds = 8, foldAmp = [0.01, 0.06], foldDrift = 0.8,
+  hemWave = 0.03, hemSideLift = 0.1, thick = 0.016,
+  outerTop, outerBot, liningTop, liningBot, trim = null, trimWidth = 0.05, seed = 1,
+}) {
+  const K = profile.length - 1;
+  const sample = (s, out) => { // smoothstep-interpolated keyframes (linear past the hem)
+    const f = Math.min(K - 1e-6, Math.max(0, s * K));
+    const k = Math.floor(f);
+    let tt = f - k; tt = tt * tt * (3 - 2 * tt);
+    const a = profile[k], b = profile[k + 1];
+    out.y = a.y + (b.y - a.y) * tt; out.rx = a.rx + (b.rx - a.rx) * tt; out.rz = a.rz + (b.rz - a.rz) * tt;
+    out.cz = a.cz + (b.cz - a.cz) * tt; out.span = a.span + (b.span - a.span) * tt;
+    if (s > 1) out.y = profile[K].y + (s - 1) * K * (profile[K].y - profile[K - 1].y);
+    return out;
+  };
+  const S = { y: 0, rx: 0, rz: 0, cz: 0, span: 0 };
+  const ripple = (u, s) => Math.sin(u * folds * Math.PI + s * foldDrift + seed * 0.37);
+  const cols = [], outer = [], inner = [], sArr = [], rip = [];
+  // grid of outer + inner points
+  for (let i = 0; i <= nu; i++) {
+    const u = -1 + (2 * i) / nu;
+    const hemLen = 1 - hemSideLift * u * u + hemWave * ripple(u, 1);
+    for (let j = 0; j <= nv; j++) {
+      const s = (j / nv) * hemLen;
+      sample(Math.min(1.12, s), S);
+      const th = u * S.span;
+      const amp = foldAmp[0] + (foldAmp[1] - foldAmp[0]) * Math.pow(Math.min(1, s), 1.4);
+      const rf = 1 + amp * ripple(u, s) / Math.max(0.12, S.rx);
+      const sx = Math.sin(th), cx = Math.cos(th);
+      const x = S.rx * rf * sx, z = S.cz - S.rz * rf * cx;
+      // outward normal of the ellipse at θ (horizontal)
+      let nx = S.rz * sx, nz = -S.rx * cx; const nl = Math.hypot(nx, nz) || 1; nx /= nl; nz /= nl;
+      outer.push([x, S.y, z]);
+      inner.push([x - nx * thick, S.y, z - nz * thick]);
+      sArr.push(j / nv); rip.push(ripple(u, s));
+    }
+    cols.push(u);
+  }
+  const W = nv + 1;
+  const pos = [], col = [], idx = [];
+  const cOT = new THREE.Color(outerTop), cOB = new THREE.Color(outerBot);
+  const cLT = new THREE.Color(liningTop), cLB = new THREE.Color(liningBot);
+  const cTrim = trim != null ? new THREE.Color(trim) : null;
+  const tmp = new THREE.Color();
+  const outerColor = (k) => {
+    const s = sArr[k];
+    tmp.copy(cOT).lerp(cOB, Math.pow(s, 0.9));
+    const ao = 0.84 + 0.16 * (rip[k] * 0.5 + 0.5);
+    tmp.multiplyScalar(ao);
+    if (cTrim && s > 1 - trimWidth) tmp.copy(cTrim).multiplyScalar(0.9 + 0.1 * (rip[k] * 0.5 + 0.5));
+    return tmp;
+  };
+  const innerColor = (k) => tmp.copy(cLT).lerp(cLB, sArr[k]).multiplyScalar(0.9 + 0.1 * (rip[k] * 0.5 + 0.5));
+  const push = (p, c) => { pos.push(p[0], p[1], p[2]); col.push(c.r, c.g, c.b); return pos.length / 3 - 1; };
+  // outer surface (faces outward), inner surface (faces the body)
+  const oBase = pos.length / 3;
+  for (let k = 0; k < outer.length; k++) push(outer[k], outerColor(k));
+  const iBase = pos.length / 3;
+  for (let k = 0; k < inner.length; k++) push(inner[k], innerColor(k));
+  for (let i = 0; i < nu; i++) {
+    for (let j = 0; j < nv; j++) {
+      const a = i * W + j, b = (i + 1) * W + j, c = (i + 1) * W + j + 1, d = i * W + j + 1;
+      idx.push(oBase + a, oBase + b, oBase + d, oBase + b, oBase + c, oBase + d);
+      idx.push(iBase + a, iBase + d, iBase + b, iBase + b, iBase + d, iBase + c);
+    }
+  }
+  // rims: own vertices so each strip starts with its own facing, then the
+  // position-averaged smoothing rounds them into a soft, thick-cloth edge.
+  const rim = (ks, colorOf, flip) => {
+    for (let n = 0; n < ks.length - 1; n++) {
+      const k0 = ks[n], k1 = ks[n + 1];
+      const a = push(outer[k0], colorOf(k0)), b = push(outer[k1], colorOf(k1));
+      const c = push(inner[k1], colorOf(k1)), d = push(inner[k0], colorOf(k0));
+      if (flip) idx.push(a, b, c, a, c, d); else idx.push(a, c, b, a, d, c);
+    }
+  };
+  const hemKs = [], topKs = [], leftKs = [], rightKs = [];
+  for (let i = 0; i <= nu; i++) { hemKs.push(i * W + nv); topKs.push(i * W); }
+  for (let j = 0; j <= nv; j++) { leftKs.push(j); rightKs.push(nu * W + j); }
+  rim(hemKs, outerColor, true);
+  rim(topKs, outerColor, false);
+  rim(leftKs, outerColor, true);
+  rim(rightKs, outerColor, false);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.setIndex(idx);
+  smoothGeometry(g);
+  return g;
+}
+
+
+/** Bake [geometry, { p, r, s }] parts (same material) into ONE geometry in
+ *  the parent's space — fewer meshes means fewer draw calls AND fewer ink
+ *  outline shells. uv is dropped (nothing here is textured) so parts built
+ *  by different generators merge cleanly. */
+const _bm = new THREE.Matrix4(), _bq = new THREE.Quaternion(), _be = new THREE.Euler(), _bp = new THREE.Vector3(), _bs = new THREE.Vector3();
+export function bakeParts(parts) {
+  const mixed = parts.some(([g]) => g.index) && parts.some(([g]) => !g.index);
+  const geos = parts.map(([g0, t = {}]) => {
+    const g = mixed && g0.index ? g0.toNonIndexed() : g0; // e.g. RoundedBox is non-indexed
+    if (g !== g0) g0.dispose();
+    const p = t.p ?? [0, 0, 0], r = t.r ?? [0, 0, 0], sc = t.s ?? [1, 1, 1];
+    _bm.compose(_bp.set(p[0], p[1], p[2]), _bq.setFromEuler(_be.set(r[0], r[1], r[2])), _bs.set(sc[0], sc[1], sc[2]));
+    g.applyMatrix4(_bm);
+    if (g.attributes.uv) g.deleteAttribute('uv');
+    if (g.attributes.uv1) g.deleteAttribute('uv1');
+    return g;
+  });
+  const merged = mergeGeometries(geos, false);
+  for (const g of geos) if (g !== merged) g.dispose();
+  return merged;
+}
+/** Constant vertex color (for merging differently-colored bits under one material). */
+export function solidColor(g, hex) {
+  const c = new THREE.Color(hex), n = g.attributes.position.count, a = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) { a[i * 3] = c.r; a[i * 3 + 1] = c.g; a[i * 3 + 2] = c.b; }
+  g.setAttribute('color', new THREE.BufferAttribute(a, 3));
+  return g;
 }
 
 let _aoTex = null;

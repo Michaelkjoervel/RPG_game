@@ -3,7 +3,7 @@
 // postfx chain so bloom/grade match the world. Batches via LOOK_BATCHES
 // (e.g. "1,2" — 1-based; default all four), hero row via LOOK_HERO=0 to skip.
 //   QA_BEAUTY=1 QA_VIEWPORT=1120x630 node tools/shoot.mjs tools/drivers/v2-lookdev-gallery.mjs <out>
-const BATCHES = (process.env.LOOK_BATCHES ?? '1,2,3,4').split(',').map((s) => parseInt(s, 10) - 1).filter((n) => n >= 0);
+const batches = () => (process.env.LOOK_BATCHES ?? '1,2,3,4').split(',').map((s) => parseInt(s, 10) - 1).filter((n) => n >= 0);
 const HERO = process.env.LOOK_HERO !== '0';
 const HERO_IDS = (process.env.LOOK_HERO_IDS ?? 'kindlet,nixling,thistlit,charvane,cairnox').split(',');
 
@@ -17,7 +17,7 @@ const STAGE = `async (spec) => {
   scene.background = new THREE.Color(0x8fb4d8);
   scene.fog = new THREE.Fog(0x9fc0dc, 30, 90);
   const cam = new THREE.PerspectiveCamera(35, innerWidth / innerHeight, 0.1, 200);
-  if (spec.hero) { cam.position.set(0, 2.4, 7.4); cam.lookAt(0, 0.55, 0); }
+  if (spec.hero) { cam.position.set(0, 1.35, 4.4); cam.lookAt(0, 0.42, 0); }
   else { cam.position.set(0, 6.5, 14); cam.lookAt(0, 0.8, 0); }
   // Noon-ish rig close to sky.js: warm key 3.0, cool sky / warm bounce hemisphere.
   scene.add(new THREE.HemisphereLight(0xb8cde6, 0x8a7a5a, 1.1));
@@ -32,8 +32,8 @@ const STAGE = `async (spec) => {
       const { group, animator } = buildCreature(id);
       if (spec.hero) {
         const sz = SPECIES[id]?.size ?? 1;
-        if (sz > 1.2) group.scale.multiplyScalar(1.2 / sz);
-        group.position.set((col - (cols - 1) / 2) * 1.55, 0, 0);
+        if (sz > 0.9) group.scale.multiplyScalar(0.9 / sz);
+        group.position.set((col - (cols - 1) / 2) * 1.12, 0, 0);
         group.rotation.y = (col - (cols - 1) / 2) * -0.18;
       } else {
         group.position.set((col - 1.5) * 4.2, 0.0, (row - 1) * 4.2);
@@ -78,7 +78,7 @@ export async function run(page, h) {
     await h.sleep(3000);
     await h.shot('hero-row');
   }
-  for (const b of BATCHES) {
+  for (const b of batches()) {
     console.log('BATCH:', await page.evaluate(`(${STAGE})(${JSON.stringify({ batch: b })})`));
     await h.sleep(2600);
     await h.shot(`creatures-batch-${b + 1}`);
