@@ -207,8 +207,8 @@ function ringGeo(r, tube, radial, tubular, arc = Math.PI * 2) {
 // Hair styles as hairShell parameters (head-local, radius in head radii).
 // tufts: springy crown curls that break the dome outline (short styles).
 const HAIR_STYLES = {
-  crop: { hairline: { back: -0.74, side: 0.0, temple: 0.26, front: 0.52 }, locks: { count: 9, depth: 0.14, flare: 0.05, sharp: 3, clump: 0.08 }, fringe: { count: 3, depth: 0.1 }, volume: { crown: 0.08, back: 0.04, sides: 0.03 }, tufts: 2 },
-  side: { hairline: { back: -0.72, side: -0.08, temple: 0.2, front: 0.46 }, locks: { count: 8, depth: 0.2, flare: 0.08, sharp: 3, clump: 0.09 }, fringe: { count: 2, depth: 0.12, side: 0.7 }, volume: { crown: 0.09, back: 0.05, sides: 0.05, sweep: 0.7 }, tufts: 1 },
+  crop: { hairline: { back: -0.78, side: 0.0, temple: 0.26, front: 0.52 }, locks: { count: 7, depth: 0.24, flare: 0.08, sharp: 2.5, clump: 0.11 }, fringe: { count: 3, depth: 0.1 }, volume: { crown: 0.08, back: 0.04, sides: 0.03 }, tufts: 2 },
+  side: { hairline: { back: -0.78, side: -0.08, temple: 0.2, front: 0.46 }, locks: { count: 7, depth: 0.26, flare: 0.1, sharp: 2.5, clump: 0.11 }, fringe: { count: 2, depth: 0.12, side: 0.7 }, volume: { crown: 0.09, back: 0.05, sides: 0.05, sweep: 0.7 }, tufts: 1 },
   bob: { hairline: { back: -1.0, side: -0.8, temple: 0.3, front: 0.42 }, locks: { count: 12, depth: 0.1, flare: 0.12, sharp: 3, clump: 0.06 }, fringe: { count: 4, depth: 0.14 }, volume: { crown: 0.06, back: 0.09, sides: 0.1 } },
   bun: { hairline: { back: -0.6, side: -0.12, temple: 0.22, front: 0.5 }, locks: { count: 6, depth: 0.06, flare: 0.02, clump: 0.04 }, fringe: { count: 2, depth: 0.06 }, volume: { crown: 0.05, back: 0.04, sides: 0.04 } },
   ponytail: { hairline: { back: -0.64, side: -0.08, temple: 0.22, front: 0.48 }, locks: { count: 7, depth: 0.08, flare: 0.03, clump: 0.04 }, fringe: { count: 3, depth: 0.1, side: -0.4 }, volume: { crown: 0.07, back: 0.04, sides: 0.04 } },
@@ -477,7 +477,7 @@ function buildHuman(spec) {
       radius: R * (1.05 + hv * 0.03), center: [0, R * 0.07, -R * 0.04], scale: [1.0, 1.0, 1.02], seg: [18, 12],
       hairline: st.hairline, locks: st.locks, fringe: st.fringe,
       volume: { ...st.volume, crown: st.volume.crown + hv * 0.03 }, groove: 0.012, tuck: 0.62, bald: st.bald ?? 0, seed: 1 + hv * 5,
-      color: { hex: hair, down: 0.1, up: 0.12, grooveShade: 0.36 },
+      color: { hex: hair, down: 0.1, up: 0.14, grooveShade: 0.42 },
     });
     hparts.push([hs]);
     for (let k = 0; k < (st.tufts ?? 0); k++) { // springy crown curls, swept sideways so they read in silhouette
@@ -489,7 +489,10 @@ function buildHuman(spec) {
       hparts.push([paint(t, hair, { down: 0.02, up: 0.14, seed: 43 + k }), { p: [side * R * 0.1, R * 0.96, -R * (0.1 + k * 0.1)] }]);
     }
     if (style === 'bun') {
-      hparts.push([paint(smoothGeometry(lumpify(new THREE.SphereGeometry(R * 0.36, 8, 6), 0.05, 36)), hair, { down: 0.08, up: 0.1, seed: 36 }), { p: [0, R * 0.78, -R * 0.78] }]);
+      // a round bun sitting proud of the crown-back (clear of the shell, so it
+      // reads as a bun in silhouette, not a dimple) + a tie ring at its base
+      hparts.push([paint(smoothGeometry(lumpify(new THREE.SphereGeometry(R * 0.4, 9, 7), 0.05, 36)), hair, { down: 0.02, up: 0.14, seed: 36 }), { p: [0, R * 0.98, -R * 0.82], s: [1, 0.92, 0.92] }]);
+      hparts.push([solidColor(ringGeo(R * 0.28, R * 0.06, 3, 10), shade(scarf, -0.05)), { p: [0, R * 0.8, -R * 0.66], r: [-0.85, 0, 0] }]);
     } else if (style === 'ponytail') {
       const tail = new THREE.LatheGeometry([ // bottom -> top
         [0.0005, -R * 1.25], [R * 0.1, -R * 1.18], [R * 0.24, -R * 0.8], [R * 0.26, -R * 0.42], [R * 0.2, -R * 0.12], [R * 0.12, 0], [0.0005, R * 0.05],
