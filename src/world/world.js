@@ -65,6 +65,7 @@ export class World {
     this.player = null;
     this.cameraRig = null;
     this.terrain = null;
+    this.grass = null;
     this.sky = null;
     this.water = null;
     this.props = null;
@@ -114,6 +115,12 @@ export class World {
     this.terrain = buildTerrain(zone);
     this.terrain.mesh.name = 'terrain';
     this.scene.add(this.terrain.mesh);
+
+    try {
+      const { createGrass } = await import('./grass.js');
+      this.grass = createGrass(zone, this);
+      if (this.grass) this.scene.add(this.grass.mesh);
+    } catch (e) { warnOnce('grass.js', e?.message ?? e); }
 
     this.sky = createSky(zone, this.scene);
 
@@ -189,11 +196,13 @@ export class World {
     safe('props', () => { this.props?.dispose?.(); if (this.props) this.scene.remove(this.props.group); });
     safe('water', () => { this.water?.dispose?.(); if (this.water) this.scene.remove(this.water.mesh); });
     safe('sky', () => this.sky?.dispose?.()); // sky.js removes its own scene objects + clears fog
+    safe('grass', () => { this.grass?.dispose?.(); if (this.grass) this.scene.remove(this.grass.mesh); });
     safe('terrain', () => { this.terrain?.dispose?.(); if (this.terrain) this.scene.remove(this.terrain.mesh); });
 
     this.player = null; this.cameraRig = null; this.npcs = null; this.interactables = null;
     this.wildlife = null; this.encounters = null; this.weather = null; this.props = null;
     this.water = null; this.sky = null; this.terrain = null;
+    this.grass = null;
     this.colliders.length = 0;
   }
 
@@ -304,6 +313,7 @@ export class World {
     this._sub('player', () => this.player?.update(dt));
     this._sub('camera', () => this.cameraRig?.update(dt));
     this._sub('sky', () => this.sky?.update(dt, G.calendar.dayTime));
+    this._sub('grass', () => this.grass?.update(dt));
     this._sub('water', () => this.water?.update(dt));
 
     const updaters = this.props?.updaters;

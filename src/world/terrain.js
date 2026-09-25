@@ -1,30 +1,32 @@
 // ============================================================================
-// world/terrain.js — seeded heightfield terrain per biome kind, vertex-colored
-// ground (grass/dirt/stone/sand/snow blended by height+slope+biome), paths
-// flattened & dirt-colored.
+// world/terrain.js — seeded heightfield terrain per biome kind, shaded per
+// pixel (soft-stylized v2 look).
 //
 // Contract (docs/CONTRACTS_ADDENDUM.md):
-//   buildTerrain(zone) -> { mesh, heightAt(x,z) -> y, dispose() }
+//   buildTerrain(zone) -> { mesh, heightAt(x,z) -> y, dispose(), ground }
 //
 // `heightAt` and the mesh are guaranteed to match exactly because both are
 // driven by the *same* analytic height function (evaluated directly per
 // query rather than sampled from a baked grid, so there is no discretization
-// error at all — strictly better than a bilinear heightmap lookup).
+// error at all). HEIGHTS ARE GAMEPLAY: collision, walking, props and NPC
+// placement all read heightAt — the shape functions below must not change.
 //
-// COLORING (visual overhaul; heights untouched): painterly multi-octave
-// patchwork around each biome's groundPalette — macro tone drift + meso
-// patches + fine grain, sun-warmed flats, cool/darker hollows (fake AO),
-// slope-darkened rocky faces, noise-perturbed path edges with a worn lighter
-// center and a dark rim, wet/bleached shoreline bands at the water level, a
-// noisy snowline. The painted mesh is de-indexed so every triangle gets a
-// per-face tone break + facet-blended normals — the ground reads as the same
-// stylized flat-shaded low-poly language as the props. Still one mesh, one
-// draw call; all work happens at build time.
+// SHADING (visual pass v2): the mesh is an indexed ~1 m grid with smooth
+// analytic normals — no facets, no vertex colors. All color lives in the
+// fragment shader (`lfGround`, shared GLSL): multi-octave world-space noise
+// over the biome palette, slope rock with strata, hollow/height tints, a
+// per-pixel shoreline banded against the water level, a noisy snowline, and
+// crisp paths (worn center, soil lip, trampled rim, pebbles; cobbles on the
+// town's wide streets, flagstones in the ruins). Paths, bare patches and the
+// shore apron come from one baked RGBA "ground mask" texture over the zone,
+// which the CPU samples too — grass.js uses it (and the same GLSL function
+// in its vertex shader) so blades avoid paths/sand and their roots melt into
+// the ground. Still one mesh, one draw call.
 // ============================================================================
 import * as THREE from 'three';
 import { seededRandom, hashStr } from '../core/rng.js';
 import { clamp, clamp01, lerp } from '../core/math.js';
-import { mat, groundPalette } from '../gfx/materials.js';
+import { groundPalette } from '../gfx/materials.js';
 
 const SNOW_LOW = 10, SNOW_HIGH = 15; // straddles player.js's SNOWLINE_Y=12 footstep cutoff
 
@@ -156,6 +158,293 @@ function shapeHeight(kind, noise2D, x, z, hills, half, zone) {
   }
 }
 
+// ---------------------------------------------------------------- palette (v2 tones)
+// groundPalette() (materials.js) stays the source of each zone's identity; the
+// terrain derives its working tones from it: greens pulled a little warmer and
+// softer (painterly, never acid), plus the shade/sun/wet/worn neighbours the
+// shader blends between. Per-biome tweaks keep every zone's own character.
+const _hsl = { h: 0, s: 0, l: 0 };
+function tone(hex, { hue = null, pull = 0, sat = 1, lit = 0, hueAdd = 0 } = {}) {
+  const c = new THREE.Color(hex);
+  c.getHSL(_hsl, THREE.SRGBColorSpace);
+  let h = _hsl.h + hueAdd;
+  if (hue != null && pull) {
+    let dh = hue - h;
+    if (dh > 0.5) dh -= 1; if (dh < -0.5) dh += 1;
+    h += dh * pull;
+  }
+  c.setHSL(((h % 1) + 1) % 1, clamp01(_hsl.s * sat), clamp01(_hsl.l + lit), THREE.SRGBColorSpace);
+  return c;
+}
+const BIOME_TONE = {
+  //            grass pull toward warm hue, saturation, lightness; deep-green tweaks
+  meadow:   { hue: 0.235, pull: 0.45, sat: 0.74, lit: -0.035, deepSat: 0.8, deepLit: -0.05, sunLit: 0.075 },
+  town:     { hue: 0.235, pull: 0.45, sat: 0.72, lit: -0.04, deepSat: 0.8, deepLit: -0.05, sunLit: 0.07 },
+  lake:     { hue: 0.235, pull: 0.4, sat: 0.74, lit: -0.035, deepSat: 0.8, deepLit: -0.05, sunLit: 0.07 },
+  forest:   { hue: 0.26, pull: 0.3, sat: 0.78, lit: -0.05, deepSat: 0.82, deepLit: -0.04, sunLit: 0.06 },
+  glade:    { hue: 0.36, pull: 0.15, sat: 0.8, lit: -0.04, deepSat: 0.85, deepLit: -0.04, sunLit: 0.06 },
+  mountain: { hue: 0.2, pull: 0.3, sat: 0.62, lit: -0.02, deepSat: 0.7, deepLit: -0.03, sunLit: 0.06 },
+  ruins:    { hue: 0.24, pull: 0.3, sat: 0.7, lit: -0.03, deepSat: 0.75, deepLit: -0.03, sunLit: 0.05 },
+  cave:     { hue: 0.3, pull: 0, sat: 1, lit: 0, deepSat: 1, deepLit: 0, sunLit: 0.04 },
+  spire:    { hue: 0.3, pull: 0, sat: 1, lit: 0, deepSat: 1, deepLit: 0, sunLit: 0.04 },
+};
+function groundTones(biome) {
+  const P = groundPalette(biome);
+  const T = BIOME_TONE[biome] ?? BIOME_TONE.meadow;
+  const grassA = tone(P.grass, { hue: T.hue, pull: T.pull, sat: T.sat, lit: T.lit });
+  const grassB = tone(P.grass2, { hue: T.hue + 0.05, pull: T.pull * 0.6, sat: T.deepSat, lit: T.deepLit });
+  const grassSun = tone(P.grass, { hue: 0.16, pull: 0.5, sat: T.sat * 0.95, lit: T.lit + T.sunLit });
+  const grassCool = tone(P.grass2, { hueAdd: 0.035, sat: T.deepSat * 0.9, lit: T.deepLit - 0.06 });
+  const dirt = new THREE.Color(P.dirt);
+  const path = tone(P.path, { sat: 0.72, lit: -0.03 });
+  return {
+    grassA, grassB, grassSun, grassCool,
+    dirt,
+    stone: new THREE.Color(P.stone),
+    stoneDark: new THREE.Color(P.stoneDark),
+    sand: tone(P.sand, { sat: 0.62, lit: -0.04 }),
+    sandWet: tone(P.sand, { sat: 0.5, lit: -0.22, hueAdd: 0.01 }),
+    sandLight: tone(P.sand, { sat: 0.55, lit: 0.05 }),
+    snow: new THREE.Color(P.snow),
+    snowShade: new THREE.Color(P.snow).lerp(new THREE.Color(0x8fa6c8), 0.5),
+    path,
+    pathWorn: tone(P.path, { sat: 0.62, lit: -0.09 }),
+    pathLight: tone(P.path, { sat: 0.55, lit: 0.07 }),
+    rim: tone(P.dirt, { sat: 0.8, lit: -0.14 }),
+    moss: tone(P.grass2, { sat: 0.7, lit: -0.08 }),
+  };
+}
+
+// ---------------------------------------------------------------- shared ground GLSL
+// Evaluated per pixel by the terrain and per blade-vertex by grass.js (root
+// colors), so both always agree. Requires #define LF_GROUND_STYLE
+// (0 = grassland, 1 = stone floor [cave/spire], 2 = ruins).
+export const GROUND_GLSL = /* glsl */ `
+uniform sampler2D uGMask;
+uniform vec4 uGMaskXf;
+uniform vec3 uGGrassA, uGGrassB, uGGrassSun, uGGrassCool, uGDirt, uGStone, uGStoneDark;
+uniform vec3 uGSand, uGSandWet, uGSandLight, uGSnow, uGSnowShade;
+uniform vec3 uGPath, uGPathWorn, uGPathLight, uGRim, uGMoss;
+uniform vec4 uGP;    // hills, waterLevel, hasWater, hasSnow
+uniform vec4 uGP2;   // snowLine, rockSlope, grainAmp, cobbleScale
+uniform vec4 uGWater; // water rect: cx, cz, halfSize, unused
+uniform vec4 uGField; // grass field (grass.js): centerX, centerZ, fadeStart, fadeEnd
+uniform vec4 uGFieldK; // x: soft AO under the blades (0 = no grass field)
+
+float lfHash(vec2 p) {
+  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
+float lfNoise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  float a = lfHash(i);
+  float b = lfHash(i + vec2(1.0, 0.0));
+  float c = lfHash(i + vec2(0.0, 1.0));
+  float d = lfHash(i + vec2(1.0, 1.0));
+  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+// returns x: distance to nearest site, y: distance-to-edge estimate (F2-F1),
+// z: cell id; toSite: vector from p to the nearest site (cell units)
+vec3 lfVoronoi(vec2 p, out vec2 toSite) {
+  vec2 n = floor(p);
+  vec2 f = fract(p);
+  float d1 = 8.0, d2 = 8.0, id = 0.0;
+  toSite = vec2(0.0);
+  for (int j = -1; j <= 1; j++) {
+    for (int i = -1; i <= 1; i++) {
+      vec2 g = vec2(float(i), float(j));
+      vec2 o = vec2(lfHash(n + g), lfHash(n + g + 17.31)) * 0.76 + 0.12;
+      vec2 r = g + o - f;
+      float d = dot(r, r);
+      if (d < d1) { d2 = d1; d1 = d; id = lfHash(n + g + 3.71); toSite = r; }
+      else if (d < d2) { d2 = d; }
+    }
+  }
+  d1 = sqrt(d1); d2 = sqrt(d2);
+  return vec3(d1, d2 - d1, id);
+}
+vec4 lfMask(vec2 xz) { return texture2D(uGMask, (xz - uGMaskXf.xy) * uGMaskXf.zw); }
+
+// wp: world position, ny: surface normal y, fw: pixel footprint (m),
+// m: lfMask(wp.xz). Outputs grassAmt (0..1, how much grass may grow here) and
+// bump (world-space normal offset for stones/pebbles; xz only).
+vec3 lfGround(vec3 wp, float ny, float fw, vec4 m, out float grassAmt, out vec3 bump) {
+  vec2 xz = wp.xz;
+  float h = wp.y;
+  float hills = uGP.x;
+  float slope = clamp(1.0 - ny, 0.0, 1.0);
+  float flatK = 1.0 - smoothstep(0.03, 0.14, slope);
+  float fineK = 1.0 - smoothstep(0.16, 0.6, fw);
+  float midK = 1.0 - smoothstep(0.7, 2.6, fw);
+  float n1 = lfNoise(xz * 0.017 + vec2(13.1, 7.7));
+  float n2 = lfNoise(xz * 0.058 + vec2(-3.3, 21.9));
+  float n3 = mix(0.5, lfNoise(xz * 0.23 + vec2(5.5, -8.2)), midK);
+  float n4 = mix(0.5, lfNoise(xz * 1.07 + vec2(-1.7, 4.4)), fineK);
+  float hollowT = clamp(-h / (2.2 * hills + 0.7), 0.0, 1.0);
+  float highT = clamp(h / (5.5 * hills + 1.5), 0.0, 1.0) * flatK;
+  float aa = max(fw * 0.6, 0.01);
+  vec2 ts;
+  vec3 col;
+  grassAmt = 0.0;
+  bump = vec3(0.0);
+
+#if LF_GROUND_STYLE == 1
+  // ---- stone floor (cave / spire): slabs of tone, mineral warmth, moss
+  col = mix(uGStoneDark, uGStone, clamp(0.4 + (n1 - 0.5) * 0.76 + (n2 - 0.5) * 0.6, 0.0, 1.0));
+  col = mix(col, uGDirt, smoothstep(0.6, 0.9, n2) * 0.35);
+  float mossT = smoothstep(0.58, 0.82, lfNoise(xz * 0.05 + vec2(41.0, -77.0))) * flatK;
+  col = mix(col, uGMoss, mossT * 0.5);
+  if (midK > 0.0) {
+    vec3 vc = lfVoronoi(xz * 0.42, ts);
+    float crack = 1.0 - smoothstep(0.02, 0.02 + aa * 0.42 * 2.5, vc.y);
+    col *= 1.0 - crack * 0.28 * midK;
+    col *= 0.96 + (vc.z - 0.5) * 0.1 * midK;
+  }
+  col *= 0.94 + (n3 - 0.5) * 0.12 + (n4 - 0.5) * 0.08;
+  col *= 1.0 - smoothstep(0.1, 0.5, slope) * 0.22 - hollowT * 0.14;
+#elif LF_GROUND_STYLE == 2
+  // ---- ruins: broken flagstones, moss and grass in the joints, dark risers
+  vec3 vr = lfVoronoi(xz * 0.58 + vec2(n2, n1) * 0.35, ts);
+  vec3 slab = mix(uGStone, uGStoneDark, clamp(vr.z * 0.75 + (n1 - 0.5) * 0.5, 0.0, 1.0));
+  slab *= 0.95 + (n4 - 0.5) * 0.12;
+  float joint = (1.0 - smoothstep(0.035, 0.035 + aa * 0.58 * 2.5, vr.y)) * midK;
+  float mossT = clamp((n2 - 0.42) * 2.2 + (n3 - 0.5) * 0.6, 0.0, 1.0) * flatK;
+  float lost = smoothstep(0.62, 0.8, n1 + (n3 - 0.5) * 0.3);   // slabs gone -> turf
+  col = mix(slab, uGGrassB, max(joint * 0.85, mossT * 0.5));
+  vec3 turf = mix(uGGrassB, uGGrassA, n3) * (0.95 + (n4 - 0.5) * 0.1);
+  col = mix(col, turf, lost * flatK);
+  col = mix(col, uGDirt, smoothstep(0.6, 0.85, n2) * 0.25 * (1.0 - lost));
+  float riserT = smoothstep(0.07, 0.16, slope);
+  col = mix(col, uGStoneDark * 0.8, riserT * 0.8);
+  col = mix(col, uGStone * 1.08, highT * 0.2);
+  col *= 1.0 - hollowT * 0.12;
+  bump.xz = -ts * 0.25 * (1.0 - joint) * (1.0 - lost) * (1.0 - riserT) * midK;
+  grassAmt = max(lost, mossT * 0.6) * (1.0 - riserT);
+#else
+  // ---- grassland: macro / meso patchwork, sun-warmed flats, cool hollows
+  float tone = clamp(0.5 + (n1 - 0.5) * 1.15 + (n2 - 0.5) * 0.75, 0.0, 1.0);
+  col = mix(uGGrassB, uGGrassA, smoothstep(0.1, 0.9, tone));
+  float sunT = smoothstep(0.56, 0.84, n2 + (n3 - 0.5) * 0.4) * flatK;
+  col = mix(col, uGGrassSun, clamp(sunT * 0.42 + highT * 0.22, 0.0, 1.0));
+  col = mix(col, uGGrassCool, hollowT * 0.45);
+  col *= (1.0 - hollowT * 0.1) * (0.955 + (n3 - 0.5) * 0.12 + (n4 - 0.5) * uGP2.z);
+  grassAmt = 1.0;
+  // trodden / bare patches (baked)
+  float bare = m.b;
+  col = mix(col, mix(uGDirt, col, 0.5) * (0.96 + (n4 - 0.5) * 0.1), bare * 0.5);
+  grassAmt *= 1.0 - 0.6 * smoothstep(0.25, 0.7, bare);
+  // steep faces: rock with strata
+  float rockT = smoothstep(uGP2.y - 0.03, uGP2.y + 0.03, slope + (n3 - 0.5) * 0.09 + (n4 - 0.5) * 0.035);
+  float strata = 0.5 + 0.5 * sin(h * 2.3 + n2 * 5.0 + n3 * 2.0);
+  vec3 rock = mix(uGStoneDark, uGStone, clamp(0.2 + strata * 0.55 + (n4 - 0.5) * 0.3, 0.0, 1.0));
+  rock *= 0.92 + (n1 - 0.5) * 0.16;
+  col = mix(col, rock, rockT);
+  grassAmt *= 1.0 - rockT;
+  // mountain snow above a noisy line, cool on steep/hollow parts
+  if (uGP.w > 0.5) {
+    float scree = smoothstep(0.55, 0.8, n1 + (n3 - 0.5) * 0.3) * (1.0 - rockT);
+    col = mix(col, mix(uGDirt, uGStone, n4), scree * 0.45);
+    grassAmt *= 1.0 - scree * 0.8;
+    float line = uGP2.x + (n2 - 0.5) * 3.8 + (n3 - 0.5) * 1.6;
+    float snowT = smoothstep(line - 0.35, line + 0.35, h + (n4 - 0.5) * 0.25);
+    vec3 snow = mix(uGSnow, uGSnowShade, clamp(slope * 2.2 + hollowT * 0.4 + (n2 - 0.5) * 0.3, 0.0, 1.0));
+    col = mix(col, snow, snowT);
+    grassAmt *= 1.0 - snowT;
+  }
+#endif
+
+  // ---- shoreline: sand apron (baked, noisy), wet band + bleached band banded
+  //      per pixel against the water level, darker bed under the water
+  if (uGP.z > 0.5) {
+    float above = h - uGP.y;
+    float apron = m.a * (1.0 - smoothstep(0.4, 2.6, above));
+    float sandT = smoothstep(0.3 - aa, 0.3 + aa, apron + (n4 - 0.5) * 0.08);
+    vec3 sand = uGSand * (0.95 + (n4 - 0.5) * 0.12 + (n3 - 0.5) * 0.06);
+    float wetT = 1.0 - smoothstep(0.1 - aa, 0.22 + aa, above + (n4 - 0.5) * 0.06);
+    sand = mix(sand, uGSandLight, (1.0 - smoothstep(0.0, 0.12 + aa, abs(above - 0.52))) * 0.55);
+    sand = mix(sand, uGSandWet, wetT);
+    col = mix(col, sand, sandT);
+    grassAmt *= 1.0 - sandT;
+    // under the water plane: the bed darkens with depth (reads as depth through the water)
+    vec2 dq = abs(xz - uGWater.xy) - uGWater.zz;
+    float inside = 1.0 - smoothstep(-0.5, 0.5, max(dq.x, dq.y));
+    float bedT = clamp(-above * 0.9, 0.0, 1.0) * inside;
+    col = mix(col, uGSandWet * vec3(0.55, 0.62, 0.62), bedT * 0.8);
+    grassAmt *= 1.0 - smoothstep(-0.05, 0.12, -above) * inside;
+  }
+
+  // ---- paths: crisp noisy edge, trampled rim outside, soil lip inside,
+  //      worn light center, sparse pebbles; cobbles/flagstones where the mask says
+  float e = m.r * 16.0 - 4.0;
+  e += (n4 - 0.5) * 0.14 + (lfNoise(xz * 3.3 + vec2(7.0, 1.3)) - 0.5) * 0.07 * fineK;
+  float pathT = 1.0 - smoothstep(-aa, aa, e);
+  float rimT = (1.0 - smoothstep(0.0, 0.55 + n3 * 0.5, e)) * (1.0 - pathT);
+#if LF_GROUND_STYLE == 0
+  col = mix(col, mix(col, uGRim, 0.3) * 0.84, rimT * 0.6);
+#else
+  col *= 1.0 - rimT * 0.12;
+#endif
+  grassAmt *= smoothstep(0.02, 0.5, e);
+  if (pathT > 0.001) {
+    float depth = max(-e, 0.0);
+    float wear = smoothstep(0.25, 2.2, depth);
+    vec3 pbump = vec3(0.0);
+#if LF_GROUND_STYLE == 0
+    vec3 pc = mix(uGPath, uGPathWorn, clamp(0.5 + (n2 - 0.5) * 1.2 + (n3 - 0.5) * 0.7, 0.0, 1.0));
+    pc = mix(pc, uGPathLight, wear * (0.3 + n3 * 0.2));
+#else
+    vec3 pc = mix(uGStoneDark, uGStone, clamp(0.35 + (n2 - 0.5) * 0.8, 0.0, 1.0));
+    pc = mix(pc, uGStone * 1.06, wear * 0.3);
+#endif
+    pc *= 0.95 + (n4 - 0.5) * 0.12;
+    // sparse pebbles of mixed size, each with a soft contact shade (fade with distance)
+    if (fineK > 0.0) {
+      vec3 vp = lfVoronoi(xz * 3.2 + vec2(3.1, 9.7), ts);
+      float has = step(0.8, vp.z) * smoothstep(0.1, 0.5, depth);
+      float r = 0.16 + fract(vp.z * 7.31) * 0.2;
+      float peb = has * (1.0 - smoothstep(r - aa * 3.2, r + aa * 3.2, vp.x)) * fineK;
+      float ring = has * (1.0 - smoothstep(r, r + 0.18, vp.x)) * (1.0 - peb) * fineK;
+      vec3 pebC = mix(uGStone, pc, 0.6) * (0.88 + fract(vp.z * 17.3) * 0.24);
+      pc *= 1.0 - ring * 0.16;
+      pc = mix(pc, pebC, peb * 0.6);
+      pbump.xz += -ts / max(r, 0.05) * 0.55 * peb;
+    }
+    // cobbles (town streets) / flagstones (ruins): mask green channel
+    if (m.g > 0.02) {
+      float cs = uGP2.w;
+      vec3 vc = lfVoronoi(xz * cs + vec2(n1, n2) * 0.3, ts);
+      float mortar = 1.0 - smoothstep(0.04, 0.04 + aa * cs * 2.2, vc.y);
+      float hueSel = fract(vc.z * 13.7);
+      vec3 stoneC = mix(uGStone, uGStoneDark, vc.z * 0.7);
+      stoneC = mix(stoneC, stoneC * vec3(1.06, 1.0, 0.9), step(0.6, hueSel));   // a few warm stones
+      stoneC = mix(stoneC, stoneC * vec3(0.94, 0.98, 1.05), step(hueSel, 0.25)); // a few cool ones
+      stoneC *= 0.94 + (n4 - 0.5) * 0.12;
+      vec3 mortarC = mix(uGRim, uGStoneDark, 0.65) * 0.5;
+      vec3 cob = mix(stoneC, mortarC, mortar * midK);
+      float keep = m.g * smoothstep(0.1, 0.8, depth + (n3 - 0.5) * 0.7)
+                 * smoothstep(0.16, 0.36, n2 * 0.55 + vc.z * 0.45 + 0.08);
+      keep = clamp(keep, 0.0, 1.0);
+      pc = mix(pc, cob, keep);
+      float bevel = (1.0 - smoothstep(0.0, 0.2, vc.y)) * (1.0 - mortar);
+      pbump.xz = mix(pbump.xz, -normalize(ts + 1e-4) * (0.18 + 0.75 * bevel), keep * midK);
+    }
+    // soil lip just inside the edge
+    pc *= 1.0 - (1.0 - smoothstep(0.0, 0.32, depth)) * 0.2;
+    col = mix(col, pc, pathT);
+    bump = mix(bump, pbump, pathT);
+  }
+  // soft AO where the grass field stands (roots get the same, so they still melt in)
+  if (uGFieldK.x > 0.0) {
+    float fieldK = 1.0 - smoothstep(uGField.z, uGField.w, distance(xz, uGField.xy));
+    col *= 1.0 - uGFieldK.x * fieldK * smoothstep(0.1, 0.6, grassAmt);
+  }
+  return col;
+}
+`;
+
 // ---------------------------------------------------------------- entry point
 export function buildTerrain(zone) {
   const size = zone.size ?? 200;
@@ -164,7 +453,6 @@ export function buildTerrain(zone) {
   const hills = zone.terrain?.hills ?? 1;
   const seed = zone.terrain?.seed ?? hashStr(zone.id ?? 'zone');
   const biome = zone.biome ?? kind;
-  const palette = groundPalette(biome);
   const noise2D = makeNoise2D(seed);
   const pathInfo = makePathInfo(zone.paths);
   const water = zone.water ?? null;
@@ -182,198 +470,192 @@ export function buildTerrain(zone) {
     return h;
   }
 
-  // ---------------------------------------------------------- geometry + colors
-  const segs = clamp(Math.round(size / 2.0), 48, 150);
-  const geo = new THREE.PlaneGeometry(size, size, segs, segs);
-  geo.rotateX(-Math.PI / 2);
+  const style = (kind === 'cave' || kind === 'spire') ? 1 : kind === 'ruins' ? 2 : 0;
 
-  const posAttr = geo.attributes.position;
-  const colors = new Float32Array(posAttr.count * 3);
-  const _c = new THREE.Color();
-  const _c2 = new THREE.Color();
-  const _cp = new THREE.Color();
-  const EPS = Math.max(size / segs, 0.5) * 0.5;
-  const sstep = (a, b, v) => { const t = clamp01((v - a) / (b - a)); return t * t * (3 - 2 * t); };
+  // ---------------------------------------------------------- smooth indexed grid
+  // ~1 m cells (smooth shading needs resolution where facets hid it). Heights
+  // come straight from computeHeight — the rendered surface only gets closer
+  // to heightAt than the old 2 m mesh was.
+  const segs = clamp(Math.round(size / 1.0), 64, 256);
+  const step = size / segs;
+  const nv = segs + 1;
+  const nb = segs + 3; // +1 ring for central-difference normals at the border
+  const hb = new Float32Array(nb * nb);
+  for (let j = 0; j < nb; j++) {
+    const z = -half + (j - 1) * step;
+    for (let i = 0; i < nb; i++) hb[j * nb + i] = computeHeight(-half + (i - 1) * step, z);
+  }
+  const positions = new Float32Array(nv * nv * 3);
+  const normals = new Float32Array(nv * nv * 3);
+  const heights = new Float32Array(nv * nv);   // rendered surface, for grass roots
+  const normY = new Float32Array(nv * nv);
+  const inv2 = 1 / (2 * step);
+  for (let j = 0; j < nv; j++) {
+    for (let i = 0; i < nv; i++) {
+      const k = j * nv + i;
+      const b = (j + 1) * nb + (i + 1);
+      const h = hb[b];
+      positions[k * 3] = -half + i * step;
+      positions[k * 3 + 1] = h;
+      positions[k * 3 + 2] = -half + j * step;
+      const gx = (hb[b + 1] - hb[b - 1]) * inv2;
+      const gz = (hb[b + nb] - hb[b - nb]) * inv2;
+      const il = 1 / Math.sqrt(gx * gx + 1 + gz * gz);
+      normals[k * 3] = -gx * il; normals[k * 3 + 1] = il; normals[k * 3 + 2] = -gz * il;
+      heights[k] = h;
+      normY[k] = il;
+    }
+  }
+  const IndexArray = nv * nv > 65535 ? Uint32Array : Uint16Array;
+  const index = new IndexArray(segs * segs * 6);
+  let ii = 0;
+  for (let j = 0; j < segs; j++) {
+    for (let i = 0; i < segs; i++) {
+      const a = j * nv + i, b = (j + 1) * nv + i, c = (j + 1) * nv + i + 1, d = j * nv + i + 1;
+      index[ii++] = a; index[ii++] = b; index[ii++] = d;
+      index[ii++] = b; index[ii++] = c; index[ii++] = d;
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+  geo.setIndex(new THREE.BufferAttribute(index, 1));
+  geo.computeBoundingSphere();
 
-  const cGrass = new THREE.Color(palette.grass);
-  const cGrass2 = new THREE.Color(palette.grass2);
-  const cDirt = new THREE.Color(palette.dirt);
-  const cStone = new THREE.Color(palette.stone);
-  const cStoneDark = new THREE.Color(palette.stoneDark);
-  const cSand = new THREE.Color(palette.sand);
-  const cSnow = new THREE.Color(palette.snow);
-  const cPath = new THREE.Color(palette.path);
-  // Derived neighbor tones — enrich AROUND the zone palette, never repaint it.
-  const cGrassSun = cGrass.clone().offsetHSL(-0.045, 0.09, 0.075);   // sun-warmed yellow-green
-  const cGrassCool = cGrass2.clone().offsetHSL(0.02, 0, -0.05);     // cool hollow green
-  const cPathWorn = cPath.clone().offsetHSL(0.004, -0.05, -0.075);  // trodden dust
-  const cPathLight = cPath.clone().offsetHSL(-0.01, 0.04, 0.07);    // worn bright center
-  const cRim = cDirt.clone().offsetHSL(0, -0.03, -0.11);            // dark rim where path meets grass
-  const cSandWet = cSand.clone().offsetHSL(0.005, -0.04, -0.12);    // wet sand at the waterline
-  const cSandLight = cSand.clone().offsetHSL(-0.008, 0.02, 0.09);   // bleached band above it
-  const cSnowShade = cSnow.clone().lerp(new THREE.Color(0x8fa6c8), 0.55); // cool shaded snow
-  const cStoneWarm = cStone.clone().offsetHSL(-0.02, 0.05, 0.05);   // sunlit rock
-  const cMoss = cGrass.clone().multiplyScalar(0.6);
-  const isStoneFloor = kind === 'cave' || kind === 'spire' || kind === 'ruins';
+  /** Height of the RENDERED surface (same triangulation as the index above). */
+  function surfaceY(x, z) {
+    const fx = clamp((x + half) / step, 0, segs - 1e-4), fz = clamp((z + half) / step, 0, segs - 1e-4);
+    const i = Math.floor(fx), j = Math.floor(fz);
+    const u = fx - i, v = fz - j;
+    const k = j * nv + i;
+    const h00 = heights[k], h10 = heights[k + 1], h01 = heights[k + nv], h11 = heights[k + nv + 1];
+    if (u + v < 1) return h00 + (h10 - h00) * u + (h01 - h00) * v;
+    return h11 + (h01 - h11) * (1 - u) + (h10 - h11) * (1 - v);
+  }
+  /** Interpolated vertex-normal Y (what the terrain shader sees) at x,z. */
+  function surfaceNy(x, z) {
+    const fx = clamp((x + half) / step, 0, segs - 1e-4), fz = clamp((z + half) / step, 0, segs - 1e-4);
+    const i = Math.floor(fx), j = Math.floor(fz);
+    const u = fx - i, v = fz - j;
+    const k = j * nv + i;
+    const a = normY[k], b = normY[k + 1], c = normY[k + nv], d = normY[k + nv + 1];
+    return (a * (1 - u) + b * u) * (1 - v) + (c * (1 - u) + d * u) * v;
+  }
 
-  for (let i = 0; i < posAttr.count; i++) {
-    const x = posAttr.getX(i), z = posAttr.getZ(i);
-    const h = computeHeight(x, z);
-    posAttr.setY(i, h);
-
-    const hL = computeHeight(x - EPS, z), hR = computeHeight(x + EPS, z);
-    const hD = computeHeight(x, z - EPS), hU = computeHeight(x, z + EPS);
-    const slope = clamp01((Math.abs(hR - hL) + Math.abs(hU - hD)) / (EPS * 2) * 0.55);
-
-    // shared noise fields: macro tone drift / meso patches / fine grain
-    const n1 = noise2D(x * 0.016 + 500, z * 0.016 - 200);
-    const n2 = noise2D(x * 0.055 - 310, z * 0.055 + 140);
-    const n3 = noise2D(x * 0.23 + 77, z * 0.23 + 913);
-    // fake AO: hollows cooler/darker, high flats sun-warmed
-    const hollowT = clamp01(-h / (2.2 * hills + 0.7));
-    const highT = clamp01(h / (5.5 * hills + 1.5)) * clamp01(1 - slope * 1.8);
-
-    if (kind === 'cave' || kind === 'spire') {
-      // indoor biomes: broken stone floor, warm mineral veins, mossy patches
-      _c.copy(cStoneDark).lerp(cStone, clamp01(0.4 + n1 * 0.38 + n2 * 0.3));
-      _c.lerp(cDirt, clamp01((n2 * 0.5 + 0.5 - 0.62) * 2.2) * 0.4);
-      const mossT = clamp01((noise2D(x * 0.05 + 41, z * 0.05 - 77) - 0.12) * 2.6) * clamp01(1 - slope * 3);
-      if (mossT > 0) _c.lerp(cMoss, Math.min(1, mossT) * 0.55);
-      _c.lerp(cStoneWarm, clamp01(n3 * 0.5 + 0.5) * 0.12);
-      _c.multiplyScalar(1 - clamp01(slope * 1.3) * 0.2 - hollowT * 0.15);
-    } else if (kind === 'ruins') {
-      // weathered flagstone patchwork, moss creeping the flats, dark terrace risers
-      _c.copy(cStone).lerp(cStoneDark, clamp01(0.45 + n1 * 0.4 + n3 * 0.3));
-      _c.lerp(cDirt, clamp01((n2 * 0.5 + 0.5 - 0.58) * 2.0) * 0.35);
-      const mossT = clamp01((n2 + 0.25) * 1.3) * clamp01(1 - slope * 2.6);
-      if (mossT > 0) _c.lerp(cGrass2, Math.min(1, mossT) * 0.34);
-      const riserT = clamp01((slope - 0.22) * 2.8);
-      if (riserT > 0) _c.lerp(cStoneDark, Math.min(1, riserT) * 0.8);
-      _c.lerp(cStoneWarm, highT * 0.3);
-      _c.multiplyScalar(1 - clamp01(slope * 1.2) * 0.12 - hollowT * 0.12);
-    } else {
-      // --- grass patchwork: deep / mid / sun-warmed tones at three scales ---
-      const gmix = clamp01(0.5 + n1 * 0.45 + n2 * 0.3);
-      _c.copy(cGrass).lerp(cGrass2, gmix);
-      const sunT = clamp01((n2 - 0.2) * 2.9) * clamp01(1 - slope * 2.4);
-      if (sunT > 0) _c.lerp(cGrassSun, Math.min(1, sunT) * 0.58);
-      _c.lerp(gmix > 0.5 ? cGrass : cGrass2, clamp01(0.5 + n3 * 0.8) * 0.16);
-      // worn dirt patches — independent slow field so clearings read as trodden
-      // (kept sparse AND soft: the meadow must stay green-dominant — at 0.42
-      // the khaki wash dominated whole mid-grounds in dawnmeadow/mirrorlake)
-      const dirtN = clamp01((noise2D(x * 0.03 - 800, z * 0.03 + 300) * 0.5 + 0.5 - 0.6) * 2.6);
-      if (dirtN > 0) _c.lerp(cDirt, Math.min(1, dirtN) * 0.3);
-      // steeper faces rockier + darker
-      const rockT = clamp01((slope - 0.28) * 2.6);
-      if (rockT > 0) _c.lerp(n1 > 0 ? cStone : cStoneDark, Math.min(1, rockT));
-      _c.multiplyScalar(1 - clamp01(slope * 1.5) * 0.17);
-      // hollows cool + dark, high flats warm
-      if (hollowT > 0) { _c.lerp(cGrassCool, hollowT * 0.5); _c.multiplyScalar(1 - hollowT * 0.13); }
-      if (highT > 0) _c.lerp(cGrassSun, highT * 0.32);
-      // shoreline near zone water: sand apron w/ noisy edge, wet band, bleached band
+  // ---------------------------------------------------------- ground mask
+  // RGBA8 over the zone at 0.5 m: R = signed distance to the nearest path edge
+  // (+ baked organic wobble; meters, [-4,12] -> 0..255), G = cobble/flagstone
+  // weight, B = bare/trodden patch field, A = shore sand apron.
+  const TEX = 0.5;
+  const MW = Math.ceil(size / TEX) + 2;
+  const maskMin = -half - TEX; // texel i center at maskMin + (i + 0.5) * TEX
+  const span = MW * TEX;
+  const mask = new Uint8Array(MW * MW * 4);
+  const mnoise = makeNoise2D((seed * 7 + 3) >>> 0);
+  const paths = zone.paths ?? [];
+  const cobbleOf = (p) => (style === 2 ? 1 : (kind === 'town' && (p.width ?? 3) >= 5) ? 1 : 0);
+  const bareCut = { forest: 0.5, mountain: 0.52, town: 0.6, glade: 0.6 }[kind] ?? 0.62;
+  const wx = water?.pos?.[0] ?? 0, wz = water?.pos?.[1] ?? 0, wHalf = (water?.size ?? 0) / 2;
+  for (let j = 0; j < MW; j++) {
+    const z = maskMin + (j + 0.5) * TEX;
+    for (let i = 0; i < MW; i++) {
+      const x = maskMin + (i + 0.5) * TEX;
+      const o = (j * MW + i) * 4;
+      // paths
+      let e = 12, cob = 0;
+      for (let p = 0; p < paths.length; p++) {
+        const P = paths[p];
+        const d = distToSeg(x, z, P.from, P.to) - (P.width ?? 3) * 0.5;
+        if (d < e) e = d;
+        if (d < 1.2 && cobbleOf(P)) cob = Math.max(cob, clamp01((1.2 - d) / 1.2));
+      }
+      if (e < 11) e += mnoise(x * 0.11 + 31.7, z * 0.11 - 8.3) * 0.42 + mnoise(x * 0.37 - 5.1, z * 0.37 + 12.9) * 0.16;
+      mask[o] = Math.round(clamp01((e + 4) / 16) * 255);
+      mask[o + 1] = Math.round(cob * 255);
+      // bare / trodden patches
+      const bn = mnoise(x * 0.03 - 80.3, z * 0.03 + 30.1) * 0.5 + 0.5 + mnoise(x * 0.11 + 7.7, z * 0.11 - 3.3) * 0.08;
+      mask[o + 2] = Math.round(clamp01((bn - bareCut) * 3.2) * 255);
+      // shore apron
+      let ap = 0;
       if (water) {
-        const wx = water.pos?.[0] ?? 0, wz = water.pos?.[1] ?? 0, wl = water.level ?? 0;
-        const half2 = (water.size ?? 0) / 2;
-        const dEdge = Math.max(Math.abs(x - wx) - half2, Math.abs(z - wz) - half2);
-        if (dEdge < 9) {
-          const above = h - wl;
-          const shoreN = n2 * 1.7 + n3 * 0.9;
-          const apron = clamp01(1 - (dEdge + shoreN) / 6.5) * clamp01(1 - Math.max(0, above) / 2.6);
-          if (apron > 0) {
-            _c.lerp(cSand, Math.min(1, apron * 1.7) * 0.92);
-            const wetT = clamp01((0.42 - above) / 0.5);
-            if (wetT > 0) _c.lerp(cSandWet, Math.min(1, wetT) * 0.8 * Math.min(1, apron * 2));
-            const bleachT = clamp01(1 - Math.abs(above - 0.6) / 0.28);
-            if (bleachT > 0) _c.lerp(cSandLight, bleachT * 0.65 * Math.min(1, apron * 2));
-          }
+        const dEdge = Math.max(Math.abs(x - wx) - wHalf, Math.abs(z - wz) - wHalf);
+        if (dEdge < 12) {
+          const shoreN = mnoise(x * 0.055 + 3.3, z * 0.055 - 9.9) * 1.7 + mnoise(x * 0.23 - 1.1, z * 0.23 + 4.4) * 0.8;
+          ap = clamp01(1 - (dEdge + shoreN) / 6.5);
         }
       }
-      // mountain: scree bands below a NOISY snowline, cool-shaded steep snow
-      // (band still straddles player.js's SNOWLINE_Y=12 footstep cutoff)
-      if (kind === 'mountain') {
-        const band = clamp01((n1 * 0.5 + 0.5 - 0.52) * 2.0);
-        if (band > 0) _c.lerp(cDirt, Math.min(1, band) * 0.4);
-        const snowT = clamp01((h - (SNOW_LOW + n2 * 1.8 + n3 * 0.9)) / (SNOW_HIGH - SNOW_LOW));
-        if (snowT > 0) {
-          _c.lerp(cSnow, snowT);
-          const shadeT = (clamp01(slope * 1.7) * 0.5 + hollowT * 0.4 + clamp01(n1 * 0.5 + 0.2) * 0.2) * snowT;
-          if (shadeT > 0) _c.lerp(cSnowShade, Math.min(1, shadeT));
-        }
-      }
-    }
-
-    // paths: noise-perturbed edges (no straight borders), mottled wear tones,
-    // lighter worn center, and a dark rim where the path meets the grass
-    if (pathInfo) {
-      const pi = pathInfo(x, z);
-      const hw = pi.w * 0.5;
-      const edgeN = noise2D(x * 0.09 + 823, z * 0.09 - 411) * 1.35 + n3 * 0.6;
-      const d = pi.d + edgeN;
-      const core = 1 - sstep(hw - 0.45, hw + 0.95, d);
-      if (core > 0) {
-        if (isStoneFloor) {
-          _cp.copy(cStoneDark).lerp(cStone, clamp01(0.35 + n2 * 0.4));
-        } else {
-          _cp.copy(cPath).lerp(cPathWorn, clamp01(0.5 + n2 * 0.7 + n1 * 0.3));
-          const centerT = clamp01(1 - pi.d / Math.max(hw, 0.01));
-          _cp.lerp(cPathLight, centerT * centerT * 0.45);
-        }
-        _c.lerp(_cp, Math.min(1, core * 1.06));
-      }
-      const rimT = clamp01(1 - Math.abs(d - (hw + 1.7)) / 1.5) * (1 - core);
-      if (rimT > 0) _c.lerp(isStoneFloor ? cStoneDark : cRim, rimT * 0.48);
-    }
-
-    // gentle per-vertex variance (per-face tone break below carries the grain)
-    const jitter = n3 * 0.02;
-    _c2.copy(_c).offsetHSL(0, 0, jitter);
-
-    colors[i * 3] = _c2.r; colors[i * 3 + 1] = _c2.g; colors[i * 3 + 2] = _c2.b;
-  }
-  posAttr.needsUpdate = true;
-  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  geo.computeVertexNormals(); // smooth normals — blended with face normals below
-
-  // -------------------------------------------------- faceted low-poly finish
-  // De-index so each triangle owns its vertices: a per-face tone break + face-
-  // blended normals turn the airbrushed sheet into stylized low-poly ground
-  // that matches the flat-shaded props. Positions are copies of the exact same
-  // heights — heightAt/collision see no difference. Still one draw call.
-  const fgeo = geo.toNonIndexed();
-  geo.dispose();
-  const fpos = fgeo.attributes.position;
-  const fnrm = fgeo.attributes.normal;
-  const fcol = fgeo.attributes.color;
-  const facetK = isStoneFloor || kind === 'mountain' ? 0.85 : 0.62;
-  const _va = new THREE.Vector3(), _vb = new THREE.Vector3(), _vc = new THREE.Vector3();
-  const _e1 = new THREE.Vector3(), _e2 = new THREE.Vector3(), _fn = new THREE.Vector3(), _nv = new THREE.Vector3();
-  for (let f = 0; f < fpos.count; f += 3) {
-    _va.fromBufferAttribute(fpos, f);
-    _vb.fromBufferAttribute(fpos, f + 1);
-    _vc.fromBufferAttribute(fpos, f + 2);
-    _e1.subVectors(_vb, _va); _e2.subVectors(_vc, _va);
-    _fn.crossVectors(_e1, _e2).normalize();
-    const cx = (_va.x + _vb.x + _vc.x) / 3, cz = (_va.z + _vb.z + _vc.z) / 3;
-    const s = Math.sin(cx * 127.1 + cz * 311.7 + seed * 0.173) * 43758.5453;
-    const fj = (s - Math.floor(s)) * 2 - 1;
-    // cluster the facet tone-breaks: calm stretches and patchy stretches, so
-    // flat ground reads painterly instead of uniform triangle confetti
-    const cluster = 0.45 + 0.55 * clamp01(noise2D(cx * 0.022 + 61, cz * 0.022 - 987) * 0.9 + 0.5);
-    for (let v = f; v < f + 3; v++) {
-      _nv.fromBufferAttribute(fnrm, v).lerp(_fn, facetK).normalize();
-      fnrm.setXYZ(v, _nv.x, _nv.y, _nv.z);
-      const r = fcol.getX(v), g = fcol.getY(v), b = fcol.getZ(v);
-      const lum = (r + g + b) / 3;
-      // warm tan (path/dirt) faces get calmer facets: on wide plazas the full
-      // per-triangle tone break read as a repetitive diagonal checker
-      const warmT = clamp01((r - b - 0.16) * 4);
-      const amp = 0.04 * cluster * (lum > 0.72 ? 0.35 : 1) * (1 - warmT * 0.5); // keep snow/sand facets clean
-      fcol.setXYZ(v, clamp01(r + fj * amp), clamp01(g + fj * amp), clamp01(b + fj * amp * 0.8));
+      mask[o + 3] = Math.round(ap * 255);
     }
   }
+  const maskTex = new THREE.DataTexture(mask, MW, MW, THREE.RGBAFormat, THREE.UnsignedByteType);
+  maskTex.magFilter = THREE.LinearFilter;
+  maskTex.minFilter = THREE.LinearMipmapLinearFilter;
+  maskTex.generateMipmaps = true;
+  maskTex.wrapS = maskTex.wrapT = THREE.ClampToEdgeWrapping;
+  maskTex.anisotropy = 4;
+  maskTex.needsUpdate = true;
 
-  const material = mat(0xffffff, { vertexColors: true, rough: kind === 'lake' || kind === 'meadow' ? 0.96 : 0.9, flat: false });
-  const mesh = new THREE.Mesh(fgeo, material);
+  /** CPU bilinear sample of the mask (same data the GPU filters). Writes into `out`. */
+  function sampleMask(x, z, out) {
+    const fx = clamp((x - maskMin) / TEX - 0.5, 0, MW - 1.001), fz = clamp((z - maskMin) / TEX - 0.5, 0, MW - 1.001);
+    const i = Math.floor(fx), j = Math.floor(fz);
+    const u = fx - i, v = fz - j;
+    const o00 = (j * MW + i) * 4, o10 = o00 + 4, o01 = o00 + MW * 4, o11 = o01 + 4;
+    const w00 = (1 - u) * (1 - v), w10 = u * (1 - v), w01 = (1 - u) * v, w11 = u * v;
+    const r = (mask[o00] * w00 + mask[o10] * w10 + mask[o01] * w01 + mask[o11] * w11) / 255;
+    out.edge = r * 16 - 4;
+    out.cobble = (mask[o00 + 1] * w00 + mask[o10 + 1] * w10 + mask[o01 + 1] * w01 + mask[o11 + 1] * w11) / 255;
+    out.bare = (mask[o00 + 2] * w00 + mask[o10 + 2] * w10 + mask[o01 + 2] * w01 + mask[o11 + 2] * w11) / 255;
+    out.apron = (mask[o00 + 3] * w00 + mask[o10 + 3] * w10 + mask[o01 + 3] * w01 + mask[o11 + 3] * w11) / 255;
+    return out;
+  }
+
+  // ---------------------------------------------------------- material
+  const C = groundTones(biome);
+  const U = (v) => ({ value: v });
+  const uniforms = {
+    uGMask: U(maskTex),
+    uGMaskXf: U(new THREE.Vector4(maskMin, maskMin, 1 / span, 1 / span)),
+    uGGrassA: U(C.grassA), uGGrassB: U(C.grassB), uGGrassSun: U(C.grassSun), uGGrassCool: U(C.grassCool),
+    uGDirt: U(C.dirt), uGStone: U(C.stone), uGStoneDark: U(C.stoneDark),
+    uGSand: U(C.sand), uGSandWet: U(C.sandWet), uGSandLight: U(C.sandLight),
+    uGSnow: U(C.snow), uGSnowShade: U(C.snowShade),
+    uGPath: U(C.path), uGPathWorn: U(C.pathWorn), uGPathLight: U(C.pathLight), uGRim: U(C.rim), uGMoss: U(C.moss),
+    uGP: U(new THREE.Vector4(hills, water?.level ?? 0, water ? 1 : 0, kind === 'mountain' ? 1 : 0)),
+    uGP2: U(new THREE.Vector4(SNOW_LOW + 1.2, kind === 'mountain' ? 0.1 : 0.13, 0.07, style === 2 ? 0.62 : 2.3)),
+    uGWater: U(new THREE.Vector4(wx, wz, wHalf, 0)),
+    uGField: U(new THREE.Vector4(0, 0, 10, 20)), // driven by grass.js each frame
+    uGFieldK: U(new THREE.Vector4(0, 0, 0, 0)),
+  };
+  const defines = { LF_GROUND_STYLE: style };
+
+  const material = new THREE.MeshStandardMaterial({
+    color: 0xffffff, roughness: style === 0 ? 0.95 : 0.88, metalness: 0,
+  });
+  material.defines = { ...defines };
+  material.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, uniforms);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vGWorldPos;\nvarying vec3 vGWorldNormal;')
+      .replace('#include <project_vertex>', `#include <project_vertex>
+  vGWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
+  vGWorldNormal = normalize(mat3(modelMatrix) * objectNormal);`);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>\nvarying vec3 vGWorldPos;\nvarying vec3 vGWorldNormal;\n${GROUND_GLSL}`)
+      .replace('#include <color_fragment>', `#include <color_fragment>
+  vec3 gBump;
+  {
+    float gFw = length(fwidth(vGWorldPos.xz));
+    float gGrass;
+    vec3 gCol = lfGround(vGWorldPos, normalize(vGWorldNormal).y, gFw, lfMask(vGWorldPos.xz), gGrass, gBump);
+    diffuseColor.rgb *= gCol;
+  }`)
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+  normal = normalize(normal + (viewMatrix * vec4(gBump, 0.0)).xyz);`);
+  };
+  material.customProgramCacheKey = () => `lf-terrain-v2-${style}`;
+
+  const mesh = new THREE.Mesh(geo, material);
   mesh.name = 'terrain';
   mesh.receiveShadow = true;
   mesh.castShadow = false;
@@ -382,9 +664,20 @@ export function buildTerrain(zone) {
   function heightAt(x, z) { return computeHeight(x, z); }
 
   function dispose() {
-    fgeo.dispose();
+    geo.dispose();
     material.dispose();
+    maskTex.dispose();
   }
 
-  return { mesh, heightAt, dispose };
+  // Everything grass.js needs to grow blades that agree with this ground.
+  const ground = {
+    style, kind, biome, size, half, hills, seed,
+    uniforms, defines, glsl: GROUND_GLSL,
+    water: water ? { level: water.level ?? 0, cx: wx, cz: wz, half: wHalf } : null,
+    snowLine: kind === 'mountain' ? SNOW_LOW + 1.2 : Infinity,
+    rockSlope: uniforms.uGP2.value.y,
+    surfaceY, surfaceNy, sampleMask,
+  };
+
+  return { mesh, heightAt, dispose, ground };
 }
