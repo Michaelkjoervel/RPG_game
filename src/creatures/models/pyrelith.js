@@ -87,9 +87,9 @@ export function build_pyrelith(kit = kitDefault) {
   // --- Magma seams between the plates and a molten underbelly line. ---------
   const seams = [];
   for (const s of [1, -1]) {
-    seams.push(S.grooveTop(bodyGeo, [[s * 0.2, 0.42], [s * 0.26, 0.28], [s * 0.22, 0.12], [s * 0.28, -0.04], [s * 0.24, -0.2], [s * 0.28, -0.34]], { radius: 0.018, lift: 0.002, seg: 20 }));
-    seams.push(S.groove(bodyGeo, [[s * 1.2, 0.1], [s * 1.35, -0.05], [s * 1.5, 0.05]], { from: [0, 0, 0.3], radius: 0.013, lift: 0.002 }));
-    seams.push(S.groove(bodyGeo, [[s * 1.7, 0.15], [s * 1.9, 0.0], [s * 2.05, 0.12]], { from: [0, 0, -0.2], radius: 0.013, lift: 0.002 }));
+    seams.push(S.grooveTop(bodyGeo, [[s * 0.2, 0.42], [s * 0.26, 0.28], [s * 0.22, 0.12], [s * 0.28, -0.04], [s * 0.24, -0.2], [s * 0.28, -0.34]], { radius: 0.018, lift: 0.002, seg: 14, radial: 4 }));
+    seams.push(S.groove(bodyGeo, [[s * 1.2, 0.1], [s * 1.35, -0.05], [s * 1.5, 0.05]], { from: [0, 0, 0.3], radius: 0.013, lift: 0.002, seg: 6 }));
+    seams.push(S.groove(bodyGeo, [[s * 1.7, 0.15], [s * 1.9, 0.0], [s * 2.05, 0.12]], { from: [0, 0, -0.2], radius: 0.013, lift: 0.002, seg: 6 }));
   }
   const seamMesh = new THREE.Mesh(S.merge(seams.map((g) => S.paint(g, 0xffffff))), magma);
   seamMesh.name = 'magmaSeams';
@@ -176,7 +176,7 @@ export function build_pyrelith(kit = kitDefault) {
   const legs = legDefs.map(([x, y, z, s, bend]) => {
     const l = S.softLeg(0.66 + y, hide, {
       thighR: 0.17, shinR: 0.1, kneeR: 0.115, ankleR: 0.09, pawR: 0.12, pawLen: 1.25, pawH: 0.08, toes: 0,
-      bend, split: 0.5, bulge: 0.3, color: HIDE_HI, shinColor: 0x3a2e28, pawColor: 0x2a2220, radial: 12,
+      bend, split: 0.5, bulge: 0.3, color: HIDE_HI, shinColor: 0x3a2e28, pawColor: 0x2a2220, radial: 9,
     });
     kit.at(body, l, x, y, z, { rz: s * 0.1 });
     const claws = [];

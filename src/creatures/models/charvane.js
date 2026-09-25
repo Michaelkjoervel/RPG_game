@@ -49,7 +49,7 @@ export function build_charvane(kit = kitDefault) {
   // the shoulders, sweeping back — body-coloured so they read as fur.
   const maneGeos = [];
   const clump = (at, dir, len, w, from, to) => {
-    const g = S.taper(len, w, { r1: w * 0.12, curve: -0.3, radial: 6, rings: 5, sx: 1.5, sz: 0.55 });
+    const g = S.taper(len, w, { r1: w * 0.12, curve: -0.3, radial: 5, rings: 3, capSeg: 1, sx: 1.5, sz: 0.55 });
     S.paint(g, { from, to, axis: 'y', noise: 0.015 });
     S.aim(g, dir);
     return S.pose(g, at);
@@ -71,7 +71,7 @@ export function build_charvane(kit = kitDefault) {
 
   // --- Magma seams: bold glowing cracks on spine, shoulders and haunch. ----
   const seams = [
-    S.grooveTop(torsoGeo, [[0.0, 0.27], [0.014, 0.17], [-0.01, 0.06], [0.012, -0.05], [-0.006, -0.16], [0.0, -0.27]], { radius: 0.015, lift: 0.001, seg: 26 }),
+    S.grooveTop(torsoGeo, [[0.0, 0.27], [0.014, 0.17], [-0.01, 0.06], [0.012, -0.05], [-0.006, -0.16], [0.0, -0.27]], { radius: 0.015, lift: 0.001, seg: 18 }),
     S.grooveTop(torsoGeo, [[0.012, 0.17], [0.06, 0.13], [0.09, 0.07], [0.11, 0.05]], { radius: 0.009, lift: 0.001 }),
     S.grooveTop(torsoGeo, [[-0.01, 0.06], [-0.06, 0.03], [-0.1, -0.03]], { radius: 0.009, lift: 0.001 }),
     S.grooveTop(torsoGeo, [[0.012, -0.05], [0.06, -0.1], [0.1, -0.13]], { radius: 0.008, lift: 0.001 }),
@@ -90,7 +90,7 @@ export function build_charvane(kit = kitDefault) {
   // --- Head: ONE wedge — a broad skull flowing into a thick, lowered
   // muzzle (a hound, not a ball with a snout stuck on). ----------------------
   const headGeo = S.spindle({
-    len: 0.36, r: 0.12, sx: 1.0, sy: 1.0, pTail: 1.0, pNose: 1.15, radial: 20, rings: 16, belly: 0.1,
+    len: 0.36, r: 0.12, sx: 1.0, sy: 1.0, pTail: 1.0, pNose: 1.15, radial: 18, rings: 13, belly: 0.1,
     profile: (t) => (t < 0.42 ? 1.0 : S.lerp(1.0, 0.56, S.sstep(0.42, 0.68, t))) - 0.14 * S.sstep(0.72, 1, t),
     syAt: (t) => S.lerp(0.9, 0.72, S.sstep(0.42, 0.7, t)),
     arch: (t) => -0.045 * S.sstep(0.38, 0.75, t),
@@ -147,14 +147,14 @@ export function build_charvane(kit = kitDefault) {
     [0.08, -0.04, -0.21, hindDef], [-0.08, -0.04, -0.21, hindDef],
   ];
   const legs = legDefs.map(([x, y, z, d]) => {
-    const l = S.softLeg(0.47 + y, fur, { ...d, color: COAL_HI, shinColor: 0x3a2d28, pawColor: SOCK, toes: 3 });
+    const l = S.softLeg(0.47 + y, fur, { ...d, color: COAL_HI, shinColor: 0x3a2d28, pawColor: SOCK, toes: 3, radial: 7 });
     kit.at(body, l, x, y, z);
     return l;
   });
 
   // --- Tail: proud, curling up into a live flame tuft. ---------------------
   const tail = S.softTail(4, fur, {
-    segLen: 0.1, curl: 0.2, rootPitch: 0.45, radial: 10,
+    segLen: 0.1, curl: 0.2, rootPitch: 0.45, radial: 8,
     radiusFn: (t) => 0.042 + 0.036 * Math.sin(Math.PI * Math.min(1, t * 0.95 + 0.05)) - 0.012 * t,
     color: (t) => S.mixHex(COAL_HI, 0x9a5a3c, Math.pow(t, 2.5)),
   });

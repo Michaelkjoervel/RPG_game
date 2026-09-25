@@ -23,7 +23,7 @@ export function build_thistlit(kit = kitDefault) {
   const root = new THREE.Group();
 
   // --- Body: a round seedling bean. ----------------------------------------
-  const bodyGeo = S.spindle({ len: 0.29, r: 0.13, sx: 1.02, sy: 0.9, p: 0.95, radial: 20, rings: 14, belly: 0.2, profile: (t) => 0.92 + 0.1 * S.bump(t, 0.45, 0.45) });
+  const bodyGeo = S.spindle({ len: 0.29, r: 0.13, sx: 1.02, sy: 0.9, p: 0.95, radial: 18, rings: 12, belly: 0.2, profile: (t) => 0.92 + 0.1 * S.bump(t, 0.45, 0.45) });
   S.paint(bodyGeo, { from: SOIL_LO, to: SOIL_HI, axis: 'y', noise: 0.012, seed: 30 });
   S.overlay(bodyGeo, FACE, (x, y, z) => S.sstep(-0.03, -0.1, y) * S.sstep(-0.05, 0.08, z) * 0.7);
   // The thistle mantle: a low violet cap over the back (mostly hidden) ...
@@ -46,7 +46,7 @@ export function build_thistlit(kit = kitDefault) {
       const at = S.surface(capGeo, S.dirYP(yaw, pitch), { from, inset: 0.01 });
       const nrm = S.dirYP(yaw, pitch);
       const len = 0.075 + ((n * 7919) % 13) / 13 * 0.03 - row * 0.004;
-      const q = S.taper(len, 0.019, { r1: 0.003, curve: -0.12, radial: 6, rings: 5 });
+      const q = S.taper(len, 0.019, { r1: 0.003, curve: -0.12, radial: 5, rings: 3, capSeg: 1 });
       S.paint(q, { from: QUILL, to: QUILL_TIP, axis: 'y', exp: 2.4 });
       S.aim(q, [nrm[0], nrm[1], nrm[2] - 0.75]);
       S.pose(q, at);
@@ -59,7 +59,7 @@ export function build_thistlit(kit = kitDefault) {
   body.position.y = 0.14;
 
   // --- Head: big round face, pointy button snout, shy tilt. ---------------
-  const headGeo = S.spindle({ len: 0.19, r: 0.095, sx: 1.06, sy: 0.96, p: 1, radial: 20, rings: 14, profile: (t) => 0.92 + 0.1 * S.bump(t, 0.42, 0.45) });
+  const headGeo = S.spindle({ len: 0.19, r: 0.095, sx: 1.06, sy: 0.96, p: 1, radial: 18, rings: 13, profile: (t) => 0.92 + 0.1 * S.bump(t, 0.42, 0.45) });
   S.paint(headGeo, { from: 0x7a6040, to: FACE, axis: 'z', noise: 0.01, seed: 31 });
   S.overlay(headGeo, SOIL, (x, y, z) => S.sstep(0.03, 0.08, y - z * 0.4) * 0.8);
   for (const s of [1, -1]) S.blush(headGeo, S.surface(headGeo, S.dirYP(s * 0.72, -0.2)), 0.03, 0xf08a8a, 0.75);
