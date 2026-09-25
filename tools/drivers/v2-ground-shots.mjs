@@ -49,7 +49,12 @@ const STATS = `(() => {
     programs: r.info.programs?.length, geometries: r.info.memory.geometries, textures: r.info.memory.textures });
 })()`;
 
-export async function run(page, h) {
+export async function run(page, hRaw) {
+  // one retry per shot: the first frames after entering a heavy zone at
+  // 1600x900 under software GL can outlast Playwright's 30 s screenshot wait
+  const h = { ...hRaw, shot: async (name) => {
+    try { await hRaw.shot(name); } catch (e) { console.log('SHOT RETRY', name, e.message.split('\n')[0]); await hRaw.sleep(3000); await hRaw.shot(name); }
+  } };
   const zones = (process.env.V2G_ZONES ?? 'dawnmeadow,brighthollow,whisperwood,skyreach').split(',').filter(Boolean);
   const extra = process.env.V2G_EXTRA !== '0';
   if (!await loadIn(page, h)) return;

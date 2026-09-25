@@ -27,6 +27,8 @@ import * as THREE from 'three';
 import { seededRandom, hashStr } from '../core/rng.js';
 import { clamp, clamp01, lerp } from '../core/math.js';
 import { groundPalette } from '../gfx/materials.js';
+import { bus } from '../core/events.js';
+import { settings } from '../core/settings.js';
 
 const SNOW_LOW = 10, SNOW_HIGH = 15; // straddles player.js's SNOWLINE_Y=12 footstep cutoff
 
@@ -333,11 +335,13 @@ vec3 lfGround(vec3 wp, vec3 nrm, float fw, vec4 m, out float grassAmt, out vec3 
   col = mix(col, uGGrassSun, clamp(sunT * 0.42 + highT * 0.22, 0.0, 1.0));
   col = mix(col, uGGrassCool, hollowT * 0.45);
   col *= (1.0 - hollowT * 0.1) * (0.955 + (n3 - 0.5) * 0.12 + (n4 - 0.5) * uGP2.z);
+#ifndef LF_GROUND_LQ
   {
     vec2 sq = vec2(dot(xz, uGStroke.xy), dot(xz, vec2(-uGStroke.y, uGStroke.x)));
     float stroke = lfNoise(sq * vec2(0.45, 2.2) + vec2(17.0, 3.0)) * 0.65 + lfNoise(sq * vec2(0.9, 4.4) + 5.0) * 0.35;
     col *= 1.0 + (stroke - 0.5) * uGStroke.z * midK;
   }
+#endif
   grassAmt = 1.0;
   // trodden / bare patches (baked)
   float bare = m.b;
@@ -348,14 +352,21 @@ vec3 lfGround(vec3 wp, vec3 nrm, float fw, vec4 m, out float grassAmt, out vec3 
   // walls), strata ledges that catch the light, dark crevices
   float bankT = smoothstep(uGP2.y - 0.04, uGP2.y + 0.02, slope + (n3 - 0.5) * 0.08 + (n4 - 0.5) * 0.03);
   vec3 bank = mix(uGDirt * 0.78, uGGrassB * 0.72, 0.4 + (n3 - 0.5) * 0.6) * (0.92 + (n4 - 0.5) * 0.14);
+#ifndef LF_GROUND_LQ
   if (bankT > 0.0) bank *= 0.88 + 0.24 * lfNoise(vec2(wp.x + wp.z, h * 2.2) * 1.3); // faint erosion streaks
+#endif
   col = mix(col, bank, bankT * 0.8);
   grassAmt *= 1.0 - bankT * 0.6;
   float rockT = smoothstep(uGP2.y + 0.1, uGP2.y + 0.16, slope + (n3 - 0.5) * 0.1 + (n4 - 0.5) * 0.04);
   if (rockT > 0.0) {
+#ifdef LF_GROUND_LQ
+    float rn = lfNoise(vec2(wp.x + wp.z, h) * 0.9);
+    float rn2 = lfNoise(vec2(wp.x - wp.z, h) * 2.7 + 5.0);
+#else
     float wx = smoothstep(0.3, 0.7, abs(nrm.x) / (abs(nrm.x) + abs(nrm.z) + 1e-4));
     float rn = mix(lfNoise(vec2(wp.x, h) * 0.9), lfNoise(vec2(wp.z, h) * 0.9 + 7.1), wx);
     float rn2 = mix(lfNoise(vec2(wp.x, h) * 2.7 + 5.0), lfNoise(vec2(wp.z, h) * 2.7 + 2.3), wx);
+#endif
     float sphase = h * 2.3 + n2 * 5.0 + rn * 1.6;
     float strata = 0.5 + 0.5 * sin(sphase);
     vec3 rock = mix(uGStoneDark * 0.85, uGStone, clamp(0.12 + strata * 0.5 + (rn2 - 0.5) * 0.5, 0.0, 1.0));
@@ -371,8 +382,8 @@ vec3 lfGround(vec3 wp, vec3 nrm, float fw, vec4 m, out float grassAmt, out vec3 
     grassAmt *= 1.0 - scree * 0.8;
     float line = uGP2.x + (n2 - 0.5) * 3.8 + (n3 - 0.5) * 1.6;
     float snowT = smoothstep(line - 0.35, line + 0.35, h + (n4 - 0.5) * 0.25);
+    snowT *= 1.0 - smoothstep(0.3, 0.5, slope + (n3 - 0.5) * 0.1); // snow never clings to walls: strata rock shows
     vec3 snow = mix(uGSnow, uGSnowShade, clamp(slope * 2.2 + hollowT * 0.4 + (n2 - 0.5) * 0.3, 0.0, 1.0));
-    snow *= 1.0 + step(0.975, lfHash(floor(xz * 5.0) + 0.5)) * 0.18 * fineK;
     col = mix(col, snow, snowT);
     grassAmt *= 1.0 - snowT;
   }
@@ -401,7 +412,10 @@ vec3 lfGround(vec3 wp, vec3 nrm, float fw, vec4 m, out float grassAmt, out vec3 
   // ---- paths: crisp noisy edge, trampled rim outside, soil lip inside,
   //      worn light center, sparse pebbles; cobbles/flagstones where the mask says
   float e = m.r * 16.0 - 4.0;
-  e += (n4 - 0.5) * 0.14 + (lfNoise(xz * 3.3 + vec2(7.0, 1.3)) - 0.5) * 0.07 * fineK;
+  e += (n4 - 0.5) * 0.14;
+#ifndef LF_GROUND_LQ
+  e += (lfNoise(xz * 3.3 + vec2(7.0, 1.3)) - 0.5) * 0.07 * fineK;
+#endif
   float pathT = 1.0 - smoothstep(-aa, aa, e);
   float rimT = (1.0 - smoothstep(0.0, 0.55 + n3 * 0.5, e)) * (1.0 - pathT);
 #if LF_GROUND_STYLE == 0
@@ -423,6 +437,7 @@ vec3 lfGround(vec3 wp, vec3 nrm, float fw, vec4 m, out float grassAmt, out vec3 
 #endif
     pc *= 0.95 + (n4 - 0.5) * 0.12;
     // sparse pebbles of mixed size, each with a soft contact shade (fade with distance)
+#ifndef LF_GROUND_LQ
     if (fineK > 0.0) {
       vec3 vp = lfVoronoi(xz * 3.2 + vec2(3.1, 9.7), ts);
       float has = step(0.86, vp.z) * smoothstep(0.1, 0.5, depth);
@@ -434,6 +449,7 @@ vec3 lfGround(vec3 wp, vec3 nrm, float fw, vec4 m, out float grassAmt, out vec3 
       pc = mix(pc, pebC, peb * 0.6);
       pbump.xz += -ts / max(r, 0.05) * 0.55 * peb;
     }
+#endif
     // cobbles (town streets) / flagstones (ruins): mask green channel
     if (m.g > 0.02) {
       float cs = uGP2.w;
@@ -651,7 +667,12 @@ export function buildTerrain(zone) {
     uGFieldK: U(new THREE.Vector4(0, 0, 0, 0)),
     uGStroke: U(new THREE.Vector4(Math.cos((Math.abs(seed | 0) % 628) / 100), Math.sin((Math.abs(seed | 0) % 628) / 100), 0.1, 0)), // along grass.js's wind
   };
+  // LF_GROUND_LQ (quality 'low'): drops the sub-meter extras (brush strokes,
+  // pebbles, bank streaks, edge micro-noise, triplanar rock) — the ground
+  // shader is the priciest pixel work on software/low-end GL. grass.js copies
+  // these defines, so blade roots keep matching the ground in either variant.
   const defines = { LF_GROUND_STYLE: style };
+  if (settings.quality === 'low') defines.LF_GROUND_LQ = 1;
 
   const material = new THREE.MeshStandardMaterial({
     color: 0xffffff, roughness: style === 0 ? 0.95 : 0.88, metalness: 0,
@@ -679,6 +700,13 @@ export function buildTerrain(zone) {
   };
   material.customProgramCacheKey = () => `lf-terrain-v2-${style}`;
 
+  const offSettings = bus.on('settings:changed', ({ key } = {}) => {
+    if (key !== 'quality') return;
+    if (settings.quality === 'low') defines.LF_GROUND_LQ = 1; else delete defines.LF_GROUND_LQ;
+    material.defines = { ...defines };
+    material.needsUpdate = true;
+  });
+
   const mesh = new THREE.Mesh(geo, material);
   mesh.name = 'terrain';
   mesh.receiveShadow = true;
@@ -688,6 +716,7 @@ export function buildTerrain(zone) {
   function heightAt(x, z) { return computeHeight(x, z); }
 
   function dispose() {
+    offSettings?.();
     geo.dispose();
     material.dispose();
     maskTex.dispose();
