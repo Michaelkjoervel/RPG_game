@@ -34,8 +34,9 @@
 // (sky.js only READS scene.fog afterwards — the near backdrop layer's mist
 // matches whatever fog the terrain edge is wearing.)
 //
-// The dome, stars, clouds and backdrop layers use the standard "push to the
-// far clip plane" trick (gl_Position = clip.xyww) so they always render
+// The dome, stars, clouds and backdrop layers use the "push to the far clip
+// plane" trick (z = w, nudged a hair inside: exactly on the plane some
+// triangles got numerically clipped into see-through slivers) so they always render
 // behind everything regardless of the camera's actual far-plane distance
 // (owned by another area's cameraRig.js) — no coordination needed, no risk of
 // getting far-plane-clipped, and the backdrop rings can sit at any virtual
@@ -137,12 +138,22 @@ const BACKDROPS = {
     { kind: 'jagged', R: 3.2, base: 3.6, amp: 12.5, rough: 0.55, tint: 0x64708c, aerial: 0.68, mist: 0.6, snow: 0.3 },
   ],
   ruins: [
-    { kind: 'spires', R: 1.0, base: 0.8, amp: 1.5, spires: 0.45, spireH: 2.2, tint: 0x5c6e66, aerial: 0.36, mist: 0.6 },
-    { kind: 'spires', R: 1.8, base: 1.4, amp: 2.2, spires: 0.7, spireH: 3.6, tint: 0x61757a, aerial: 0.55, mist: 0.65 },
+    { kind: 'spires', R: 1.0, base: 0.5, amp: 2.4, spires: 0.45, spireH: 2.2, tint: 0x5a6c64, aerial: 0.34, mist: 0.42 },
+    { kind: 'spires', R: 1.8, base: 1.0, amp: 3.0, spires: 0.7, spireH: 3.6, tint: 0x5e7278, aerial: 0.5, mist: 0.45 },
     { kind: 'hills', R: 3.2, base: 2.2, amp: 3.6, clumps: 0, tint: 0x6e8494, aerial: 0.74, mist: 0.7 },
   ],
 };
 BACKDROPS.cave = null; BACKDROPS.spire = null; // interiors: nothing
+// Per-zone overrides. Skyreach's own terrain climbs to ~20 deg around the
+// pass, so its ranges must tower above that — dark rock with snow caps,
+// looming through the storm haze rather than dissolving in it.
+const BACKDROP_ZONES = {
+  skyreach: [
+    { kind: 'jagged', R: 1.0, base: 3.5, amp: 13.0, sharp: 2.1, rough: 0.62, tint: 0x363e4e, aerial: 0.28, mist: 0.4, snow: 0.3 },
+    { kind: 'jagged', R: 1.8, base: 6.5, amp: 15.0, sharp: 2.0, rough: 0.6, tint: 0x434d62, aerial: 0.4, mist: 0.45, snow: 0.26 },
+    { kind: 'jagged', R: 3.2, base: 9.0, amp: 16.0, sharp: 1.9, rough: 0.58, tint: 0x55607c, aerial: 0.52, mist: 0.5, snow: 0.22 },
+  ],
+};
 
 // ---------------------------------------------------------------- day/night curve
 // dayTime: 0 = midnight, 0.5 = noon (per docs/ARCHITECTURE.md G.calendar.dayTime).
@@ -195,7 +206,10 @@ varying vec3 vDir;
 void main() {
   vDir = normalize(position);
   vec4 clip = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-  gl_Position = clip.xyww; // pin to the far plane — always behind everything
+  // pin to (just inside) the far plane — always behind everything. Exactly
+  // z = w sits on the clip boundary and some triangles get numerically
+  // clipped away (see-through slivers); a hair inside is stable.
+  gl_Position = vec4(clip.xy, clip.w * 0.99999, clip.w);
 }`;
 const DOME_FRAG = /* glsl */ `
 varying vec3 vDir;
@@ -236,7 +250,7 @@ void main() {
   vPhase = aPhase;
   vec4 clip = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   gl_PointSize = aSize * uPixelScale;
-  gl_Position = clip.xyww;
+  gl_Position = vec4(clip.xy, clip.w * 0.99999, clip.w);
 }`;
 const STAR_FRAG = /* glsl */ `
 varying float vPhase;
@@ -275,7 +289,7 @@ void main() {
   float w = tan(aCloud.z) * 1000.0;
   c.xy += vec2(position.x * aCloud2.y, position.y * aCloud2.z) * w * 2.0;
   vec4 clip = projectionMatrix * c;
-  gl_Position = clip.xyww;
+  gl_Position = vec4(clip.xy, clip.w * 0.9999, clip.w);
   vUv = uv;
   vAlpha = aCloud2.w;
   vCell = vec2(mod(aCloud2.x, 2.0), floor(aCloud2.x / 2.0)) * 0.5;
@@ -287,13 +301,13 @@ varying float vAlpha;
 varying vec2 vCell;
 uniform sampler2D uTex;
 uniform vec3 uLit, uShade;
-uniform float uAlpha, uRim;
+uniform float uAlpha, uRim, uSoft;
 ${SKY_PARS}
 void main() {
   // atlas rows are stored top-down (flipY off): sample the cell upside-right
   vec4 t = texture2D(uTex, vCell + vec2(vUv.x, 1.0 - vUv.y) * 0.5);
   float dens = t.r;
-  float a = smoothstep(0.03, 0.6, dens) * uAlpha * vAlpha;
+  float a = smoothstep(0.03, mix(0.6, 1.15, uSoft), dens) * uAlpha * vAlpha;
   if (a < 0.004) discard;
   vec3 col = mix(uShade, uLit, t.g);
   // silver lining: thin edges glow when the cloud sits near the sun
@@ -319,7 +333,7 @@ void main() {
   vNormal = normal;
   vEdge = aEdge;
   vec4 clip = projectionMatrix * viewMatrix * vec4(position, 1.0);
-  gl_Position = clip.xyww;
+  gl_Position = vec4(clip.xy, clip.w * 0.9999, clip.w); // just inside the far plane (see dome)
 }`;
 const BACK_FRAG = /* glsl */ `
 varying vec3 vWorld;
@@ -376,6 +390,7 @@ varying vec2 vUv;
 varying float vFade;
 varying float vPhase;
 varying float vDist;
+varying vec3 vWorldP;
 void main() {
   vec2 rel = mod(aShaft.xy - cameraPosition.xz + 0.5 * uTile, uTile) - 0.5 * uTile;
   vec3 base = vec3(cameraPosition.x + rel.x, uGroundY - 1.0, cameraPosition.z + rel.y);
@@ -385,11 +400,9 @@ void main() {
   vec3 p = base + axis * (position.y * uLen) + side * (position.x * aShaft.w);
   vUv = vec2(position.x + 0.5, position.y);
   float d = length(rel);
-  vFade = smoothstep(7.0, 13.0, d) * (1.0 - smoothstep(uTile * 0.32, uTile * 0.5, d));
-  // Light shafts only read against the dark under-canopy; seen against open
-  // sky (above eye level) additive beams turn into searchlights — fade them.
-  vec3 toP = p - cameraPosition;
-  vFade *= 1.0 - smoothstep(-0.02, 0.22, toP.y / max(length(toP), 1e-3));
+  // only in the middle distance: up close a beam is just a pale smear
+  vFade = smoothstep(11.0, 17.0, d) * (1.0 - smoothstep(uTile * 0.34, uTile * 0.5, d));
+  vWorldP = p;
   vPhase = aShaft.z;
   vec4 mv = viewMatrix * vec4(p, 1.0);
   vDist = -mv.z;
@@ -400,13 +413,19 @@ varying vec2 vUv;
 varying float vFade;
 varying float vPhase;
 varying float vDist;
+varying vec3 vWorldP;
 uniform vec3 uShaftColor;
 uniform float uIntensity, uTime, uFogD;
 void main() {
+  // Light shafts only read against the dark under-canopy; seen against open
+  // sky (above eye level) additive beams turn into searchlights — fade them
+  // per pixel by elevation from the eye.
+  vec3 toP = vWorldP - cameraPosition;
+  float skyward = smoothstep(-0.03, 0.16, toP.y / max(length(toP), 1e-3));
   float across = 1.0 - abs(vUv.x - 0.5) * 2.0;
   float a = across * across * (3.0 - 2.0 * across);
-  a *= smoothstep(0.0, 0.1, vUv.y) * (1.0 - smoothstep(0.55, 1.0, vUv.y));
-  a *= vFade * uIntensity * (0.55 + 0.45 * sin(uTime * 0.31 + vPhase * 6.2831));
+  a *= smoothstep(0.0, 0.3, vUv.y) * (1.0 - smoothstep(0.55, 1.0, vUv.y));
+  a *= vFade * (1.0 - skyward) * uIntensity * (0.55 + 0.45 * sin(uTime * 0.31 + vPhase * 6.2831));
   float fd = uFogD * vDist;
   a *= exp(-fd * fd);
   gl_FragColor = vec4(uShaftColor, a);
@@ -580,9 +599,10 @@ function buildProfile(spec, rng) {
     // fall around the ring (distinct massifs with low gaps, not a wall)
     const ridge = ridgeProfile(rng, 7, spec.rough ?? 0.55);
     const swell = harmonicProfile(rng, 1, 5, 0.9);
+    const sharp = spec.sharp ?? 1.45;
     ground = (a) => {
       const s = clamp01(swell(a) * 0.9 + 0.5);
-      return base + amp * Math.pow(ridge(a), 1.45) * (0.3 + 0.7 * s) + bumpAt(a);
+      return base + amp * Math.pow(ridge(a), sharp) * (0.3 + 0.7 * s) + bumpAt(a);
     };
   } else {
     const hills = harmonicProfile(rng, 2, 26, 1.25);
@@ -824,18 +844,25 @@ export function createSky(zone, scene) {
   // hand over to the night horizon's deep blue (v1 kept the pale mood tint at
   // full strength after dark — dawnmeadow's night horizon read as glowing gray).
   const fogColor = new THREE.Color(zone.ambient?.fogColor ?? 0xcfe0d8);
-  let fogLight = 1;
   if (!indoor) {
-    const dw0 = dayWeight(tNow), ddw0 = dawnDuskWeight(tNow), nw0 = nightWeight(tNow);
+    const dw0 = dayWeight(tNow), ddw0 = dawnDuskWeight(tNow);
+    const dwp0 = dw0 * (1 - ddw0 * 0.45); // palette weight (see update())
     const band0 = duskSide(tNow) ? colors.dusk : colors.dawn;
-    const horizon0 = colors.night.horizon.clone().lerp(band0.horizon, ddw0).lerp(colors.day.horizon, dw0);
-    fogColor.lerp(horizon0, 0.55);
+    const horizon0 = colors.night.horizon.clone().lerp(band0.horizon, ddw0).lerp(colors.day.horizon, dwp0);
+    const mid0 = colors.night.mid.clone().lerp(band0.mid, ddw0).lerp(colors.day.mid, dwp0);
+    // The "air" color: the horizon lifted a little toward the mid sky. By day
+    // the authored fog keeps a say; at dusk/night the sky's own air takes
+    // over (the authored color is a daylight color — v1 left distant trees
+    // glowing pale gray against a rose dusk and a gray band under night skies).
+    const air0 = horizon0.clone().lerp(mid0, 0.3);
+    fogColor.lerp(air0, 0.55 + 0.4 * (1 - dw0));
     // Aerial perspective: at midday the distance cools toward the zenith blue
     // instead of staying a warm wall (warm fog is a dusk/dawn effect).
     fogColor.lerp(colors.day.top, dw0 * 0.24);
-    fogLight = clamp01(dw0 + ddw0 * 0.6);
+    const fogLight = clamp01(dw0 + ddw0 * 0.35);
     if (mood.fogTint != null) fogColor.lerp(new THREE.Color(mood.fogTint), (mood.fogTintAmt ?? 0.4) * (mood.starFloor ? 1 : fogLight));
-    if (!mood.starFloor) fogColor.lerp(colors.night.horizon, clamp01(nw0 * 1.25) * 0.8);
+    // distant silhouettes should sit a touch darker than the glowing band
+    fogColor.multiplyScalar(lerp(0.86, 1, dw0));
   } else if (mood.fogTint != null) {
     fogColor.lerp(new THREE.Color(mood.fogTint), mood.fogTintAmt ?? 0.4);
   }
@@ -931,12 +958,13 @@ export function createSky(zone, scene) {
       const r = cRng();
       const el = (r < 0.62 ? 1.8 + cRng() * 9 : r < 0.9 ? 10 + cRng() * 14 : 22 + cRng() * 22) * DEG;
       const nearness = clamp01((el / DEG - 2) / 30); // higher = closer = bigger
-      const hw = (4.5 + cRng() * 6 + nearness * 12) * DEG * (storm ? 1.35 : 1);
+      const hw = (4.5 + cRng() * 6 + nearness * 12) * DEG * (storm ? 1.8 : 1);
       list.push({
         az: cRng() * TAU, el, hw,
         speed: (0.0022 + cRng() * 0.003) * (storm ? 2.2 : 1) * (cRng() < 0.5 ? 1 : 0.8),
         cell: Math.floor(cRng() * 4), flip: cRng() < 0.5 ? -1 : 1,
-        aspect: 0.5 * (0.8 + cRng() * 0.35) * (1 - nearness * 0.15),
+        // storm decks are flat, smeared banks; fair-weather puffs are rounder
+        aspect: (storm ? 0.3 : 0.5) * (0.8 + cRng() * 0.35) * (1 - nearness * 0.15),
         alpha: 0.75 + cRng() * 0.25,
       });
     }
@@ -962,6 +990,7 @@ export function createSky(zone, scene) {
       uShade: { value: new THREE.Color(0x8a96b0) },
       uAlpha: { value: 0.9 },
       uRim: { value: 0.6 },
+      uSoft: { value: storm ? 1 : 0 },
     };
     const cloudMat = new THREE.ShaderMaterial({
       uniforms: cloudU, vertexShader: CLOUD_VERT, fragmentShader: CLOUD_FRAG,
@@ -990,7 +1019,7 @@ export function createSky(zone, scene) {
     eyeY = sum / Math.max(1, n) + 3;
   }
   const backLayers = [];
-  const specs = indoor ? null : (BACKDROPS[biome] ?? BACKDROPS.meadow);
+  const specs = indoor ? null : (BACKDROP_ZONES[zone.id] ?? BACKDROPS[biome] ?? BACKDROPS.meadow);
   if (specs) {
     const half = (zone.size ?? 200) / 2;
     const rNear = half * Math.SQRT2 + 45;
@@ -1209,22 +1238,27 @@ export function createSky(zone, scene) {
       const nw = nightWeight(t);
       const dusk = duskSide(t);
       const band = dusk ? colors.dusk : colors.dawn;
+      // Palette day-weight: while the sun is still low the dawn/dusk band
+      // lingers in the COLORS (golden hour) — v1 let the noon palette swamp
+      // it by ~0.27, so an early-morning town read as plain midday. Light
+      // LEVELS keep using dw.
+      const dwp = dw * (1 - ddw * 0.45);
 
       // sky gradient: night <-> (dawn|dusk) <-> day, three stops + horizon
-      skyU.uSkyTop.value.copy(colors.night.top).lerp(band.top, ddw).lerp(colors.day.top, dw);
-      skyU.uSkyMid.value.copy(colors.night.mid).lerp(band.mid, ddw).lerp(colors.day.mid, dw);
-      skyU.uSkyBottom.value.copy(colors.night.bottom).lerp(band.bottom, ddw).lerp(colors.day.bottom, dw);
-      skyU.uSkyHorizon.value.copy(colors.night.horizon).lerp(band.horizon, ddw).lerp(colors.day.horizon, dw);
+      skyU.uSkyTop.value.copy(colors.night.top).lerp(band.top, ddw).lerp(colors.day.top, dwp);
+      skyU.uSkyMid.value.copy(colors.night.mid).lerp(band.mid, ddw).lerp(colors.day.mid, dwp);
+      skyU.uSkyBottom.value.copy(colors.night.bottom).lerp(band.bottom, ddw).lerp(colors.day.bottom, dwp);
+      skyU.uSkyHorizon.value.copy(colors.night.horizon).lerp(band.horizon, ddw).lerp(colors.day.horizon, dwp);
       // horizon fire around the sun's bearing — strongest mid-band, gone at noon
       skyU.uSkyGlowColor.value.copy(colors.night.glow).lerp(band.glow, clamp01(ddw * 1.6));
-      let glowAmt = Math.pow(ddw, 1.15) * 0.95 * (1 - dw * 0.8) + nw * 0.12;
+      let glowAmt = Math.pow(ddw, 1.15) * 0.95 * (1 - dwp * 0.8) + nw * 0.12;
       if (storm) glowAmt *= 0.2;
       skyU.uSkyGlowAmt.value = glowAmt;
 
       // Warm-weighted color: any presence in the dawn/dusk band commits the key
       // light to amber (ddw peaks at only ~0.26 by 0.8 dayTime — unweighted it
       // stayed a cold blue while the ground went black).
-      const sunCol = _tc.copy(colors.moon).lerp(dusk ? colors.sunDusk : colors.sunDawn, clamp01(ddw * 2.2)).lerp(colors.sunNoon, dw);
+      const sunCol = _tc.copy(colors.moon).lerp(dusk ? colors.sunDusk : colors.sunDawn, clamp01(ddw * 2.2)).lerp(colors.sunNoon, dwp);
       skyU.uSkySunColor.value.copy(sunCol);
       let sunAmt = clamp01(0.12 + dw * 0.88 + ddw * 0.25);
       // Storm zones (Skyreach): no cheerful sun-glow bleeding through the
@@ -1260,14 +1294,15 @@ export function createSky(zone, scene) {
       // the ground. Night: deep blue, barely there — the moon key dominates.
       const warmW = clamp01(ddw * 1.9);
       _tc3.copy(colors.day.top).lerp(colors.shadow, 0.6);
-      hemi.color.copy(colors.night.mid).lerp(band.horizon, warmW).lerp(_tc3, dw);
+      hemi.color.copy(colors.night.mid).lerp(band.horizon, warmW).lerp(_tc3, dwp);
       _tc4.copy(colors.day.bottom).lerp(colors.bounce, 0.5);
-      hemi.groundColor.copy(colors.night.bottom).lerp(colors.duskGround, warmW).lerp(_tc4, dw);
+      hemi.groundColor.copy(colors.night.bottom).lerp(colors.duskGround, warmW).lerp(_tc4, dwp);
       // Fill stays LOW relative to the key (~1:6 at noon) so forms model;
       // floored through dusk so the band never collapses to black. (Raised
       // from 0.44: shadow sides of tall props and canopy undersides were
       // dropping to unreadable cool gray.)
-      hemi.intensity = Math.max(lerp(0.13, 0.5, dw), 0.4 * clamp01(ddw * 5)) * fillI;
+      // (dusk floor 0.4 -> 0.5 in v2: the soft look wants readable dusk grounds)
+      hemi.intensity = Math.max(lerp(0.13, 0.5, dw), 0.5 * clamp01(ddw * 5)) * fillI;
 
       if (stars) {
         // zone.ambient.stars / mood.starFloor: permanent-twilight zones
@@ -1340,7 +1375,7 @@ export function createSky(zone, scene) {
       const hl = Math.hypot(s.x, s.z) || 1;
       const tilt = Math.min(Math.acos(clamp(s.y, -1, 1)), 40 * DEG);
       shaftU.uShaftDir.value.set(s.x / hl * Math.sin(tilt), Math.cos(tilt), s.z / hl * Math.sin(tilt));
-      shaftU.uIntensity.value = 0.16 * clamp01(dayWeight(t) * 1.2 - 0.1) * (0.7 + dawnDuskWeight(t) * 0.6);
+      shaftU.uIntensity.value = 0.14 * clamp01(dayWeight(t) * 1.2 - 0.1) * (0.7 + dawnDuskWeight(t) * 0.6);
       shaftU.uTime.value = time;
       shaftU.uFogD.value = (scene.fog?.density ?? 0.02) * 0.7;
     }
@@ -1355,9 +1390,13 @@ export function createSky(zone, scene) {
         _tc.copy(skyU.uSkySunColor.value).lerp(skyU.uSkyGlowColor.value, 0.4);
         _rim.lerp(_tc, clamp01(ddw * 1.6) * (1 - dw * 0.5));
         _rim.lerp(colors.moon, nw);
-        lookParams.rimStrength = (0.26 + clamp01(ddw * 1.5) * 0.24 * (1 - dw * 0.5) + nw * 0.04) * (storm ? 0.75 : 1);
-        _rimDir.copy(lightDir).lerp(_v.set(0, 1, 0), dw * 0.45);
-        lookParams.rimDirMix = 0.3 + clamp01(ddw * 1.5) * 0.3 * (1 - dw * 0.5);
+        // Low sun = backlight: the rim swells and goes nearly omni, so figures
+        // standing against a sunset sky glow along their whole silhouette
+        // (a sun-favouring rim would hide exactly on the edges we look at).
+        const low = clamp01(ddw * 1.5) * (1 - dw * 0.5);
+        lookParams.rimStrength = (0.27 + low * 0.3 + nw * 0.04) * (storm ? 0.75 : 1);
+        _rimDir.copy(lightDir).multiplyScalar(0.6).add(_v.set(0, 1, 0)).normalize();
+        lookParams.rimDirMix = 0.32 - low * 0.14;
       } else {
         _rim.setHex(ind.fill).lerp(WHITE, 0.25);
         lookParams.rimStrength = 0.34;
