@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { bus } from '../core/events.js';
 import { G } from '../core/state.js';
 import { input } from '../core/input.js';
-import { settings } from '../core/settings.js';
+import { settings, updateSetting } from '../core/settings.js';
 import { tick as tweenTick } from '../core/tween.js';
 import { saveGame } from '../core/save.js';
 
@@ -74,7 +74,10 @@ class Game {
 
   _resize() {
     const w = window.innerWidth, h = window.innerHeight;
-    const ratio = Math.min(window.devicePixelRatio || 1, settings.quality === 'low' ? 1 : 2);
+    // Pixel count is the biggest single cost on high-DPI laptops, so each
+    // quality tier caps the render scale as well as the effects.
+    const cap = settings.quality === 'low' ? 1 : settings.quality === 'med' ? 1.5 : 2;
+    const ratio = Math.min(window.devicePixelRatio || 1, cap);
     this.renderer.setPixelRatio(ratio);
     this.renderer.setSize(w, h);
     if (this.activeScene?.camera) {
@@ -96,13 +99,16 @@ class Game {
     input.attach();
     this.initRenderer();
     this._initDiagnostics();
+    this._initQualityGovernor();
     this._loop();
   }
 
   _loop() {
     requestAnimationFrame(() => this._loop());
-    const dt = Math.min(this.clock.getDelta(), 0.05);
+    const rawDt = this.clock.getDelta();
+    const dt = Math.min(rawDt, 0.05);
     this._dt = dt;
+    this._tickQualityGovernor(rawDt);
     // A throwing input device (blocked permissions policy) or a bad frame must
     // never take the whole game down — the next frame is already scheduled.
     try { input.update(); } catch (e) { this._warnOnce('input', e); }
@@ -137,6 +143,53 @@ class Game {
     input.endFrame();
   }
 
+  // Adaptive quality: if the current tier can't hold a playable frame rate on
+  // this machine, step down one tier instead of letting the game stutter.
+  // Steps down only (no oscillation), stands down for the session once the
+  // player picks a quality themselves, and never runs under automation, where
+  // software rendering would read as a slow machine.
+  _initQualityGovernor() {
+    const q = this._qg = { enabled: true, warm: 5, t: 0, frames: 0, clock: 0, lastDrop: -1e9, self: false };
+    const automated = typeof navigator !== 'undefined' && navigator.webdriver === true;
+    const optedOut = typeof location !== 'undefined' && /[?&]noauto\b/.test(location.search);
+    if (automated || optedOut) q.enabled = false;
+    const rewarm = (s = 4) => { q.warm = Math.max(q.warm, s); q.t = 0; q.frames = 0; };
+    bus.on('zone:enter', () => rewarm(5));
+    bus.on('battle:start', () => rewarm(4));
+    bus.on('battle:end', () => rewarm(4));
+    bus.on('settings:changed', ({ key }) => {
+      if (key !== 'quality') return;
+      if (!q.self) q.enabled = false; // the player chose — respect it
+      rewarm(4);
+    });
+    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', () => rewarm(3));
+  }
+
+  _tickQualityGovernor(rawDt) {
+    const q = this._qg;
+    if (!q?.enabled || this._paused || this._stalled || document.hidden) return;
+    if (this.mode !== 'overworld' && this.mode !== 'battle') return;
+    q.clock += rawDt;
+    if (q.warm > 0) { q.warm -= rawDt; return; }
+    // Cap each frame's weight: one long hitch (shader compile, GC) can't fake
+    // a slow machine, but a machine that is slow on every frame still counts.
+    q.t += Math.min(rawDt, 1); q.frames++;
+    if (q.t < 6) return;
+    const fps = q.frames / q.t;
+    q.t = 0; q.frames = 0;
+    if (fps >= 32 || q.clock - q.lastDrop < 20) return;
+    const next = settings.quality === 'high' ? 'med' : settings.quality === 'med' ? 'low' : null;
+    if (!next) { q.enabled = false; return; }
+    q.lastDrop = q.clock;
+    q.self = true;
+    try { updateSetting('quality', next); } finally { q.self = false; }
+    console.info(`[game] steady ~${fps.toFixed(0)} fps — quality lowered to ${next}`);
+    bus.emit('notify', {
+      text: `Graphics set to ${next === 'med' ? 'Medium' : 'Low'} to keep things smooth — you can change it in Settings.`,
+      icon: '⚙', duration: 6000,
+    });
+  }
+
   // F1 — live state readout. Exists so a player who is stuck can tell us what
   // the game thinks is happening, instead of us guessing from a screenshot.
   _initDiagnostics() {
@@ -163,6 +216,7 @@ class Game {
     const w = this.overworld, p = w?.player, cam = w?.camera;
     const f = (n) => (typeof n === 'number' ? n.toFixed(2) : String(n));
     let out = `mode ${this.mode}   paused ${this._paused}   fps~${Math.round(1 / Math.max(this._dt || 0.016, 0.001))}\n`;
+    out += `quality ${settings.quality}   auto ${this._qg?.enabled ? 'on' : 'off'}\n`;
     out += `zone ${w?.zone?.id ?? '—'}   colliders ${w?.colliders?.length ?? '—'}\n`;
     if (p) {
       const gy = w.heightAt ? w.heightAt(p.pos.x, p.pos.z) : NaN;
