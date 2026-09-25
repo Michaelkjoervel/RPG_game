@@ -19,6 +19,7 @@
 
 import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
+import * as S from './soft.js';
 import { seededRandom } from '../../core/rng.js';
 import { applyVertexGradient, jitterGeometry, lobedMass } from '../../gfx/materials.js';
 
@@ -71,8 +72,8 @@ export function build_stratovane(kit = kitDefault) {
   // Storm-lit face: heavy brow shelf, volt eyes, twin cephalic horns.
   const brow = paint(kit.orb(0.16, cloudV, { sy: 0.5, sz: 0.7 }), 113, 0x262a38, 0x5e6478);
   kit.at(body, brow, 0, 0.12, 0.26);
-  const eyeL = kit.at(body, kit.eye(0.058, { irisColor: 0xffe94f, scleraColor: 0x181a24, skinColor: 0x3e4254, glintSize: 0.021 }), 0.1, 0.05, 0.3, { ry: 0.25 });
-  const eyeR = kit.at(body, kit.eye(0.058, { irisColor: 0xffe94f, scleraColor: 0x181a24, skinColor: 0x3e4254, glintSize: 0.021 }), -0.1, 0.05, 0.3, { ry: -0.25 });
+  const eyeL = kit.at(body, S.eye(kit, 0.058, { irisColor: 0xffe94f, scleraColor: 0x181a24, skinColor: 0x3e4254, glintSize: 0.021 }), 0.1, 0.05, 0.3, { ry: 0.25 });
+  const eyeR = kit.at(body, S.eye(kit, 0.058, { irisColor: 0xffe94f, scleraColor: 0x181a24, skinColor: 0x3e4254, glintSize: 0.021 }), -0.1, 0.05, 0.3, { ry: -0.25 });
   const hornL = paint(kit.horn(0.24, cloudV, { baseR: 0.04, tipR: 0.01, bend: 0.5 }), 114, 0x262a38, 0x6e7488);
   const hornR = paint(kit.horn(0.24, cloudV, { baseR: 0.04, tipR: 0.01, bend: -0.5 }), 115, 0x262a38, 0x6e7488);
   const hornLAt = kit.at(body, hornL, 0.15, 0.1, 0.28, { rx: 1.2, rz: -0.35 });

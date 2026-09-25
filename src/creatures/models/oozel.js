@@ -16,6 +16,7 @@
 
 import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
+import * as S from './soft.js';
 import { applyVertexGradient, jitterGeometry } from '../../gfx/materials.js';
 
 export function build_oozel(kit = kitDefault) {
@@ -54,8 +55,8 @@ export function build_oozel(kit = kitDefault) {
   kit.at(hat, kit.cone(0.024, 0.05, crustCone, { segments: 5 }), 0.03, 0.035, 0.02, { rx: -0.3 });
   kit.at(hat, kit.cone(0.018, 0.036, crustCone, { segments: 5 }), -0.045, 0.028, -0.02, { rx: -0.2, ry: 1 });
 
-  const eyeL = kit.at(body, kit.eye(0.034, { irisColor: 0x3a1c4e, scleraColor: 0xf4f2e6, skinColor: 0x8a5cac, glintSize: 0.014 }), 0.08, 0.05, 0.2, { ry: 0.3 });
-  const eyeR = kit.at(body, kit.eye(0.034, { irisColor: 0x3a1c4e, scleraColor: 0xf4f2e6, skinColor: 0x8a5cac, glintSize: 0.014 }), -0.08, 0.05, 0.2, { ry: -0.3 });
+  const eyeL = kit.at(body, S.eye(kit, 0.034, { irisColor: 0x3a1c4e, scleraColor: 0xf4f2e6, skinColor: 0x8a5cac, glintSize: 0.014 }), 0.08, 0.05, 0.2, { ry: 0.3 });
+  const eyeR = kit.at(body, S.eye(kit, 0.034, { irisColor: 0x3a1c4e, scleraColor: 0xf4f2e6, skinColor: 0x8a5cac, glintSize: 0.014 }), -0.08, 0.05, 0.2, { ry: -0.3 });
 
   // A trio of small absorbed-puddle droplets suspended within the goo,
   // slowly rising and popping — the "absorbs puddles" habit made visible.

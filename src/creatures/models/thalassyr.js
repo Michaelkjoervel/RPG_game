@@ -3,312 +3,202 @@
 // "Abyssal leviathan sleeping beneath Mirrorlake; the world's dreams pool in
 // its slow wake. Story-critical. Post-game encounter." (Design Bible §4, §2)
 // =============================================================================
-// A CROWN JEWEL and the largest of all 48 Kindred (SPECIES.thalassyr.size =
-// 3.2). Built silhouette-first (Design Bible §8), around three shapes:
-//
-//   1. COILING LENGTH. Thirteen tail segments, but the point is that they are
-//      POSED: each pivot carries a rest rotation, so the body leaves the
-//      shoulders in a long horizontal S and rides over two vertical humps
-//      before the tail flourishes upward. A straight tail behind a fat head
-//      is a tadpole from every angle except dead side-on — which is exactly
-//      what the old build read as. A curved one shows its own length back to
-//      the camera no matter where the camera is.
-//   2. A CREST THAT RUNS THE WHOLE ANIMAL. Translucent deep-water fins stand
-//      along the neck, back and tail, tallest over the shoulders, tapering to
-//      the tip. It gives an otherwise smooth serpent a readable topline, and
-//      it makes every undulation visible because the crest exaggerates it.
-//   3. REARED HEAD ON AN S-NECK. Four neck segments arc up and level out, so
-//      the head is carried high and forward, looking down at the player —
-//      the pose of something enormous that has just noticed you. It also
-//      keeps the authored length:height ratio near 2:1, which matters because
-//      registry.js rescales by measured HEIGHT: a flat serpent authored at
-//      6:1 balloons to absurd length when scaled to size 3.2.
-//
-// Deep-sea signalling detail: bioluminescent blue-green spots in rows along
-// both flanks and down every tail segment, each pulsing on its own phase, and
-// a dream-lure on a stalk above the brow. Dream motes in three pastel hues
-// pool in the wake behind it.
+// A CROWN JEWEL and the largest Kindred (SPECIES.thalassyr.size = 3.2).
+// Visual pass v2 (soft stylized) keeps the v1 composition — silhouette-first
+// — but every mass is one smooth sculpted form:
+//   1. COILING LENGTH. Torso + reared S-neck are ONE swept form; the tail is
+//      a long soft chain posed into a lazy S that rides over two humps, so
+//      its length reads from any camera (a straight tail is a tadpole).
+//   2. A CREST THAT RUNS THE WHOLE ANIMAL: translucent deep-water sails on
+//      the neck, back and every forward tail segment, tallest at the
+//      shoulders, one continuous topline.
+//   3. REARED HEAD looking down at the player: a broad abyssal wedge with a
+//      heavy brow, a SEPARATE jaw (parts.jaw drops on a roar) lined with
+//      fangs, swept horns, and a dream-lure on a stalk arcing over the snout.
+// Deep-sea signalling: rows of bioluminescent spots along the flanks and
+// tail (merged per body part, pulsing in a few phase groups), and dream motes
+// in three pastel hues pooling in its wake.
 
 import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
-import { seededRandom } from '../../core/rng.js';
-import { applyVertexGradient, jitterGeometry } from '../../gfx/materials.js';
+import * as S from './soft.js';
 
-/**
- * A row of independently pulsing bioluminescent points on `parent`.
- * @param {[number,number,number,number][]} spots [x, y, z, radius]
- */
-function bioluminescentSpots(kit, parent, spots, color, seed) {
-  const rng = seededRandom(seed);
-  const m = kit.mat(color, { unlit: true, transparent: true, opacity: 0.9 });
-  const items = [];
-  for (const [x, y, z, r] of spots) {
-    const s = new THREE.Mesh(new THREE.SphereGeometry(r, 6, 5), m.clone());
-    kit.at(parent, s, x, y, z);
-    items.push({ mesh: s, ph: rng() * Math.PI * 2, sp: 0.3 + rng() * 0.4 });
-  }
-  let t = 0;
-  function update(dt) {
-    t += dt;
-    for (const it of items) {
-      const p = 0.55 + 0.45 * Math.sin(t * it.sp + it.ph);
-      it.mesh.material.opacity = 0.35 + p * 0.6;
-      it.mesh.scale.setScalar(0.7 + p * 0.45);
-    }
-  }
-  return { update };
-}
+const SKIN_LO = 0x1d3150, SKIN = 0x35527d, SKIN_HI = 0x5a7ea6, BELLY = 0x8aa6c6, CREST = 0x2f8fb4, GLOW = 0x66e8c8;
 
 export function build_thalassyr(kit = kitDefault) {
-  // Abyssal blue-slate lifted well out of near-black (Design Bible §8: colors
-  // must READ) with a faint deep-water self-glow, and a much paler belly so
-  // the coils separate from each other where they overlap.
-  const skinHex = 0x35527d;
-  const skin = kit.mat(skinHex, { rough: 0.35, metal: 0.06, emissive: 0x152947, emissiveIntensity: 0.6 });
-  const skinDeep = kit.mat(0x2a4166, { rough: 0.4, emissive: 0x101f38, emissiveIntensity: 0.5 });
-  // Visual-overhaul pass: every big hull segment is vertex-gradient painted
-  // (abyssal navy under -> moonlit slate-blue along the spine, faint mottle)
-  // so the coils shade as lit volumes and separate where they overlap.
-  const skinV = kit.mat(0xffffff, { vertexColors: true, rough: 0.35, metal: 0.06, emissive: 0x152947, emissiveIntensity: 0.6 });
-  const SKIN_LO = 0x243a5e, SKIN_HI = 0x4d7096;
-  const paintHull = (mesh, seed, jit = 0) => {
-    if (jit) jitterGeometry(mesh.geometry, jit, seed);
-    applyVertexGradient(mesh.geometry, { from: SKIN_LO, to: SKIN_HI, noise: 0.035, seed });
-    return mesh;
-  };
-  const belly = kit.mat(0x7b96b8, { rough: 0.5 });
-  // The crest is a SOLID translucent sail, not a glow: additive blending over
-  // a bright sky washed it into pale detached leaves. Straight alpha over a
-  // deeper teal keeps it a continuous readable shape in any lighting.
-  const crestMat = kit.mat(0x2f8fb4, { rough: 0.3, transparent: true, opacity: 0.78, side: THREE.DoubleSide, emissive: 0x1d5f7d, emissiveIntensity: 0.8 });
-  const finMat = kit.mat(0x3f9cc0, { rough: 0.3, transparent: true, opacity: 0.7, side: THREE.DoubleSide, emissive: 0x24688a, emissiveIntensity: 0.8 });
-  const glowSpot = 0x66e8c8;                    // deep-sea blue-green
-  const glowMat = kit.mat(glowSpot, { unlit: true, transparent: true, opacity: 0.85 });
+  const skin = S.vcMat(kit, { rough: 0.34, metal: 0.06, emissive: 0x152947, emissiveIntensity: 0.55 });
+  const crestMat = kit.mat(CREST, { rough: 0.3, transparent: true, opacity: 0.78, side: THREE.DoubleSide, emissive: 0x1d5f7d, emissiveIntensity: 0.8 });
+  const glowA = kit.mat(GLOW, { unlit: true, transparent: true, opacity: 0.9 });
+  const glowB = glowA.clone();
+  const fangMat = S.smoothMat(kit, 0xdcecf4, { rough: 0.3 });
 
   const root = new THREE.Group();
+  const spotsA = [], spotsB = [];
+  const spot = (list, p, r) => list.push(S.paint(S.ball(r, { radial: 7, rings: 5 }).translate(p[0], p[1], p[2]), 0xffffff));
 
-  // --- Core torso ---------------------------------------------------------
-  // Nose-to-tail along Z: the capsule's axis swing is baked about X (about Z
-  // would lay the leviathan broadside with its head and tail growing out of
-  // the flanks of a barrel). Deliberately short — the NECK and TAIL carry the
-  // length; an over-long torso swallows both.
-  const body = kit.capsule(0.34, 0.5, skinV, { capSeg: 5, radSeg: 12 });
-  body.geometry.rotateX(Math.PI / 2);
-  paintHull(body, 81, 0.008);
+  // --- Torso + reared S-neck ---------------------------------------------------
+  const torso = S.spindle({ len: 0.95, r: 0.34, sx: 0.95, sy: 1.0, p: 0.9, radial: 20, rings: 14, profile: (t) => 0.8 + 0.22 * S.bump(t, 0.62, 0.4) });
+  S.paint(torso, { from: SKIN_LO, to: SKIN_HI, axis: 'y', noise: 0.015, seed: 81 });
+  S.overlay(torso, BELLY, (x, y, z) => S.sstep(-0.14, -0.24, y) * 0.9);
+  const neckPts = [[0, 0.04, 0.36], [0, 0.26, 0.64], [0, 0.66, 0.74], [0, 1.06, 0.7], [0, 1.28, 0.84]];
+  const neck = S.tubeAlong(neckPts, (t) => S.lerp(0.3, 0.2, t), { radial: 16, tubular: 24 });
+  S.paint(neck, { from: SKIN, to: SKIN_HI, axis: 'y', noise: 0.015, seed: 82 });
+  S.overlayN(neck, BELLY, (nx, ny, nz) => S.sstep(0.25, 0.65, nz - ny * 0.4) * 0.85);
+  const body = S.bake([torso, neck], skin, 'body');
   root.add(body);
   body.position.y = 0.62;
-
-  const bellyStripe = kit.capsule(0.2, 0.46, belly, { capSeg: 4, radSeg: 9 });
-  bellyStripe.geometry.rotateX(Math.PI / 2);
-  bellyStripe.scale.set(0.72, 0.5, 1);
-  kit.at(body, bellyStripe, 0, -0.2, 0);
-
-  // Pectoral flippers: broad, swept back, low on the flank. They widen the
-  // silhouette at the shoulders — the widest point of a real leviathan.
-  const flippers = [];
-  for (const side of [1, -1]) {
-    const f = kit.fin(0.62, finMat, { width: 0.42, curve: 0.25 });
-    flippers.push(kit.at(body, f, side * 0.3, -0.12, 0.12, { ry: side * -2.35, rz: side * -0.35, rx: -0.2 }));
+  for (let i = 0; i < 5; i++) for (const sd of [1, -1]) {
+    const z = 0.3 - i * 0.16;
+    spot(i % 2 ? spotsB : spotsA, S.surface(torso, [sd, -0.1, 0], { from: [0, 0, z], inset: 0.004 }), 0.032 - i * 0.003);
+  }
+  for (let i = 0; i < 4; i++) for (const sd of [1, -1]) {
+    const c = neckPts[i + 1];
+    spot(i % 2 ? spotsA : spotsB, S.surface(neck, [sd, 0, 0], { from: c, inset: 0.004 }), 0.026);
   }
 
-  // --- Reared S-neck ------------------------------------------------------
-  // A chain of pivots each pitching a little: for a chain running +Z, a
-  // NEGATIVE rotation about X raises it. The last link levels out, so the
-  // head is carried high and looks forward rather than at the sky.
-  const NECK = [
-    // [radius, length, pitch] — pitches COMPOUND, so these read as cumulative
-    // -0.55, -1.05, -1.25, -0.75 rad: up steeply to near-vertical, then
-    // levelling so the head looks forward at whatever is standing in front of
-    // it. The head must be the highest point of the whole animal; when the
-    // tail tip out-climbed it, the composition read as a caterpillar.
-    [0.3, 0.36, -0.55],
-    [0.27, 0.34, -0.5],
-    [0.25, 0.32, -0.2],
-    [0.23, 0.3, 0.5],
-  ];
-  const neckPivots = [];
-  let neckParent = body;
-  let attach = [0, 0.14, 0.26];
-  for (let i = 0; i < NECK.length; i++) {
-    const [r, len, pitch] = NECK[i];
-    const pivot = new THREE.Group(); pivot.name = `neck${i}`;
-    kit.at(neckParent, pivot, attach[0], attach[1], attach[2], { rx: pitch });
-    const seg = kit.capsule(r, len, skinV, { capSeg: 4, radSeg: 10 });
-    seg.geometry.rotateX(Math.PI / 2);            // nose-to-tail, never rotateZ
-    paintHull(seg, 82 + i);
-    kit.at(pivot, seg, 0, 0, len * 0.5);
-    // Pale throat line under each neck segment.
-    const throat = kit.capsule(r * 0.5, len * 0.9, belly, { capSeg: 3, radSeg: 7 });
-    throat.geometry.rotateX(Math.PI / 2);
-    throat.scale.set(0.75, 0.42, 1);
-    kit.at(pivot, throat, 0, -r * 0.78, len * 0.5);
-    neckPivots.push(pivot);
-    neckParent = pivot;
-    attach = [0, 0, len + r * 0.35];
+  // Crest over the neck and shoulders: one translucent sail mesh.
+  const crest = [];
+  for (let i = 0; i < 6; i++) {
+    const u = i / 5;
+    const c = i < 4 ? neckPts[4 - i] : [0, 0.2, 0.2 - (i - 4) * 0.3];
+    const h = i < 4 ? 0.34 + i * 0.1 : 0.7 - (i - 4) * 0.12;
+    const g = S.spindle({ len: 0.5, r: h * 0.5, sx: 0.07, sy: 1, radial: 12, rings: 8, profile: (t) => Math.pow(Math.sin(Math.PI * Math.min(1, t * 0.9 + 0.05)), 0.8) * (0.75 + 0.25 * t) });
+    g.rotateX(-0.35 - u * 0.1);
+    const at = S.surface(i < 4 ? neck : torso, [0, 1, -0.2], { from: c, inset: 0.04 });
+    crest.push(S.pose(g, [at[0], at[1] + h * 0.3, at[2]]));
   }
-  const headAnchor = neckPivots[neckPivots.length - 1];
-  const headZ = NECK[NECK.length - 1][1] + NECK[NECK.length - 1][0] * 0.55;
+  const crestMesh = new THREE.Mesh(S.merge(crest.map((g) => S.paint(g, 0xffffff))), crestMat);
+  crestMesh.name = 'crest';
+  body.add(crestMesh);
 
-  // --- Head: broad abyssal skull -----------------------------------------
-  // The head is attached with a pitch that cancels most of the neck's final
-  // rise, so a neck reared near-vertical still ends in a face that looks
-  // FORWARD at the player rather than at the sky.
-  const head = kit.at(headAnchor, paintHull(kit.blob(0.36, skinV, { seed: 190, squash: { x: 0.92, y: 0.8, z: 1.3 } }), 88), 0, 0.02, headZ, { rx: 0.5 });
-  const brow = kit.at(head, kit.orb(0.32, skinDeep, { sy: 0.52, sz: 0.82 }), 0, 0.17, 0.02, { rx: -0.15 });
-  const snout = kit.at(head, kit.orb(0.24, skin, { sy: 0.8, sz: 1.35 }), 0, -0.03, 0.33);
-  // The mouth is a real GAP: a dark line between an upper jaw and a lower one
-  // that hangs below it, with the fangs standing in the gap. Fangs tucked up
-  // inside a closed muzzle are invisible, which is how the first pass wasted
-  // them entirely.
-  const mouthLine = kit.at(head, kit.box(0.28, 0.05, 0.42, kit.mat(0x0a1622, { rough: 0.9 })), 0, -0.16, 0.24, { rx: -0.05 });
-  // Lower jaw — its own part, so the animator can drop it on a roar. It rests
-  // nearly closed: a jaw parked wide open reads as a permanent gormless gape.
-  const jaw = kit.at(head, kit.orb(0.22, skinDeep, { sy: 0.42, sz: 1.32 }), 0, -0.2, 0.28);
-  const jawGlow = kit.capsule(0.032, 0.26, glowMat, { capSeg: 3, radSeg: 6 });
-  jawGlow.geometry.rotateX(Math.PI / 2);
-  kit.at(jaw, jawGlow, 0, 0.05, 0.04);
-  const fangMat = kit.mat(0xdcecf4, { rough: 0.3 });
-  for (const side of [1, -1]) {
-    for (const [z, len] of [[0.4, 0.09], [0.28, 0.075], [0.15, 0.06]]) {
-      kit.at(head, kit.fang(len, fangMat), side * 0.135, -0.15, z);
-    }
-  }
-  // Gill-fins swept back off the skull, tying the head into the neck crest.
-  const headFins = [];
-  for (const side of [1, -1]) {
-    headFins.push(kit.at(head, kit.fin(0.3, crestMat, { width: 0.28, curve: 0.2 }), side * 0.2, 0.05, -0.16, { rz: side * 1.15, ry: side * 0.5 }));
-  }
+  // Pectoral flippers (accents).
+  const flippers = [1, -1].map((sd) => {
+    const g = S.spindle({ len: 0.62, r: 0.16, sx: 1.4, sy: 0.12, radial: 12, rings: 8, pNose: 0.8, profile: (t) => Math.pow(Math.sin(Math.PI * Math.min(1, 0.1 + t * 0.9)), 0.7) * (0.5 + 0.5 * t) });
+    g.translate(0, 0, -0.31);
+    const m = new THREE.Mesh(g, crestMat);
+    m.name = 'flipper';
+    kit.at(body, m, sd * 0.28, -0.14, 0.2, { ry: sd * 0.7, rz: -sd * 0.35 });
+    return m;
+  });
 
-  // Set on the SIDES of the skull and proud of it: the head blob's surface is
-  // out at ~0.33 in x, and an eye placed inside that only shows as a pale
-  // patch leaking through the scalp.
-  const eyeL = kit.at(head, kit.eye(0.085, { irisColor: 0xcaf6ee, pupil: true, scleraColor: 0x07131c, skinColor: skinHex, glintSize: 0.03 }), 0.27, 0.05, 0.2, { ry: 0.75 });
-  const eyeR = kit.at(head, kit.eye(0.085, { irisColor: 0xcaf6ee, pupil: true, scleraColor: 0x07131c, skinColor: skinHex, glintSize: 0.03 }), -0.27, 0.05, 0.2, { ry: -0.75 });
-  // Heavy ridge over each eye — an abyssal predator's scowl.
-  for (const side of [1, -1]) {
-    kit.at(head, kit.orb(0.13, skinDeep, { sy: 0.4, sz: 0.85 }), side * 0.24, 0.14, 0.18, { rz: -side * 0.35 });
-  }
+  // --- Head: broad abyssal wedge, heavy brow, horns, jaw, lure --------------
+  const headGeo = S.spindle({
+    len: 0.7, r: 0.26, sx: 0.95, sy: 0.9, pTail: 1.0, pNose: 1.05, radial: 20, rings: 14, belly: 0.25,
+    profile: (t) => (t < 0.42 ? 1.0 : S.lerp(1.0, 0.66, S.sstep(0.42, 0.78, t))),
+    syAt: (t) => S.lerp(0.95, 0.72, S.sstep(0.4, 0.8, t)),
+  });
+  S.paint(headGeo, { from: SKIN_LO, to: SKIN_HI, axis: 'y', noise: 0.012, seed: 88 });
+  const browG = [1, -1].map((sd) => {
+    const g = S.ball(0.14, { sx: 1.1, sy: 0.42, sz: 0.9, radial: 12, rings: 8 });
+    S.paint(g, { from: 0x1a2a44, to: 0x2e4468, axis: 'y' });
+    return S.pose(g, S.surface(headGeo, S.dirYP(sd * 0.5, 0.45), { from: [0, 0, 0.05], inset: 0.07 }), [0, 0, -sd * 0.3]);
+  });
+  const horns = [1, -1].map((sd) => {
+    const g = S.taper(0.44, 0.06, { r1: 0.01, curve: -0.7, radial: 8, rings: 7 });
+    S.paint(g, { from: 0x1a2a44, to: 0x6a86a8, axis: 'y' });
+    S.aim(g, [sd * 0.55, 0.6, -0.55]);
+    return S.pose(g, S.surface(headGeo, S.dirYP(sd * 0.6, 0.7), { from: [0, 0, -0.14], inset: 0.03 }));
+  });
+  const head = S.bake([headGeo, ...browG, ...horns], skin, 'head');
+  kit.at(body, head, 0, 1.3, 0.98, { rx: 0.3 });
+  for (const sd of [1, -1]) for (const z of [-0.05, 0.12]) spot(spotsA, S.surface(headGeo, [sd, -0.2, 0], { from: [0, -0.04, z], inset: 0.004 }), 0.022);
+  const SK = [0, 0.02, -0.12];
+  const eyeOpts = { irisColor: 0xcaf6ee, pupil: true, scleraColor: 0x07131c, skinColor: 0x35527d, glintSize: 0.03 };
+  const eyeL = S.seatEye(kit, head, headGeo, 0.08, 0.62, 0.2, eyeOpts, { sink: 0.5, front: 0.4, from: SK });
+  const eyeR = S.seatEye(kit, head, headGeo, 0.08, -0.62, 0.2, eyeOpts, { sink: 0.5, front: 0.4, from: SK });
 
-  // Jaw barbels and a swept horn pair behind the skull.
-  const barbels = [];
-  for (const side of [1, -1]) {
-    barbels.push(kit.at(head, kit.fin(0.2, finMat, { width: 0.1 }), side * 0.19, -0.11, 0.12, { rx: -0.35, ry: side * 0.9, rz: side * 0.4 }));
-    barbels.push(kit.at(head, kit.horn(0.34, skinDeep, { baseR: 0.045, tipR: 0.008, bend: side * 0.7 }), side * 0.16, 0.14, -0.12, { rz: -side * 0.75, rx: -0.5 }));
+  // separate lower jaw lined with fangs and a glowing gumline
+  const jawG = S.spindle({ len: 0.56, r: 0.2, sx: 0.95, sy: 0.4, radial: 16, rings: 10, profile: (t) => 0.95 - 0.3 * S.sstep(0.55, 1, t) });
+  jawG.translate(0, 0, 0.26);
+  S.paint(jawG, { from: 0x1d2e48, to: 0x2e4468, axis: 'y' });
+  const fangs = [];
+  for (const sd of [1, -1]) for (const [z, len] of [[0.46, 0.1], [0.34, 0.085], [0.2, 0.07]]) {
+    const f = S.taper(len, 0.024, { r1: 0.004, radial: 6, rings: 4 });
+    S.paint(f, 0xdcecf4);
+    fangs.push(S.pose(f, [sd * 0.13, 0.05, z], [0, 0, sd * 0.08]));
   }
+  const jaw = new THREE.Group(); jaw.name = 'jaw';
+  jaw.add(S.bake([jawG], skin, 'jawMesh'));
+  const fangMesh = new THREE.Mesh(S.merge(fangs), fangMat);
+  fangMesh.name = 'fangs';
+  jaw.add(fangMesh);
+  const gum = S.tubeAlong([[0.14, 0.07, 0.08], [0.12, 0.08, 0.4], [0, 0.08, 0.52], [-0.12, 0.08, 0.4], [-0.14, 0.07, 0.08]], () => 0.016, { radial: 6, tubular: 24 });
+  const gumMesh = new THREE.Mesh(S.paint(gum, 0xffffff), glowB);
+  gumMesh.name = 'jawGlow';
+  jaw.add(gumMesh);
+  kit.at(head, jaw, 0, -0.17, -0.06);
 
-  // The dream-lure: an abyssal angler's stalk carrying a soft light the
-  // world's dreams gather around.
-  // It arcs FORWARD over the snout rather than straight up: the lure should
-  // hang in front of the face like a deep-sea angler's, and a vertical stalk
-  // would only inflate the model's measured height (which registry.js
-  // rescales by) without adding anything to the silhouette that matters.
-  const LURE_LEN = 0.44, LURE_BEND = 0.95;
-  // horn() rises +Y and bends +X, so a -90° turn about Y aims the bend at +Z
-  // (forward) while it still rises.
-  const lureStalk = kit.at(head, kit.horn(LURE_LEN, skinDeep, { baseR: 0.03, tipR: 0.009, bend: LURE_BEND }), 0, 0.22, 0.04, { ry: -Math.PI / 2, rx: -0.12 });
-  const lure = kit.at(lureStalk, kit.crystal(0.08, glowMat.clone(), { coreColor: 0xffffff, detail: 0 }), LURE_BEND * LURE_LEN, LURE_LEN, 0);
+  // the dream-lure arcing forward over the snout
+  const lurePts = [[0, 0.2, -0.02], [0, 0.44, 0.1], [0, 0.5, 0.34], [0, 0.34, 0.5]];
+  const stalk = new THREE.Mesh(S.paint(S.tubeAlong(lurePts, (t) => S.lerp(0.03, 0.012, t), { radial: 8, tubular: 18 }), 0x1a2a44), skin);
+  stalk.name = 'lureStalk';
+  head.add(stalk);
+  const lure = kit.crystal(0.08, glowA.clone(), { coreColor: 0xffffff, detail: 0 });
+  lure.name = 'lure';
+  lure.position.set(0, 0.26, 0.54);
+  head.add(lure);
+  const lureGlow = S.glow(GLOW, 0.5, 0.6);
+  lure.add(lureGlow);
   const lureMotes = kit.mote(7, { color: 0xa9f2e2, size: 0.028, radius: 0.18, height: 0.22, speed: 0.5, seed: 195 });
-  kit.at(lureStalk, lureMotes, LURE_BEND * LURE_LEN, LURE_LEN, 0);
+  kit.at(head, lureMotes, 0, 0.26, 0.54);
 
-  // --- The coiling body ---------------------------------------------------
-  // No legs: a leviathan glides. The chain extends -Z; a pivot's +X rotation
-  // lifts the run that follows it, +Y swings it sideways. Rest pose = the
-  // pose held at return, and the animator's serpent undulation is applied as
-  // OFFSETS on top, so a posed coil still swims.
-  // Taper is gentle (0.34 → 0.085): a leviathan keeps its bulk most of the
-  // way back, and a chain that thins to a whisker by mid-body reads as a
-  // tadpole tail rather than a body.
-  const SEGMENTS = 15, SEG_LEN = 0.3, START_R = 0.34, END_R = 0.055;
-  const tail = kit.at(body, kit.tailChain(SEGMENTS, skinV, { segLen: SEG_LEN, startR: START_R, endR: END_R }), 0, -0.02, -0.38);
+  // --- The coiling body ---------------------------------------------------------
+  const N = 12;
+  const YAW = [0, -0.14, -0.19, -0.22, -0.2, -0.12, 0.0, 0.12, 0.19, 0.2, 0.16, 0.1];
+  const PITCH = [-0.06, -0.14, -0.04, 0.14, 0.18, 0.08, -0.1, -0.18, -0.12, 0.04, 0.14, 0.14];
+  const tail = S.softTail(N, skin, {
+    segLen: 0.3, startR: 0.32, endR: 0.06, rootPitch: -0.06, radial: 11,
+    curl: (i) => PITCH[i] ?? 0, yaw: (i) => YAW[i + 1] ?? 0,
+    color: (t) => S.mixHex(SKIN, SKIN_LO, t * 0.45),
+  });
+  kit.at(body, tail, 0, -0.02, -0.42);
   tail.pivots.forEach((p, i) => {
-    for (const child of p.children) {
-      if (child.isMesh && child.geometry && child.geometry.attributes) paintHull(child, 100 + i);
+    const r = S.lerp(0.32, 0.06, i / N);
+    const seg = p.children.find((c) => c.name === 'tailSeg');
+    if (seg) S.overlay(seg.geometry, BELLY, (x, y, z) => S.sstep(-r * 0.35, -r * 0.7, y) * 0.85);
+    const pts = [];
+    for (const sd of [1, -1]) spot(pts, [sd * r * 0.96, -0.02, -0.15], Math.max(0.014, 0.028 * (1 - i / N)));
+    if (pts.length) {
+      const m = new THREE.Mesh(S.merge(pts), i % 2 ? glowA : glowB);
+      m.name = 'bioSpots';
+      p.add(m);
+    }
+    if (i < 9) {
+      const h = 0.6 * (1 - i / 10) + 0.08;
+      const g = S.spindle({ len: 0.4, r: h * 0.5, sx: 0.07, sy: 1, radial: 10, rings: 7, profile: (t) => Math.pow(Math.sin(Math.PI * Math.min(1, t * 0.9 + 0.05)), 0.8) });
+      const m = new THREE.Mesh(g, crestMat);
+      m.name = 'crestFin';
+      m.position.set(0, r * 0.9 + h * 0.3, -0.15);
+      m.rotation.x = -0.3;
+      p.add(m);
     }
   });
-  // THE COIL. Per-joint rotations compound, so these are increments, and the
-  // running totals are what matter. Yaw sweeps the body out to one side by
-  // ~65° and brings it back (a long lazy S laid across the ground, which is
-  // what makes the length visible from a 3/4 camera instead of vanishing
-  // straight away from it); pitch rides it over two humps and lifts the last
-  // few segments into a flourish.
-  const YAW = [0, -0.14, -0.19, -0.22, -0.22, -0.16, -0.06, 0.06, 0.14, 0.19, 0.19, 0.16, 0.12, 0.08, 0.05];
-  const PITCH = [-0.06, -0.18, -0.05, 0.16, 0.2, 0.1, -0.1, -0.2, -0.16, -0.02, 0.12, 0.16, 0.12, 0.06, 0.02];
-  tail.pivots.forEach((p, i) => {
-    p.rotation.y = YAW[i] ?? 0;
-    p.rotation.x = PITCH[i] ?? 0;
-  });
-  // Segment ridges: a slightly proud ring where each segment meets the next,
-  // so the undulation is legible as SEGMENTS and not one smooth hose.
-  tail.pivots.forEach((p, i) => {
-    const r = START_R + (END_R - START_R) * (i / SEGMENTS);
-    kit.at(p, kit.orb(r * 1.06, skinDeep, { sz: 0.3, wSeg: 12 }), 0, 0, -SEG_LEN * 0.95);
-  });
+  const flukeG = S.spindle({ len: 0.4, r: 0.32, sx: 1.6, sy: 0.12, radial: 14, rings: 8, pNose: 0.7, profile: (t) => Math.pow(Math.sin(Math.PI * Math.min(1, 0.05 + t * 0.95)), 0.6) * (0.4 + 0.6 * (1 - t)) });
+  flukeG.translate(0, 0, -0.14);
+  const fluke = new THREE.Mesh(flukeG, crestMat);
+  fluke.name = 'fluke';
+  kit.at(tail.tipAnchor, fluke, 0, 0, 0);
 
-  // Crest: a translucent fin standing on every neck link, on the back, and on
-  // every tail segment. kit.fin()'s blade spans +X with its width running
-  // -Z, so rz = +PI/2 stands it upright with the width trailing backward.
-  const crestAccents = [];
-  const crestUp = Math.PI / 2;
-  // Fin bases sit slightly INSIDE the body (0.72r, not at the surface): a fin
-  // planted exactly on the skin leaves a visible gap where its blade curve
-  // starts, and the crest floats instead of growing out of the animal.
-  NECK.forEach(([r, len], i) => {
-    const h = 0.34 + i * 0.09;
-    crestAccents.push(kit.at(neckPivots[i], kit.fin(h, crestMat, { width: len * 1.9, curve: 0.25 }), 0, r * 0.72, len * 0.5, { rz: crestUp }));
-  });
-  crestAccents.push(kit.at(body, kit.fin(0.82, crestMat, { width: 0.7, curve: 0.3 }), 0, 0.26, 0.1, { rz: crestUp }));
-  crestAccents.push(kit.at(body, kit.fin(0.7, crestMat, { width: 0.62, curve: 0.3 }), 0, 0.26, -0.26, { rz: crestUp }));
-  // Fin width is deliberately wider than a segment is long, so consecutive
-  // fins overlap into ONE continuous sail instead of a row of loose leaves.
-  tail.pivots.forEach((p, i) => {
-    const t = i / (SEGMENTS - 1);
-    const r = START_R + (END_R - START_R) * (i / SEGMENTS);
-    const h = 0.78 * (1 - t * 0.88) + 0.08;
-    crestAccents.push(kit.at(p, kit.fin(h, crestMat, { width: SEG_LEN * 2.1, curve: 0.3 }), 0, r * 0.7, -SEG_LEN * 0.5, { rz: crestUp }));
-  });
-  // Tail fluke: a broad horizontal fan (a whale's, not a fish's — it reads as
-  // "deep-sea giant" at a glance) with a small vertical lobe behind it.
-  const tipPivot = tail.pivots[tail.pivots.length - 1];
-  const tailFin = kit.at(tipPivot, kit.fin(0.46, finMat, { width: 0.62, curve: 0.15 }), 0, 0.0, -SEG_LEN * 0.9, { ry: Math.PI / 2, rz: 0.12 });
-  const tailFin2 = kit.at(tipPivot, kit.fin(0.46, finMat, { width: 0.62, curve: 0.15 }), 0, 0.0, -SEG_LEN * 0.9, { ry: -Math.PI / 2, rz: -0.12 });
-  const tailFin3 = kit.at(tipPivot, kit.fin(0.26, crestMat, { width: 0.3, curve: 0.2 }), 0, 0.04, -SEG_LEN * 0.75, { rz: crestUp });
+  const bodySpots = new THREE.Mesh(S.merge(spotsA), glowA);
+  bodySpots.name = 'bioSpots';
+  body.add(bodySpots);
+  const bodySpotsB = new THREE.Mesh(S.merge(spotsB), glowB);
+  bodySpotsB.name = 'bioSpots';
+  body.add(bodySpotsB);
+  let t = 0;
+  const pulse = { update(dt) { t += dt; glowA.opacity = 0.55 + 0.4 * (0.5 + 0.5 * Math.sin(t * 0.7)); glowB.opacity = 0.55 + 0.4 * (0.5 + 0.5 * Math.sin(t * 0.7 + 2.1)); } };
 
-  // --- Bioluminescence ----------------------------------------------------
-  // Rows on both flanks of the torso (a spot placed inside the capsule simply
-  // never shows: the torso radius is 0.34, so they sit AT 0.34) and a pair on
-  // every tail segment, each at that segment's own radius.
-  const flankSpots = [];
-  for (let i = 0; i < 5; i++) {
-    const t = i / 4;
-    const z = 0.28 - t * 0.62;
-    for (const side of [1, -1]) flankSpots.push([side * 0.335, -0.02, z, 0.028 + (1 - t) * 0.012]);
-  }
-  const spotFx = [bioluminescentSpots(kit, body, flankSpots, glowSpot, 400)];
-  neckPivots.forEach((p, i) => {
-    const [r, len] = NECK[i];
-    spotFx.push(bioluminescentSpots(kit, p, [
-      [r * 0.96, -0.04, len * 0.45, 0.026], [-r * 0.96, -0.04, len * 0.45, 0.026],
-    ], glowSpot, 410 + i));
-  });
-  tail.pivots.forEach((p, i) => {
-    const r = START_R + (END_R - START_R) * (i / SEGMENTS);
-    const rad = Math.max(0.012, 0.026 * (1 - i / SEGMENTS));
-    spotFx.push(bioluminescentSpots(kit, p, [
-      [r * 0.94, -0.02, -SEG_LEN * 0.5, rad], [-r * 0.94, -0.02, -SEG_LEN * 0.5, rad],
-      [0, r * 0.5, -SEG_LEN * 0.85, rad * 0.7],
-    ], glowSpot, 420 + i));
-  });
-
-  // --- Dreams pooling in its wake ----------------------------------------
-  const dreamRose = kit.mote(12, { color: 0xe0b8c8, size: 0.04, radius: 1.2, height: 0.55, speed: 0.2, seed: 191 });
+  // --- Dreams pooling in its wake --------------------------------------------
+  const dreamRose = kit.mote(10, { color: 0xe0b8c8, size: 0.04, radius: 1.2, height: 0.55, speed: 0.2, seed: 191 });
   kit.at(body, dreamRose, 0, 0.2, -0.9);
-  const dreamLavender = kit.mote(10, { color: 0xc8b8e0, size: 0.034, radius: 1.0, height: 0.7, speed: 0.16, seed: 192 });
+  const dreamLavender = kit.mote(8, { color: 0xc8b8e0, size: 0.034, radius: 1.0, height: 0.7, speed: 0.16, seed: 192 });
   kit.at(body, dreamLavender, 0, 0.35, -1.5);
-  const dreamTeal = kit.mote(10, { color: 0xa0d8d8, size: 0.03, radius: 0.9, height: 0.45, speed: 0.24, seed: 193 });
+  const dreamTeal = kit.mote(8, { color: 0xa0d8d8, size: 0.03, radius: 0.9, height: 0.45, speed: 0.24, seed: 193 });
   kit.at(body, dreamTeal, 0, 0.05, -0.3);
 
-  const spark = kit.heartspark(0.09, glowSpot, { seed: 194 });
-  kit.at(body, spark, 0, -0.12, 0.24);
+  const spark = kit.heartspark(0.09, GLOW, { seed: 194 });
+  const sp = S.surface(torso, [0, -0.3, 1], { from: [0, 0, 0.25], inset: 0.012 });
+  kit.at(body, spark, sp[0], sp[1], sp[2]);
 
   return {
     group: kit.groundPlant(root),
@@ -318,8 +208,8 @@ export function build_thalassyr(kit = kitDefault) {
       jaw,
       eyelids: [eyeL.getObjectByName('eyelid'), eyeR.getObjectByName('eyelid')],
       tail: tail.pivots,
-      accents: [...crestAccents, ...barbels, ...headFins, ...flippers, brow, snout, mouthLine, lureStalk, lure, tailFin, tailFin2, tailFin3],
-      fx: [...spotFx, lureMotes, dreamRose, dreamLavender, dreamTeal, spark],
+      accents: [...flippers, fluke, lure],
+      fx: [pulse, lureMotes, dreamRose, dreamLavender, dreamTeal, spark, S.variantFx(root)],
     },
     hints: {
       personality: 'calm',

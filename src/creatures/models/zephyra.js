@@ -11,6 +11,7 @@
 
 import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
+import * as S from './soft.js';
 
 export function build_zephyra(kit = kitDefault) {
   const pal = kit.palette(['gale']);
@@ -27,8 +28,8 @@ export function build_zephyra(kit = kitDefault) {
 
   const head = kit.at(body, kit.orb(0.045, skin, { sy: 0.9 }), 0, 0.05, 0.045);
   kit.paint(head, { from: 0x5a4c7e, to: 0xa294c0, noise: 0.04, seed: 84 });
-  const eyeL = kit.at(head, kit.eye(0.021, { irisColor: 0x1c1428, skinColor: 0x6a5a8a, glintSize: 0.009 }), 0.026, 0.006, 0.032, { ry: 0.26 });
-  const eyeR = kit.at(head, kit.eye(0.021, { irisColor: 0x1c1428, skinColor: 0x6a5a8a, glintSize: 0.009 }), -0.026, 0.006, 0.032, { ry: -0.26 });
+  const eyeL = kit.at(head, S.eye(kit, 0.021, { irisColor: 0x1c1428, skinColor: 0x6a5a8a, glintSize: 0.009 }), 0.026, 0.006, 0.032, { ry: 0.26 });
+  const eyeR = kit.at(head, S.eye(kit, 0.021, { irisColor: 0x1c1428, skinColor: 0x6a5a8a, glintSize: 0.009 }), -0.026, 0.006, 0.032, { ry: -0.26 });
   // A tiny pale royal ruff where thorax meets head.
   kit.at(body, kit.fluffTuft(0.028, kit.mat(0xcabce0, { rough: 0.7 }), { count: 4, seed: 85 }), 0, 0.045, 0.055);
 

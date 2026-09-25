@@ -3,113 +3,116 @@
 // "Sleek otter-mer with sail fins and spiral tail current. Playful
 // show-off." (Design Bible §4)
 // =============================================================================
-// Visual-overhaul rebuild. The show-off reads through:
-//   1. AN ARCED, MID-LEAP POSE: chest up, tail swept high behind — the
-//      whole body is one S-curve instead of a level sausage.
-//   2. THE SAIL ROW — signature: three translucent aqua dorsal sails of
-//      falling size down the spine, echoed by hip fins and a big tail fan,
-//      every membrane in two-tone aqua/foam.
-//   3. Two-tone pelt via applyVertexGradient (deep sea-slate under -> bright
-//      teal top) with a cream belly and throat, so the otter reads sleek and
-//      wet rather than flat blue.
+// Visual pass v2 (soft stylized): a sleek otter REARING UP on its webbed
+// hind feet — the show-off pose — forepaws held proudly at the chest, a
+// round otter head with a cream whisker-pad muzzle and little round ears,
+// a smooth deep-teal pelt with a cream throat and belly, three translucent
+// sail fins along the back (they ripple), and a long tail curling up into a
+// fin with its spiral water current swirling around the tip.
 
 import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
-import { applyVertexGradient, jitterGeometry } from '../../gfx/materials.js';
+import * as S from './soft.js';
+
+const PELT_LO = 0x173f5a, PELT = 0x2a6e90, PELT_HI = 0x58a8c8, CREAM = 0xd8eef0, WEB = 0x163a52, SAIL = 0x4fb4d8;
 
 export function build_maelfin(kit = kitDefault) {
   const pal = kit.palette(['tide']);
-  const peltV = kit.mat(0xffffff, { vertexColors: true, rough: 0.42 });
-  const PELT_LO = 0x1c4a66, PELT_HI = 0x4f9cc0;
-  const bellyMat = kit.mat(0xd8eef2, { rough: 0.5 });
-  const sailMat = kit.mat(0x4fb4d8, { rough: 0.25, transparent: true, opacity: 0.78, side: THREE.DoubleSide, emissive: 0x1d6480, emissiveIntensity: 0.6 });
-  const foamMat = kit.mat(0xc4ecf2, { rough: 0.2, transparent: true, opacity: 0.7, side: THREE.DoubleSide, emissive: 0x5da8b8, emissiveIntensity: 0.4 });
-  const skinHex = 0x2f6a8a;
-
-  const paint = (mesh, seed, lo = PELT_LO, hi = PELT_HI, jit = 0) => {
-    if (jit) jitterGeometry(mesh.geometry, jit, seed);
-    applyVertexGradient(mesh.geometry, { from: lo, to: hi, noise: 0.04, seed });
-    return mesh;
-  };
+  const pelt = S.vcMat(kit, { rough: 0.38 });
+  const sailMat = kit.mat(SAIL, { rough: 0.25, transparent: true, opacity: 0.72, side: THREE.DoubleSide, emissive: 0x1d6480, emissiveIntensity: 0.5 });
 
   const root = new THREE.Group();
 
-  // Sleek torso, chest lifted — the mid-leap arc.
-  const body = kit.capsule(0.095, 0.42, peltV, { capSeg: 5, radSeg: 10 });
-  body.geometry.rotateX(Math.PI / 2);
-  paint(body, 15);
+  // --- Body: a sleek otter torso, rearing up (baked pitch). ----------------
+  const PITCH = -0.62;
+  const torso = S.spindle({
+    len: 0.5, r: 0.11, sx: 0.92, sy: 1.0, p: 0.9, radial: 18, rings: 14,
+    profile: (t) => 0.72 + 0.12 * S.bump(t, 0.22, 0.3) + 0.24 * S.bump(t, 0.68, 0.34),
+  });
+  S.paint(torso, { from: PELT_LO, to: PELT_HI, axis: 'y', noise: 0.012, seed: 15 });
+  S.overlay(torso, CREAM, (x, y, z) => S.sstep(-0.03, -0.09, y) * S.sstep(-0.1, 0.1, z));
+  torso.rotateX(PITCH);
+  // forepaws held at the chest (static; part of the body)
+  const arms = [1, -1].map((s) => {
+    const g = S.limb(0.09, 0.028, 0.022, { radial: 8 });
+    S.paint(g, { from: PELT_LO, to: PELT, axis: 'y' });
+    const pw = S.ball(0.026, { sx: 1.1, sy: 0.8, sz: 1.2, radial: 8, rings: 6 });
+    pw.translate(0, -0.1, 0.012);
+    S.paint(pw, PELT_LO);
+    const g2 = S.merge([g, pw]);
+    return S.pose(g2, [s * 0.058, 0.13, 0.15], [-1.05, 0, -s * 0.3]);
+  });
+  const body = S.bake([torso, ...arms], pelt, 'body');
   root.add(body);
-  body.position.y = 0.34;
-  body.rotation.x = -0.22;                           // nose up, tail down-back
+  body.position.y = 0.27;
 
-  // Cream belly and chest patch.
-  const bellyPatch = kit.capsule(0.07, 0.24, bellyMat, { capSeg: 4, radSeg: 7 });
-  bellyPatch.geometry.rotateX(Math.PI / 2);
-  bellyPatch.scale.set(0.66, 0.58, 1);
-  kit.at(body, bellyPatch, 0, -0.062, 0.03);
-  const chest = paint(kit.orb(0.095, peltV, { sy: 1.05 }), 16, PELT_LO, PELT_HI, 0.006);
-  kit.at(body, chest, 0, -0.01, 0.17);
-
-  // Head carried high, cheeky tilt — narrow otter skull, not a teddy ball.
-  const head = paint(kit.blob(0.075, peltV, { seed: 17, squash: { x: 0.88, y: 0.92, z: 1.35 } }), 17);
-  kit.at(body, head, 0, 0.1, 0.32, { rx: 0.1, rz: 0.06 });
-  const eyeL = kit.at(head, kit.eye(0.026, { irisColor: 0x14384f, scleraColor: 0xdcecf0, skinColor: skinHex, glintSize: 0.011 }), 0.048, 0.02, 0.068, { ry: 0.4 });
-  const eyeR = kit.at(head, kit.eye(0.026, { irisColor: 0x14384f, scleraColor: 0xdcecf0, skinColor: skinHex, glintSize: 0.011 }), -0.048, 0.02, 0.068, { ry: -0.4 });
-  const earL = kit.at(head, paint(kit.ear(0.042, peltV), 21.2), 0.065, 0.062, -0.01, { rz: 0.35 });
-  const earR = kit.at(head, paint(kit.ear(0.042, peltV), 21.7), -0.065, 0.062, -0.01, { rz: -0.35 });
-  // Cream muzzle with whiskers.
-  kit.at(head, kit.orb(0.045, bellyMat, { sz: 1.25, sy: 0.8 }), 0, -0.035, 0.075);
-  kit.at(head, kit.orb(0.016, kit.mat(0x1c3244, { rough: 0.4 }), { sy: 0.7 }), 0, -0.02, 0.115);
-  const whiskerMat = kit.mat(0xe8f2f5, { unlit: true, opacity: 0.7, transparent: true });
-  const whiskL = kit.at(head, kit.leafBlade(0.055, whiskerMat, { width: 0.004 }), 0.05, -0.03, 0.08, { ry: -0.3, rz: 0.15 });
-  const whiskR = kit.at(head, kit.leafBlade(0.055, whiskerMat, { width: 0.004 }), -0.05, -0.03, 0.08, { ry: Math.PI + 0.3, rz: -0.15 });
-
-  // --- THE SAIL ROW --------------------------------------------------------
-  // Three double-layer sails of falling size down the spine.
-  const sails = [];
-  const sailDefs = [[0.12, 0.16, 0.2], [0.14, 0.02, 0.17], [0.12, -0.11, 0.13]];
-  for (const [y, z, len] of sailDefs) {
-    const s = kit.fin(len, sailMat, { width: len * 0.95, curve: 0.35 });
-    sails.push(kit.at(body, s, 0, y, z, { rz: Math.PI / 2, rx: -0.5 }));
-    const f = kit.fin(len * 0.66, foamMat, { width: len * 0.6, curve: 0.4 });
-    sails.push(kit.at(body, f, 0, y + 0.008, z - 0.012, { rz: Math.PI / 2, rx: -0.62 }));
+  // --- Head: round otter head, cream whisker-pad muzzle. -------------------
+  const headGeo = S.spindle({ len: 0.17, r: 0.078, sx: 1.06, sy: 0.92, p: 1, radial: 18, rings: 12, profile: (t) => 0.92 + 0.1 * S.bump(t, 0.4, 0.45) });
+  S.paint(headGeo, { from: PELT, to: PELT_HI, axis: 'y', noise: 0.01, seed: 17 });
+  const pad = S.ball(0.04, { sx: 1.35, sy: 0.8, sz: 0.9, radial: 12, rings: 8 });
+  const padAt = S.surface(headGeo, S.dirYP(0, -0.3), { inset: 0.022 });
+  S.pose(pad, padAt);
+  S.paint(pad, CREAM);
+  S.overlay(headGeo, CREAM, (x, y, z) => S.sstep(-0.02, -0.055, y) * S.sstep(0.0, 0.06, z));
+  const nose = S.ball(0.014, { sx: 1.4, sy: 0.8, radial: 8, rings: 5 });
+  S.pose(nose, [padAt[0], padAt[1] + 0.02, padAt[2] + 0.028]);
+  S.paint(nose, 0x13283a);
+  const ears = [1, -1].map((s) => S.pose(S.paint(S.ball(0.02, { sx: 1.1, sy: 0.9, sz: 0.55, radial: 8, rings: 6 }), PELT_LO), S.surface(headGeo, S.dirYP(s * 0.95, 0.6), { inset: 0.005 }), [0, s * 0.6, 0]));
+  const whiskers = [];
+  for (const s of [1, -1]) for (let i = 0; i < 2; i++) {
+    const w = S.taper(0.055, 0.0028, { r1: 0.001, curve: 0.2, radial: 4, rings: 4 });
+    S.paint(w, 0xe8f2f5);
+    whiskers.push(S.pose(w, [padAt[0] + s * 0.04, padAt[1] - 0.004 - i * 0.01, padAt[2] + 0.01], [0.3, 0, -s * (1.35 + i * 0.2)]));
   }
+  const head = S.bake([headGeo, pad, nose, ...ears, ...whiskers], pelt, 'head');
+  kit.at(body, head, 0, 0.24, 0.2, { rx: 0.25, rz: 0.12 });
+  const eyeOpts = { irisColor: 0x14384f, scleraColor: 0xdcecf0, skinColor: 0x2f6a8a, glintSize: 0.012 };
+  const eyeL = S.seatEye(kit, head, headGeo, 0.027, 0.42, 0.18, eyeOpts, { sink: 0.42, front: 0.55 });
+  const eyeR = S.seatEye(kit, head, headGeo, 0.027, -0.42, 0.18, eyeOpts, { sink: 0.42, front: 0.55 });
 
-  // Flipper "legs" — front pair braced, short and webbed-dark.
-  const legDefs = [[0.085, -0.075, 0.12], [-0.085, -0.075, 0.12]];
-  const flipperMat = kit.mat(0x17405c, { rough: 0.4 });
-  const legs = legDefs.map(([x, y, z], i) => {
-    const l = kit.at(body, kit.leg(0.15, peltV, { thighR: 0.038, shinR: 0.03, footLen: 0.07, footMat: flipperMat }), x, y, z);
-    for (const c of l.hip.children) if (c.isMesh && c.geometry) paint(c, 18 + i);
-    for (const c of l.knee.children) if (c.isMesh && c.geometry) paint(c, 20 + i);
+  // --- Sail fins along the back (accents — they ripple). -------------------
+  // sails run ALONG the pitched spine, rising off the back like a sailfish's
+  const back = [0, Math.cos(PITCH), Math.sin(PITCH)]; // spine-normal, pointing up-back
+  const sails = [[0.14, 0.15], [0.02, 0.13], [-0.1, 0.1]].map(([u, h]) => {
+    const g = S.spindle({ len: h * 1.3, r: h * 0.5, sx: 0.08, sy: 1, radial: 10, rings: 8, profile: (t) => Math.pow(Math.sin(Math.PI * Math.min(1, t * 0.9 + 0.05)), 0.75) * (0.7 + 0.3 * (1 - t)) });
+    g.rotateX(PITCH);
+    const m = new THREE.Mesh(g, sailMat);
+    m.name = 'sail';
+    const c = [0, -Math.sin(PITCH) * u, Math.cos(PITCH) * u];
+    const at = S.surface(torso, back, { from: c, inset: 0.02 });
+    kit.at(body, m, at[0] + back[0] * h * 0.32, at[1] + back[1] * h * 0.32, at[2] + back[2] * h * 0.32);
+    return m;
+  });
+
+  // --- Webbed hind feet (biped): short, powerful, big flipper feet. --------
+  const legs = [[0.07, -0.12, -0.06], [-0.07, -0.12, -0.06]].map(([x, y, z]) => {
+    const l = S.softLeg(0.16, pelt, { thighR: 0.052, shinR: 0.03, kneeR: 0.034, pawR: 0.036, pawLen: 1.9, pawH: 0.024, toes: 4, bend: 0.45, split: 0.55, bulge: 0.3, color: PELT, shinColor: PELT_LO, pawColor: WEB });
+    kit.at(body, l, x, y, z);
     return l;
   });
 
-  // Hip fins echoing the sails.
-  const hipFinL = kit.at(body, kit.fin(0.1, sailMat), 0.09, 0.03, -0.14, { rx: -0.3, ry: 0.7, rz: 0.3 });
-  const hipFinR = kit.at(body, kit.fin(0.1, sailMat), -0.09, 0.03, -0.14, { rx: -0.3, ry: -0.7, rz: -0.3 });
-
-  // --- Tail: swept UP and curled — the spiral flourish ---------------------
-  const tail = kit.at(body, kit.tailChain(6, peltV, { segLen: 0.08, startR: 0.05, endR: 0.016 }), 0, 0.02, -0.2);
-  tail.pivots.forEach((p, i) => {
-    for (const c of p.children) if (c.isMesh && c.geometry && c.geometry.attributes) paint(c, 22 + i);
-    p.rotation.x = i === 0 ? 0.55 : 0.16;            // compounding lift = upward curl
-    p.rotation.y = i > 2 ? 0.12 : 0;
+  // --- Long tail curling up into a fin; spiral current at the tip. --------
+  const tail = S.softTail(6, pelt, {
+    segLen: 0.08, startR: 0.055, endR: 0.02, curl: 0.24, rootPitch: -0.2, yaw: 0.06, radial: 9,
+    color: (t) => S.mixHex(PELT, PELT_LO, t),
   });
-  const tailFin = kit.at(tail.pivots[tail.pivots.length - 1], kit.fin(0.14, sailMat, { width: 0.12 }), 0, 0, -0.03, { ry: Math.PI / 2 });
-  const tailFin2 = kit.at(tail.pivots[tail.pivots.length - 1], kit.fin(0.14, sailMat, { width: 0.12 }), 0, 0, -0.03, { ry: -Math.PI / 2 });
-  // The spiral current: a tight ring of droplets orbiting the raised tail tip.
+  kit.at(body, tail, 0, -0.14, -0.14);
+  const flukeGeo = S.spindle({ len: 0.13, r: 0.05, sx: 1.6, sy: 0.14, radial: 10, rings: 7, pNose: 0.8, profile: (t) => Math.pow(Math.sin(Math.PI * Math.min(1, t * 0.9 + 0.1)), 0.7) });
+  flukeGeo.translate(0, 0, -0.05);
+  const fluke = new THREE.Mesh(flukeGeo, sailMat);
+  fluke.name = 'tailFluke';
+  kit.at(tail.tipAnchor, fluke, 0, 0, 0);
   const swirl = kit.mote(9, { color: 0xbfe6ff, size: 0.018, radius: 0.09, height: 0.08, speed: 1.6, seed: 17 });
-  kit.at(tail.pivots[tail.pivots.length - 1], swirl, 0, 0, -0.06);
-  const splash = kit.mote(6, { color: 0xd8f2f8, size: 0.014, radius: 0.2, height: 0.16, speed: 0.5, seed: 19 });
+  kit.at(tail.tipAnchor, swirl, 0, 0, -0.04);
+  const splash = kit.mote(5, { color: 0xd8f2f8, size: 0.014, radius: 0.2, height: 0.16, speed: 0.5, seed: 19 });
   kit.at(body, splash, 0, 0.08, -0.1);
 
-  const spark = kit.heartspark(0.032, pal.eye, { seed: 18 });
-  kit.at(body, spark, 0, -0.03, 0.26);
+  const spark = kit.heartspark(0.028, pal.eye, { seed: 18 });
+  const sp = S.surface(torso, [0, -0.1, 1], { from: [0, 0.1, 0.1], inset: 0.01 });
+  kit.at(body, spark, sp[0], sp[1], sp[2]);
 
   const grounded = kit.groundPlant(root);
-  // Soft contact shadow so the creature reads planted on any ground.
-  const contact = kit.shadowDisc(0.3, 0.32);
+  const contact = kit.shadowDisc(0.28, 0.34);
   contact.position.y = 0.02 - grounded.position.y;
   grounded.add(contact);
 
@@ -121,8 +124,8 @@ export function build_maelfin(kit = kitDefault) {
       eyelids: [eyeL.getObjectByName('eyelid'), eyeR.getObjectByName('eyelid')],
       tail: tail.pivots,
       legs: legs.map((l) => ({ hip: l.hip, knee: l.knee, foot: l.foot })),
-      accents: [earL, earR, whiskL, whiskR, ...sails, hipFinL, hipFinR, tailFin, tailFin2],
-      fx: [swirl, splash, spark],
+      accents: [...sails, fluke],
+      fx: [swirl, splash, spark, S.variantFx(root)],
     },
     hints: {
       personality: 'eager',

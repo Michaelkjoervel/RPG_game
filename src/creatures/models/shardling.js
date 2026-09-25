@@ -12,6 +12,7 @@
 
 import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
+import * as S from './soft.js';
 
 export function build_shardling(kit = kitDefault) {
   const pal = kit.palette(['terra', 'lumen']);
@@ -36,10 +37,10 @@ export function build_shardling(kit = kitDefault) {
   kit.at(abdomen, kit.crystal(0.026, gemMat, { coreColor: 0xfff6dc, detail: 0 }), -0.055, 0.05, 0.02);
 
   const head = kit.at(thorax, kit.paint(kit.orb(0.036, stone, { sz: 1.1, sy: 0.85 }), { from: 0x5e5138, to: 0xa8986e, noise: 0.05, seed: 61, rough: 0.6 }), 0, 0.01, 0.075);
-  const eyeL = kit.at(head, kit.eye(0.014, { irisColor: 0xffe9b0, skinColor: 0x8a7a5c, glintSize: 0.006 }), 0.024, 0.006, 0.03, { ry: 0.4 });
-  const eyeR = kit.at(head, kit.eye(0.014, { irisColor: 0xffe9b0, skinColor: 0x8a7a5c, glintSize: 0.006 }), -0.024, 0.006, 0.03, { ry: -0.4 });
-  const eyeL2 = kit.at(head, kit.eye(0.009, { irisColor: 0xffe9b0, skinColor: 0x8a7a5c, glintSize: 0.004 }), 0.02, 0.017, 0.028, { ry: 0.4 });
-  const eyeR2 = kit.at(head, kit.eye(0.009, { irisColor: 0xffe9b0, skinColor: 0x8a7a5c, glintSize: 0.004 }), -0.02, 0.017, 0.028, { ry: -0.4 });
+  const eyeL = kit.at(head, S.eye(kit, 0.014, { irisColor: 0xffe9b0, skinColor: 0x8a7a5c, glintSize: 0.006 }), 0.024, 0.006, 0.03, { ry: 0.4 });
+  const eyeR = kit.at(head, S.eye(kit, 0.014, { irisColor: 0xffe9b0, skinColor: 0x8a7a5c, glintSize: 0.006 }), -0.024, 0.006, 0.03, { ry: -0.4 });
+  const eyeL2 = kit.at(head, S.eye(kit, 0.009, { irisColor: 0xffe9b0, skinColor: 0x8a7a5c, glintSize: 0.004 }), 0.02, 0.017, 0.028, { ry: 0.4 });
+  const eyeR2 = kit.at(head, S.eye(kit, 0.009, { irisColor: 0xffe9b0, skinColor: 0x8a7a5c, glintSize: 0.004 }), -0.02, 0.017, 0.028, { ry: -0.4 });
 
   // Small crystalline mandible spikes.
   kit.at(head, kit.cone(0.008, 0.024, gemMat, { segments: 4 }), 0.018, -0.015, 0.032, { rx: -0.5, rz: 0.2 });

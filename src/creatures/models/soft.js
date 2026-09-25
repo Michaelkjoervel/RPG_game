@@ -39,6 +39,15 @@ const _e = new THREE.Euler();
 const _v = new THREE.Vector3();
 const _s = new THREE.Vector3();
 
+/**
+ * Global tessellation budget: every radial/ring count requested from the
+ * primitives below is scaled by DETAIL (with sane floors). Smooth normals
+ * carry the roundness, so silhouettes at battle size don't change; this is
+ * the one knob for the creature triangle budget (visual pass v2 perf rule).
+ */
+export const DETAIL = 0.8;
+const seg = (n, min = 5) => Math.max(min, Math.round(n * DETAIL));
+
 export const lerp = (a, b, t) => a + (b - a) * t;
 export const clamp01 = (t) => (t < 0 ? 0 : t > 1 ? 1 : t);
 /** Smooth bump centred at c with half-width w (1 at c, ~0 beyond ±w). */
@@ -84,7 +93,7 @@ export function spindle({
   len = 1, r = 0.25, radial = 18, rings = 14, p = 0.85, pTail = null, pNose = null,
   profile = null, sx = 1, sy = 1, arch = null, belly = 0, back = 0, shift = null, syAt = null,
 } = {}) {
-  const geo = new THREE.SphereGeometry(1, radial, rings);
+  const geo = new THREE.SphereGeometry(1, seg(radial, 6), seg(rings, 4));
   geo.deleteAttribute('uv');
   const pos = geo.attributes.position;
   const p0 = pTail ?? p, p1 = pNose ?? p;
@@ -149,7 +158,7 @@ export function limb(len, r0, r1, {
     pts.push([r0 * Math.cos(th), r0 * Math.sin(th), 1]);
   }
   const v2 = pts.map(([x, y]) => new THREE.Vector2(Math.max(x, 0), y));
-  const geo = new THREE.LatheGeometry(v2, radial);
+  const geo = new THREE.LatheGeometry(v2, seg(radial, 6));
   geo.deleteAttribute('uv');
   if (sx !== 1 || sz !== 1) geo.scale(sx, 1, sz);
   smoothGeometry(geo);
@@ -395,7 +404,7 @@ export function puff(r, { count = 6, spread = 0.8, seed = 1, sy = 0.85, blend = 
  * @returns {THREE.BufferGeometry}
  */
 export function pebble(r, { sx = 1, sy = 1, sz = 1, seed = 1, noise = 0.1, radial = 16, rings = 12, flat = 0 } = {}) {
-  const geo = new THREE.SphereGeometry(1, radial, rings);
+  const geo = new THREE.SphereGeometry(1, seg(radial, 6), seg(rings, 4));
   geo.deleteAttribute('uv');
   const pos = geo.attributes.position;
   const k = seed * 1.618;
@@ -539,16 +548,17 @@ export function softTail(n, material, {
     const t0 = i / n, t1 = (i + 1) / n;
     const r0 = rAt(t0), r1 = rAt(t1); // equal joint spheres: no ridge at the joints
     const phi = curlAt(i);
+    const psi = i < n - 1 ? yawAt(i) : 0;
     const g = limb(segLen, r0, r1, { radial, capSeg, shaftSeg: 2, sx, sz: sy });
     g.rotateX(Math.PI / 2); // hang -Y -> trail -Z  ((0,-1,0) -> (0,0,-1))
     paint(g, { from: colAt(t1), to: colAt(t0), axis: 'z', lo: -segLen, hi: 0, noise: 0.012, seed: i + 3 });
-    const end = bendArc(g, segLen, phi);
+    const end = bendChain(g, segLen, phi, psi);
     let segGeo = g;
     if (band && i < n - 1) {
       // a slightly proud band at the joint (banded hide) — merged, same mesh
       const bg = ball(r1 * (band.k ?? 1.07), { sz: band.sz ?? 0.32, radial, rings: 6 });
       bg.rotateX(phi);
-      bg.translate(0, end[0], end[1]);
+      bg.translate(end[0], end[1], end[2]);
       paint(bg, band.color ?? colAt(t1));
       segGeo = mergeGeometries([g, bg], false);
     }
@@ -556,9 +566,9 @@ export function softTail(n, material, {
     seg.name = 'tailSeg';
     parent.add(seg);
     const next = new THREE.Group();
-    next.position.set(0, end[0], end[1]);
+    next.position.set(end[0], end[1], end[2]);
     next.rotation.x = phi;
-    next.rotation.y = i < n - 1 ? yawAt(i) : 0;
+    next.rotation.y = psi;
     parent.add(next);
     if (i < n - 1) { next.name = `tailPivot${i + 1}`; pivots.push(next); parent = next; }
     else next.name = 'tailTip';
@@ -566,6 +576,48 @@ export function softTail(n, material, {
     if (i === n - 1) return { group: root, pivots, tipAnchor: next, tipPitch: pitch };
   }
   return { group: root, pivots, tipAnchor: root, tipPitch: pitch };
+}
+
+/**
+ * 3D pre-bend for a segment running from z=0 back to z=-L: the local frame
+ * rotates smoothly from identity at the root to Euler(pitch, yaw, 0) at the
+ * end (exactly the next pivot's rest rotation), and the centreline is the
+ * integral of the rotating tangent — so a chain posed with both curl AND yaw
+ * is one smooth curve with no kinks at the joints. Returns the end point
+ * [x, y, z] (where the next pivot belongs).
+ */
+export function bendChain(geo, L, pitch, yaw) {
+  if (Math.abs(pitch) < 1e-4 && Math.abs(yaw) < 1e-4) return [0, 0, -L];
+  const K = 24;
+  const C = new Float32Array((K + 1) * 3);
+  const e = new THREE.Euler(), q = new THREE.Quaternion(), T = new THREE.Vector3();
+  let x = 0, y = 0, z = 0;
+  for (let k = 0; k < K; k++) {
+    const um = (k + 0.5) / K;
+    e.set(pitch * um, yaw * um, 0); q.setFromEuler(e);
+    T.set(0, 0, -1).applyQuaternion(q);
+    x += T.x * L / K; y += T.y * L / K; z += T.z * L / K;
+    C[(k + 1) * 3] = x; C[(k + 1) * 3 + 1] = y; C[(k + 1) * 3 + 2] = z;
+  }
+  const pos = geo.attributes.position;
+  const O = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++) {
+    const vx = pos.getX(i), vy = pos.getY(i), vz = pos.getZ(i);
+    const sArc = -vz;
+    if (sArc <= 0) continue; // root cap stays put
+    const s = Math.min(sArc, L), u = s / L, extra = sArc - s;
+    const f = u * K, k0 = Math.min(K - 1, Math.floor(f)), w = f - k0;
+    const cx = C[k0 * 3] + (C[(k0 + 1) * 3] - C[k0 * 3]) * w;
+    const cy = C[k0 * 3 + 1] + (C[(k0 + 1) * 3 + 1] - C[k0 * 3 + 1]) * w;
+    const cz = C[k0 * 3 + 2] + (C[(k0 + 1) * 3 + 2] - C[k0 * 3 + 2]) * w;
+    e.set(pitch * u, yaw * u, 0); q.setFromEuler(e);
+    O.set(vx, vy, 0).applyQuaternion(q);
+    T.set(0, 0, -1).applyQuaternion(q);
+    pos.setXYZ(i, cx + O.x + T.x * extra, cy + O.y + T.y * extra, cz + O.z + T.z * extra);
+  }
+  pos.needsUpdate = true;
+  smoothGeometry(geo);
+  return [C[K * 3], C[K * 3 + 1], C[K * 3 + 2]];
 }
 
 /**
@@ -714,6 +766,23 @@ export function overlay(geo, color, mask) {
   _c.setHex(color);
   for (let i = 0; i < pos.count; i++) {
     const k = clamp01(mask(pos.getX(i), pos.getY(i), pos.getZ(i)));
+    if (k <= 0) continue;
+    col.setXYZ(i, lerp(col.getX(i), _c.r, k), lerp(col.getY(i), _c.g, k), lerp(col.getZ(i), _c.b, k));
+  }
+  col.needsUpdate = true;
+  return geo;
+}
+
+/**
+ * Overlay by surface NORMAL: mask(nx, ny, nz, x, y, z) -> 0..1 — pale bellies
+ * and throats on curved sweeps (necks, coils) where a position mask can't
+ * tell front from back.
+ */
+export function overlayN(geo, color, mask) {
+  const pos = geo.attributes.position, nrm = geo.attributes.normal, col = geo.attributes.color;
+  _c.setHex(color);
+  for (let i = 0; i < pos.count; i++) {
+    const k = clamp01(mask(nrm.getX(i), nrm.getY(i), nrm.getZ(i), pos.getX(i), pos.getY(i), pos.getZ(i)));
     if (k <= 0) continue;
     col.setXYZ(i, lerp(col.getX(i), _c.r, k), lerp(col.getY(i), _c.g, k), lerp(col.getZ(i), _c.b, k));
   }
@@ -871,6 +940,72 @@ export function dirYP(yaw, pitch) {
 }
 
 /**
+ * Budget twin of kit.eye() — IDENTICAL contract, names and look (group
+ * 'eye' flagged noOutline, self-lit 'eyeSclera', one baked unlit
+ * vertex-coloured 'eyeIris' of rim/iris/pupil caps with the same dark-iris
+ * auto-enliven rule, merged 'eyeGlint' + micro glint, blinkable 'eyelid'),
+ * tessellated for on-screen eye sizes: ~1.15k triangles per eye instead of
+ * ~2.4k. Every Kindred has two, so this is the biggest single triangle cut.
+ */
+export function eye(kit, r = 0.05, opts = {}) {
+  const {
+    irisColor = 0x1c1c22, scleraColor = 0xffffff, pupil = true, glintSize = r * 0.32, skinColor = 0x33323a,
+    pupilColor = null, irisScale = 1, lidBias = 0, microGlint = true,
+  } = opts;
+  const group = new THREE.Group(); group.name = 'eye';
+  group.userData.noOutline = true;
+  const scleraM = kit.mat(scleraColor, { rough: 0.25, rim: 0.5 });
+  scleraM.emissive = new THREE.Color(scleraColor).multiplyScalar(0.12);
+  const sg = new THREE.SphereGeometry(r, 18, 12); sg.deleteAttribute('uv');
+  const sclera = new THREE.Mesh(sg, scleraM);
+  sclera.name = 'eyeSclera';
+  group.add(sclera);
+  if (pupil) {
+    const reqIris = new THREE.Color(irisColor);
+    const lum = 0.2126 * reqIris.r + 0.7152 * reqIris.g + 0.0722 * reqIris.b;
+    let irisC, pupilC;
+    if (lum < 0.16) {
+      const hsl = { h: 0, s: 0, l: 0 };
+      reqIris.getHSL(hsl);
+      irisC = new THREE.Color().setHSL(hsl.h, Math.min(1, hsl.s * 1.5 + 0.3), 0.4);
+      pupilC = reqIris;
+    } else {
+      irisC = reqIris;
+      pupilC = pupilColor != null ? new THREE.Color(pupilColor) : reqIris.clone().multiplyScalar(0.16);
+    }
+    if (pupilColor != null) pupilC = new THREE.Color(pupilColor);
+    const capTheta = Math.min(1.05 * irisScale, 1.45);
+    const cap = (radius, theta, color, wSeg) => {
+      const g = new THREE.SphereGeometry(radius, wSeg, 4, 0, Math.PI * 2, 0, theta);
+      g.deleteAttribute('uv');
+      g.rotateX(Math.PI / 2);
+      return paint(g, color.getHex());
+    };
+    const iris = new THREE.Mesh(merge([
+      cap(r * 1.025, Math.min(capTheta * 1.18, 1.5), pupilC, 20),
+      cap(r * 1.05, capTheta, irisC, 20),
+      cap(r * 1.075, capTheta * 0.52, pupilC, 16),
+    ]), kit.mat(0xffffff, { unlit: true, vertexColors: true, glow: 1 }));
+    iris.name = 'eyeIris';
+    group.add(iris);
+  }
+  const gR = Math.max(glintSize, r * 0.26);
+  const gl = [new THREE.SphereGeometry(gR, 8, 6).translate(r * 0.3, r * 0.34, r * 0.8)];
+  if (microGlint) gl.push(new THREE.SphereGeometry(gR * 0.45, 6, 4).translate(-r * 0.28, -r * 0.22, r * 0.92));
+  const glint = new THREE.Mesh(merge(gl.map((g) => { g.deleteAttribute('uv'); return paint(g, 0xffffff); })), kit.mat(0xffffff, { unlit: true, glow: 1 }));
+  glint.name = 'eyeGlint';
+  group.add(glint);
+  const lidC = new THREE.Color(skinColor).multiplyScalar(0.82);
+  const lg = new THREE.SphereGeometry(r * 1.08, 14, 10); lg.deleteAttribute('uv');
+  const lid = new THREE.Mesh(lg, kit.mat(lidC.getHex(), { rough: 0.85 }));
+  lid.name = 'eyelid';
+  lid.position.z = r * 0.12;
+  lid.scale.set(1, 0.06 + 0.9 * clamp01(lidBias), 0.7);
+  group.add(lid);
+  return group;
+}
+
+/**
  * Seat a kit.eye() group on a head geometry: finds the skin along
  * (yaw, pitch), sinks the eyeball by `sink`×r so it bulges softly out of
  * the head, and turns it to look along its outward direction blended toward
@@ -878,7 +1013,7 @@ export function dirYP(yaw, pitch) {
  */
 export function seatEye(kit, head, headGeo, r, yaw, pitch, eyeOpts = {}, { sink = 0.42, front = 0.55, from = [0, 0, 0] } = {}) {
   const p = surface(headGeo, dirYP(yaw, pitch), { from, inset: r * sink });
-  const e = kit.eye(r, eyeOpts);
+  const e = eye(kit, r, eyeOpts);
   e.position.set(p[0], p[1], p[2]);
   e.rotation.y = yaw * (1 - front);
   e.rotation.x = -pitch * (1 - front) * 0.8;

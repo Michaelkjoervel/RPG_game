@@ -13,6 +13,7 @@
 
 import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
+import * as S from './soft.js';
 import { applyVertexGradient, jitterGeometry } from '../../gfx/materials.js';
 
 export function build_cervalume(kit = kitDefault) {
@@ -49,8 +50,8 @@ export function build_cervalume(kit = kitDefault) {
   kit.at(body, paint(kit.orb(0.16, skin, { sy: 1.08, sz: 0.95 }), 155, 0.007), 0, -0.01, -0.22);
 
   const head = kit.at(body, paint(kit.blob(0.13, skin, { seed: 150, squash: { x: 0.85, y: 0.9, z: 1.3 } }), 156), 0, 0.2, 0.3);
-  const eyeL = kit.at(head, kit.eye(0.042, { irisColor: 0x3a2c14, skinColor: 0xe8dcc0, glintSize: 0.016 }), 0.078, 0.01, 0.1, { ry: 0.3 });
-  const eyeR = kit.at(head, kit.eye(0.042, { irisColor: 0x3a2c14, skinColor: 0xe8dcc0, glintSize: 0.016 }), -0.078, 0.01, 0.1, { ry: -0.3 });
+  const eyeL = kit.at(head, S.eye(kit, 0.042, { irisColor: 0x3a2c14, skinColor: 0xe8dcc0, glintSize: 0.016 }), 0.078, 0.01, 0.1, { ry: 0.3 });
+  const eyeR = kit.at(head, S.eye(kit, 0.042, { irisColor: 0x3a2c14, skinColor: 0xe8dcc0, glintSize: 0.016 }), -0.078, 0.01, 0.1, { ry: -0.3 });
   const earL = kit.at(head, paint(kit.ear(0.075, skin, { floppy: true }), 157), 0.085, 0.09, -0.02, { rz: 0.35 });
   const earR = kit.at(head, paint(kit.ear(0.075, skin, { floppy: true }), 158), -0.085, 0.09, -0.02, { rz: -0.35 });
 

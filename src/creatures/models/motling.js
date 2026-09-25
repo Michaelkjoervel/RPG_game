@@ -47,7 +47,7 @@ export function build_motling(kit = kitDefault) {
     const stalk = S.taper(0.075, 0.0045, { r1: 0.0025, curve: 0.55, radial: 5, rings: 5 });
     S.paint(stalk, 0x6e6880);
     // feathery comb: a soft leaf-shaped vane along the upper stalk
-    const vane = S.spindle({ len: 0.05, r: 0.011, sx: 1.0, sy: 0.18, radial: 8, rings: 7, profile: (t) => Math.pow(Math.sin(Math.PI * t), 0.7) });
+    const vane = S.spindle({ len: 0.045, r: 0.0065, sx: 1.0, sy: 0.3, radial: 8, rings: 7, profile: (t) => Math.pow(Math.sin(Math.PI * t), 0.7) });
     vane.rotateX(-Math.PI / 2 + 0.45);
     S.pose(vane, [0, 0.045, 0.018]);
     S.paint(vane, { from: 0x9a8ab4, to: 0xd8cce8, axis: 'y' });
@@ -74,10 +74,10 @@ export function build_motling(kit = kitDefault) {
   const hindSpots = [{ t: 0.56, v: 0.0, r: 0.024, ring: 0x3e2a50, core: 0xffd8a0 }];
   const wingDefs = [
     // [side, len, width, y, z, pitch(up), yaw(back), spots, sweep]
-    [1, 0.15, 0.1, 0.03, 0.0, 1.0, 0.35, foreSpots, 0.22],
-    [-1, 0.15, 0.1, 0.03, 0.0, 1.0, 0.35, foreSpots, 0.22],
-    [1, 0.11, 0.085, 0.0, -0.03, 0.6, 0.85, hindSpots, 0.12],
-    [-1, 0.11, 0.085, 0.0, -0.03, 0.6, 0.85, hindSpots, 0.12],
+    [1, 0.15, 0.1, 0.03, -0.01, 0.42, 0.55, foreSpots, 0.22],
+    [-1, 0.15, 0.1, 0.03, -0.01, 0.42, 0.55, foreSpots, 0.22],
+    [1, 0.11, 0.085, 0.0, -0.035, 0.18, 1.05, hindSpots, 0.12],
+    [-1, 0.11, 0.085, 0.0, -0.035, 0.18, 1.05, hindSpots, 0.12],
   ];
   const wingParts = wingDefs.map(([side, len, width, y, z, up, back, spots, sweep]) => {
     const w = mk(len, width, spots, sweep);

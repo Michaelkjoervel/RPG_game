@@ -12,6 +12,7 @@
 
 import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
+import * as S from './soft.js';
 import { applyVertexGradient, jitterGeometry } from '../../gfx/materials.js';
 
 export function build_finnet(kit = kitDefault) {
@@ -36,8 +37,8 @@ export function build_finnet(kit = kitDefault) {
   kit.at(body, kit.orb(0.04, skinDark), -0.025, 0.02, -0.06, { sy: 0.45 });
   kit.at(body, kit.orb(0.03, kit.mat(0xf2f0e4, { rough: 0.35 })), 0.01, 0.05, -0.01, { sy: 0.4 });
 
-  const eyeL = kit.at(body, kit.eye(0.026, { irisColor: 0x123a4a, skinColor: 0xe0b45e, glintSize: 0.011 }), 0.058, 0.03, 0.12, { ry: 0.45 });
-  const eyeR = kit.at(body, kit.eye(0.026, { irisColor: 0x123a4a, skinColor: 0xe0b45e, glintSize: 0.011 }), -0.058, 0.03, 0.12, { ry: -0.45 });
+  const eyeL = kit.at(body, S.eye(kit, 0.026, { irisColor: 0x123a4a, skinColor: 0xe0b45e, glintSize: 0.011 }), 0.058, 0.03, 0.12, { ry: 0.45 });
+  const eyeR = kit.at(body, S.eye(kit, 0.026, { irisColor: 0x123a4a, skinColor: 0xe0b45e, glintSize: 0.011 }), -0.058, 0.03, 0.12, { ry: -0.45 });
 
   // Barbel whiskers, koi-appropriate.
   const whiskerMat = kit.mat(0xf2e6c4, { unlit: true, transparent: true, opacity: 0.7 });

@@ -13,6 +13,7 @@
 
 import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
+import * as S from './soft.js';
 import { applyVertexGradient, jitterGeometry } from '../../gfx/materials.js';
 
 export function build_vantash(kit = kitDefault) {
@@ -65,8 +66,8 @@ export function build_vantash(kit = kitDefault) {
   }
 
   const head = kit.at(body, paint(kit.blob(0.115, fur, { seed: 160, squash: { x: 0.9, y: 0.85, z: 1.15 } }), 161), 0, 0.08, 0.32);
-  const eyeL = kit.at(head, kit.eye(0.034, { irisColor: 0xc8b0ff, scleraColor: 0x120e1c, skinColor: 0x5e5484, glintSize: 0.014 }), 0.07, 0.02, 0.09, { ry: 0.35 });
-  const eyeR = kit.at(head, kit.eye(0.034, { irisColor: 0xc8b0ff, scleraColor: 0x120e1c, skinColor: 0x5e5484, glintSize: 0.014 }), -0.07, 0.02, 0.09, { ry: -0.35 });
+  const eyeL = kit.at(head, S.eye(kit, 0.034, { irisColor: 0xc8b0ff, scleraColor: 0x120e1c, skinColor: 0x5e5484, glintSize: 0.014 }), 0.07, 0.02, 0.09, { ry: 0.35 });
+  const eyeR = kit.at(head, S.eye(kit, 0.034, { irisColor: 0xc8b0ff, scleraColor: 0x120e1c, skinColor: 0x5e5484, glintSize: 0.014 }), -0.07, 0.02, 0.09, { ry: -0.35 });
   const earL = kit.at(head, paint(kit.ear(0.055, fur), 162), 0.07, 0.08, -0.01, { rz: 0.2 });
   const earR = kit.at(head, paint(kit.ear(0.055, fur), 163), -0.07, 0.08, -0.01, { rz: -0.2 });
 

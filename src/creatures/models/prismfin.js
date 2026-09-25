@@ -3,100 +3,127 @@
 // "Grand koi whose fins split light into slow-turning auroras. Lake
 // spirit's herald." (Design Bible §4)
 // =============================================================================
-// Finnet grown grand and radiant: the same lozenge-koi body plan, but every
-// fin is now a LAYERED stack of translucent, additive-blended panels in a
-// violet→blue→teal→gold gradient — the "aurora" effect — rather than one
-// flat color. Those layered fins (especially the tall dorsal sail and the
-// long trailing tail fin) are also doing structural work: they add real
-// HEIGHT to the silhouette without adding body length, which matters here
-// because this is one of the five long/horizontal-bodied species flagged
-// for extra proportion care — registry.js rescales the whole model
-// uniformly to match SPECIES.prismfin.size against measured bbox HEIGHT, so
-// a tall fin fan (and a deliberately short tail) keeps the final body
-// length from ballooning.
+// Visual pass v2 (soft stylized). v1's weak spot was a balloon body; here it
+// is a real koi: a streamlined, laterally compressed body — full at the
+// shoulders, tapering to a slim tail stock — in pearl white with koi patches
+// of flame orange and gold and an opal sheen. Every fin is AURORA light: one
+// translucent, luminous mesh per fin painted violet -> blue -> teal -> gold
+// (a tall dorsal sail, pectorals, pelvics), a long split tail that flows
+// from the tail chain, and two trailing ribbon fins. Barbels at the mouth.
+// It floats (hover).
 
 import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
-import { applyVertexGradient, jitterGeometry } from '../../gfx/materials.js';
+import * as S from './soft.js';
 
-const AURORA = [0xb08cff, 0x6fa8ff, 0x6fe0c8, 0xffe08c];
+const PEARL_LO = 0xa898d0, PEARL = 0xf8f2fa, ORANGE = 0xf0501e, GOLD = 0xffb02a;
+const AURORA = [0x9a6cff, 0x4f8cff, 0x3fd8b8, 0xffd060];
+const aurora = (t) => { const k = S.clamp01(t) * 3, i = Math.min(2, Math.floor(k)); return S.mixHex(AURORA[i], AURORA[i + 1], k - i); };
 
-function auroraFin(kit, len, opts = {}) {
-  // Solid-alpha translucent layers with their own emissive — additive layers
-  // washed out to nothing against a lit sky (same lesson as thalassyr's
-  // crest). Largest layer first so the stack reads back-to-front.
-  const group = new THREE.Group(); group.name = 'auroraFin';
-  const layers = [];
-  for (let i = 0; i < AURORA.length; i++) {
-    const m = kit.mat(AURORA[i], {
-      rough: 0.25, transparent: true, opacity: 0.66 - i * 0.05, side: THREE.DoubleSide,
-      emissive: AURORA[i], emissiveIntensity: 0.55,
-    });
-    const f = kit.fin(len * (1 - i * 0.16), m, { width: opts.width, curve: 0.15 + i * 0.05 });
-    f.position.y = i * len * 0.05;
-    group.add(f);
-    layers.push(f);
+// A soft luminous fin: a thin spindle along +Z (base at 0), painted along
+// its length with the aurora ramp.
+function finGeo(len, width, { profile = null, thick = 0.1, flip = false } = {}) {
+  const g = S.spindle({
+    len, r: width * 0.5, sx: thick, sy: 1, radial: 12, rings: 10, pTail: 0.9,
+    profile: profile ?? ((t) => Math.pow(Math.sin(Math.PI * Math.min(1, t * 0.95 + 0.05)), 0.7)),
+  });
+  g.translate(0, 0, len / 2);
+  S.paint(g, { from: flip ? AURORA[3] : AURORA[0], to: flip ? AURORA[0] : AURORA[3], axis: 'z', fn: (x, y, z) => z / len });
+  const col = g.attributes.color, pos = g.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const c = new THREE.Color(aurora(pos.getZ(i) / len + Math.abs(pos.getY(i)) / width * 0.4));
+    col.setXYZ(i, c.r, c.g, c.b);
   }
-  return { group, layers };
+  return g;
 }
 
 export function build_prismfin(kit = kitDefault) {
   const pal = kit.palette(['tide', 'lumen']);
-  // Pearl body: vertex gradient from a cool violet-pearl belly up to warm
-  // ivory along the spine — an opal, not a flat white fish.
-  const skin = kit.mat(0xffffff, { vertexColors: true, rough: 0.3, metal: 0.06 });
-  const skinAccent = kit.mat(0xb08cff, { rough: 0.3 });
-  const paint = (mesh, seed) => {
-    applyVertexGradient(mesh.geometry, { from: 0xb2a4d4, to: 0xfdf8ea, noise: 0.035, seed });
-    return mesh;
-  };
+  const skin = S.vcMat(kit, { rough: 0.3, metal: 0.06 });
+  const finMat = kit.mat(0xffffff, { unlit: true, vertexColors: true, transparent: true, opacity: 0.78, side: THREE.DoubleSide });
+  finMat.depthWrite = false;
+  finMat.userData.softVC = true;
 
   const root = new THREE.Group();
 
-  const body = kit.blob(0.14, skin, { seed: 82, noise: 0.06, squash: { x: 0.56, y: 0.82, z: 1.5 } });
-  jitterGeometry(body.geometry, 0.004, 82);
-  paint(body, 82);
-  root.add(body);
-  body.position.y = 0.22;
-
-  // Koi mottling: violet saddle patches + a gold crown blaze.
-  kit.at(body, kit.orb(0.06, skinAccent), 0.045, 0.05, 0.1, { sy: 0.5 });
-  kit.at(body, kit.orb(0.045, skinAccent), -0.03, -0.03, -0.06, { sy: 0.5 });
-  kit.at(body, kit.orb(0.05, kit.mat(0xffd98c, { rough: 0.3 })), -0.02, 0.08, 0.06, { sy: 0.45 });
-
-  const eyeL = kit.at(body, kit.eye(0.024, { irisColor: 0x2a1c4a, scleraColor: 0xfdf8ea, skinColor: 0xf2ecd8, glintSize: 0.01 }), 0.058, 0.05, 0.15, { ry: 0.6 });
-  const eyeR = kit.at(body, kit.eye(0.024, { irisColor: 0x2a1c4a, scleraColor: 0xfdf8ea, skinColor: 0xf2ecd8, glintSize: 0.01 }), -0.058, 0.05, 0.15, { ry: -0.6 });
-
-  const whiskerMat = kit.mat(0xffe9b0, { unlit: true, transparent: true, opacity: 0.75 });
-  const whiskL = kit.at(body, kit.leafBlade(0.07, whiskerMat, { width: 0.005 }), 0.06, -0.02, 0.2, { ry: -0.3, rz: 0.1 });
-  const whiskR = kit.at(body, kit.leafBlade(0.07, whiskerMat, { width: 0.005 }), -0.06, -0.02, 0.2, { ry: Math.PI + 0.3, rz: -0.1 });
-
-  // Tall dorsal aurora sail — adds height, not length.
-  const dorsal = auroraFin(kit, 0.34, { width: 0.24 });
-  kit.at(body, dorsal, 0, 0.08, 0.05, { rx: -1.15, ry: Math.PI });
-
-  const pecL = auroraFin(kit, 0.16, { width: 0.1 });
-  kit.at(body, pecL, 0.09, -0.01, 0.08, { rx: -0.15, ry: 0.9 });
-  const pecR = auroraFin(kit, 0.16, { width: 0.1 });
-  kit.at(body, pecR, -0.09, -0.01, 0.08, { rx: -0.15, ry: -0.9 });
-
-  const tail = kit.at(body, kit.tailChain(3, skin, { segLen: 0.032, startR: 0.065, endR: 0.017 }), 0, 0, -0.13);
-  tail.pivots.forEach((p, i) => {
-    for (const c of p.children) if (c.isMesh && c.geometry && c.geometry.attributes) paint(c, 85 + i);
+  // --- Body: a streamlined koi (not a balloon). -----------------------------
+  const L = 0.56;
+  const bodyGeo = S.spindle({
+    len: L, r: 0.12, sx: 0.62, sy: 1.0, pTail: 0.7, pNose: 1.0, radial: 18, rings: 16,
+    profile: (t) => 0.28 + 0.72 * Math.pow(Math.sin(Math.PI * Math.min(1, t * 0.72 + 0.14)), 0.9),
+    belly: 0.05,
   });
-  const tailFin = auroraFin(kit, 0.2, { width: 0.15 });
-  kit.at(tail.pivots[tail.pivots.length - 1], tailFin, 0, 0, -0.025, { ry: Math.PI / 2 });
-  // Two long trailing ribbon-fins off the tail — the grand koi's train.
-  const ribbonMat = kit.mat(0x9fc8ff, { rough: 0.25, transparent: true, opacity: 0.6, side: THREE.DoubleSide, emissive: 0x6f98d8, emissiveIntensity: 0.6 });
-  const ribbonL = kit.at(tail.pivots[tail.pivots.length - 1], kit.leafBlade(0.16, ribbonMat, { width: 0.04 }), 0.02, 0.01, -0.03, { ry: Math.PI / 2 + 0.3, rz: 0.25 });
-  const ribbonR = kit.at(tail.pivots[tail.pivots.length - 1], kit.leafBlade(0.16, ribbonMat, { width: 0.04 }), -0.02, 0.01, -0.03, { ry: Math.PI / 2 - 0.3, rz: 0.25 });
+  S.paint(bodyGeo, { from: PEARL_LO, to: PEARL, axis: 'y', noise: 0.012, seed: 82 });
+  // koi patches: flame orange saddles + a gold crown
+  for (const [yaw, pitch, z, r, c] of [[0.3, 0.9, 0.1, 0.1, ORANGE], [-0.5, 0.7, -0.06, 0.09, ORANGE], [0.8, 0.4, -0.14, 0.07, ORANGE], [0, 1.2, 0.22, 0.07, GOLD], [-0.9, 0.3, 0.14, 0.06, ORANGE], [0.2, 1.0, -0.2, 0.06, GOLD]]) {
+    S.blush(bodyGeo, S.surface(bodyGeo, S.dirYP(yaw, pitch), { from: [0, 0, z] }), r, c, 1);
+    S.blush(bodyGeo, S.surface(bodyGeo, S.dirYP(yaw, pitch), { from: [0, 0, z] }), r * 0.6, c, 1);
+  }
+  const mouth = S.paint(S.groove(bodyGeo, [[-0.35, -0.1], [0, -0.16], [0.35, -0.1]], { from: [0, -0.01, 0.2], radius: 0.005, lift: -0.001 }), 0x6a4a60);
+  const body = S.bake([bodyGeo, mouth], skin, 'body');
+  root.add(body);
+  body.position.y = 0.28;
+  const eyeOpts = { irisColor: 0x2a2440, skinColor: 0xe6def0, glintSize: 0.012 };
+  const eyeL = S.seatEye(kit, body, bodyGeo, 0.028, 1.0, 0.1, eyeOpts, { sink: 0.35, front: 0.35, from: [0, 0, 0.19] });
+  const eyeR = S.seatEye(kit, body, bodyGeo, 0.028, -1.0, 0.1, eyeOpts, { sink: 0.35, front: 0.35, from: [0, 0, 0.19] });
 
-  // Trailing aurora shimmer — a loose ribbon of drifting color motes.
-  const auroraGlow = kit.mote(12, { color: 0x9fc8ff, size: 0.02, radius: 0.3, height: 0.22, speed: 0.3, seed: 83 });
-  kit.at(body, auroraGlow, 0, 0.08, -0.15);
+  // --- Barbels (accents). -------------------------------------------------------
+  const barbels = [1, -1].map((sd) => {
+    const g = S.taper(0.1, 0.006, { r1: 0.002, curve: -0.6, radial: 5, rings: 6 });
+    g.rotateX(Math.PI / 2 + 0.6);
+    S.paint(g, 0xf0e0d0);
+    const m = new THREE.Mesh(g, skin);
+    m.name = 'barbel';
+    const p = S.surface(bodyGeo, [sd * 0.5, -0.4, 1], { from: [0, -0.01, 0.2], inset: 0.004 });
+    kit.at(body, m, p[0], p[1], p[2], { ry: sd * 0.6 });
+    return m;
+  });
 
-  const spark = kit.heartspark(0.04, pal.eye, { seed: 84 });
-  kit.at(body, spark, 0, 0.01, 0.11);
+  // --- Aurora fins. --------------------------------------------------------------
+  const fin = (geo, name) => { const m = new THREE.Mesh(geo, finMat); m.name = name; return m; };
+  const dorsal = fin(finGeo(0.34, 0.16, { profile: (t) => Math.pow(Math.sin(Math.PI * Math.min(1, t * 0.9 + 0.1)), 0.6) * (0.6 + 0.4 * (1 - t)) }), 'dorsalFin');
+  const dp = S.surface(bodyGeo, [0, 1, 0], { from: [0, 0, 0.06], inset: 0.01 });
+  kit.at(body, dorsal, dp[0], dp[1] + 0.03, dp[2], { rx: -1.9 });
+  const pecs = [1, -1].map((sd) => {
+    const m = fin(finGeo(0.17, 0.1), 'pecFin');
+    const p = S.surface(bodyGeo, [sd, -0.4, 0], { from: [0, 0, 0.12], inset: 0.01 });
+    kit.at(body, m, p[0], p[1], p[2], { ry: Math.PI + sd * 0.7, rz: sd * 0.5 });
+    return m;
+  });
+  const pelvics = [1, -1].map((sd) => {
+    const m = fin(finGeo(0.11, 0.07), 'pelvicFin');
+    const p = S.surface(bodyGeo, [sd * 0.4, -1, 0], { from: [0, 0, -0.05], inset: 0.01 });
+    kit.at(body, m, p[0], p[1], p[2], { ry: Math.PI + sd * 0.4, rx: 0.5 });
+    return m;
+  });
+
+  // --- Tail stock + long split aurora tail. --------------------------------------
+  const tail = S.softTail(3, skin, { segLen: 0.07, startR: 0.04, endR: 0.022, sx: 0.62, curl: 0.03, radial: 9, color: (t) => S.mixHex(PEARL, PEARL_LO, t) });
+  kit.at(body, tail, 0, 0.0, -L / 2 + 0.03);
+  const tailFin = new THREE.Group(); tailFin.name = 'tailFin';
+  for (const sd of [1, -1]) {
+    const g = finGeo(0.36, 0.14, { profile: (t) => Math.pow(Math.sin(Math.PI * Math.min(1, t * 0.95 + 0.05)), 0.6) * (0.5 + 0.5 * t), flip: true });
+    g.rotateY(Math.PI); // trail backward (-Z)
+    g.rotateX(sd * 0.55);
+    tailFin.add(fin(g, 'tailLobe'));
+  }
+  kit.at(tail.tipAnchor, tailFin, 0, 0, 0);
+  const ribbons = [1, -1].map((sd) => {
+    const g = finGeo(0.44, 0.035, { thick: 0.2, flip: true });
+    g.rotateY(Math.PI);
+    S.bendArc(g, 0.44, -0.4);
+    const m = fin(g, 'ribbonFin');
+    const p = S.surface(bodyGeo, [sd, -0.6, 0], { from: [0, 0, -0.1], inset: 0.01 });
+    kit.at(body, m, p[0], p[1], p[2], { ry: -sd * 0.25 });
+    return m;
+  });
+
+  // --- Aurora glow + heartspark. -----------------------------------------------
+  const auroraGlow = kit.mote(8, { color: 0xc8b8ff, size: 0.02, radius: 0.3, height: 0.25, speed: 0.3, seed: 83 });
+  kit.at(body, auroraGlow, 0, 0.1, -0.1);
+  const spark = kit.heartspark(0.024, pal.eye, { seed: 84 });
+  const sp = S.surface(bodyGeo, [0, -0.4, 1], { from: [0, 0, 0.1], inset: 0.01 });
+  kit.at(body, spark, sp[0], sp[1], sp[2]);
 
   return {
     group: kit.groundPlant(root),
@@ -104,8 +131,8 @@ export function build_prismfin(kit = kitDefault) {
       body,
       eyelids: [eyeL.getObjectByName('eyelid'), eyeR.getObjectByName('eyelid')],
       tail: tail.pivots,
-      accents: [whiskL, whiskR, dorsal.group, pecL.group, pecR.group, tailFin.group, ribbonL, ribbonR],
-      fx: [auroraGlow, spark],
+      accents: [...barbels, dorsal, ...pecs, ...pelvics, tailFin, ...ribbons],
+      fx: [auroraGlow, spark, S.variantFx(root)],
     },
     hints: {
       personality: 'regal',

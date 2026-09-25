@@ -14,6 +14,7 @@
 
 import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
+import * as S from './soft.js';
 
 export function build_lanterling(kit = kitDefault) {
   const pal = kit.palette(['lumen']);
@@ -28,8 +29,8 @@ export function build_lanterling(kit = kitDefault) {
   root.add(body);
   body.position.y = 0.12;
 
-  const eyeL = kit.at(body, kit.eye(0.013, { irisColor: 0x241608, skinColor: 0xffcf7a, glintSize: 0.005 }), 0.02, 0.006, 0.032, { ry: 0.35 });
-  const eyeR = kit.at(body, kit.eye(0.013, { irisColor: 0x241608, skinColor: 0xffcf7a, glintSize: 0.005 }), -0.02, 0.006, 0.032, { ry: -0.35 });
+  const eyeL = kit.at(body, S.eye(kit, 0.013, { irisColor: 0x241608, skinColor: 0xffcf7a, glintSize: 0.005 }), 0.02, 0.006, 0.032, { ry: 0.35 });
+  const eyeR = kit.at(body, S.eye(kit, 0.013, { irisColor: 0x241608, skinColor: 0xffcf7a, glintSize: 0.005 }), -0.02, 0.006, 0.032, { ry: -0.35 });
 
   // Thin thread antennae.
   const antL = kit.at(body, kit.horn(0.03, skin, { bend: 0.4, baseR: 0.003, tipR: 0.001 }), 0.012, 0.03, -0.005, { rz: 0.2 });

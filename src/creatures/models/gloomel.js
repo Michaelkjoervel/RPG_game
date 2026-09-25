@@ -16,6 +16,7 @@
 
 import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
+import * as S from './soft.js';
 import { applyVertexGradient, jitterGeometry } from '../../gfx/materials.js';
 
 export function build_gloomel(kit = kitDefault) {
@@ -52,8 +53,8 @@ export function build_gloomel(kit = kitDefault) {
   const head = kit.at(body, paint(kit.blob(0.088, skin, { seed: 72, squash: { x: 0.85, y: 0.8, z: 1.2 } }), 73), 0, 0.04, 0.18);
 
   // Small, filmed-over, nearly vestigial eyes — present for readability, not function.
-  const eyeL = kit.at(head, kit.eye(0.024, { irisColor: 0xdfe6ee, pupil: false, scleraColor: 0xc9ccd4, skinColor: 0xc4c8d0, glintSize: 0.008 }), 0.055, 0.01, 0.075, { ry: 0.4 });
-  const eyeR = kit.at(head, kit.eye(0.024, { irisColor: 0xdfe6ee, pupil: false, scleraColor: 0xc9ccd4, skinColor: 0xc4c8d0, glintSize: 0.008 }), -0.055, 0.01, 0.075, { ry: -0.4 });
+  const eyeL = kit.at(head, S.eye(kit, 0.024, { irisColor: 0xdfe6ee, pupil: false, scleraColor: 0xc9ccd4, skinColor: 0xc4c8d0, glintSize: 0.008 }), 0.055, 0.01, 0.075, { ry: 0.4 });
+  const eyeR = kit.at(head, S.eye(kit, 0.024, { irisColor: 0xdfe6ee, pupil: false, scleraColor: 0xc9ccd4, skinColor: 0xc4c8d0, glintSize: 0.008 }), -0.055, 0.01, 0.075, { ry: -0.4 });
 
   // Anglerfish-style lure: a curved stalk rising from the crown, tipped
   // with a slow-pulsing shadowlight glow.

@@ -12,6 +12,7 @@
 
 import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
+import * as S from './soft.js';
 
 export function build_sonark(kit = kitDefault) {
   const pal = kit.palette(['gale', 'umbra']);
@@ -28,8 +29,8 @@ export function build_sonark(kit = kitDefault) {
 
   const head = kit.at(body, kit.orb(0.068, fur, { sz: 1.05, sy: 0.95 }), 0, 0.1, 0.05);
   kit.paint(head, { from: 0x423c56, to: 0x6f6789, noise: 0.05, seed: 52 });
-  const eyeL = kit.at(head, kit.eye(0.023, { irisColor: 0x1c1c22, skinColor: 0x4a4459, glintSize: 0.01 }), 0.038, 0.008, 0.058, { ry: 0.24 });
-  const eyeR = kit.at(head, kit.eye(0.023, { irisColor: 0x1c1c22, skinColor: 0x4a4459, glintSize: 0.01 }), -0.038, 0.008, 0.058, { ry: -0.24 });
+  const eyeL = kit.at(head, S.eye(kit, 0.023, { irisColor: 0x1c1c22, skinColor: 0x4a4459, glintSize: 0.01 }), 0.038, 0.008, 0.058, { ry: 0.24 });
+  const eyeR = kit.at(head, S.eye(kit, 0.023, { irisColor: 0x1c1c22, skinColor: 0x4a4459, glintSize: 0.01 }), -0.038, 0.008, 0.058, { ry: -0.24 });
 
   // Small snub muzzle with two tiny fangs — the only "face" detail besides
   // the enormous ears that dominate the silhouette.

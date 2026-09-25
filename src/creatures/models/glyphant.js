@@ -14,6 +14,7 @@
 
 import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
+import * as S from './soft.js';
 import { seededRandom } from '../../core/rng.js';
 import { clamp01 } from '../../core/math.js';
 import { applyVertexGradient, jitterGeometry } from '../../gfx/materials.js';
@@ -43,8 +44,8 @@ export function build_glyphant(kit = kitDefault) {
   kit.at(body, band, 0, 0.05, 0);
 
   const head = kit.at(body, paint(kit.blob(0.16, stone, { seed: 141, squash: { x: 0.95, y: 0.95, z: 1.05 } }), 141), 0, 0.16, 0.28);
-  const eyeL = kit.at(head, kit.eye(0.045, { irisColor: 0xffe9b0, scleraColor: 0x2a2620, skinColor: 0x8c8268, glintSize: 0.017 }), 0.1, 0.01, 0.12, { ry: 0.3 });
-  const eyeR = kit.at(head, kit.eye(0.045, { irisColor: 0xffe9b0, scleraColor: 0x2a2620, skinColor: 0x8c8268, glintSize: 0.017 }), -0.1, 0.01, 0.12, { ry: -0.3 });
+  const eyeL = kit.at(head, S.eye(kit, 0.045, { irisColor: 0xffe9b0, scleraColor: 0x2a2620, skinColor: 0x8c8268, glintSize: 0.017 }), 0.1, 0.01, 0.12, { ry: 0.3 });
+  const eyeR = kit.at(head, S.eye(kit, 0.045, { irisColor: 0xffe9b0, scleraColor: 0x2a2620, skinColor: 0x8c8268, glintSize: 0.017 }), -0.1, 0.01, 0.12, { ry: -0.3 });
 
   // Big fan ears — carved slabs standing UP-AND-OUT from the skull sides
   // (petal length runs +X, so rz≈75° swings the blade upward; ry flares it).

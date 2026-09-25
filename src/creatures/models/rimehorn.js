@@ -12,6 +12,7 @@
 
 import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
+import * as S from './soft.js';
 import { seededRandom } from '../../core/rng.js';
 import { applyVertexGradient, jitterGeometry } from '../../gfx/materials.js';
 
@@ -46,8 +47,8 @@ export function build_rimehorn(kit = kitDefault) {
   });
 
   const head = kit.at(body, paint(kit.blob(0.13, coat, { seed: 122, squash: { x: 0.9, y: 0.85, z: 1.1 } }), 122), 0, 0.21, 0.3);
-  const eyeL = kit.at(head, kit.eye(0.038, { irisColor: 0x3a2c1c, skinColor: 0xd8dce4, glintSize: 0.014 }), 0.08, 0.02, 0.09, { ry: 0.3 });
-  const eyeR = kit.at(head, kit.eye(0.038, { irisColor: 0x3a2c1c, skinColor: 0xd8dce4, glintSize: 0.014 }), -0.08, 0.02, 0.09, { ry: -0.3 });
+  const eyeL = kit.at(head, S.eye(kit, 0.038, { irisColor: 0x3a2c1c, skinColor: 0xd8dce4, glintSize: 0.014 }), 0.08, 0.02, 0.09, { ry: 0.3 });
+  const eyeR = kit.at(head, S.eye(kit, 0.038, { irisColor: 0x3a2c1c, skinColor: 0xd8dce4, glintSize: 0.014 }), -0.08, 0.02, 0.09, { ry: -0.3 });
   const earL = kit.at(head, kit.ear(0.07, coatDark, { floppy: true }), 0.1, 0.07, -0.03, { rz: 0.4, ry: -0.2 });
   const earR = kit.at(head, kit.ear(0.07, coatDark, { floppy: true }), -0.1, 0.07, -0.03, { rz: -0.4, ry: 0.2 });
 

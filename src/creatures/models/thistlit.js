@@ -27,7 +27,7 @@ export function build_thistlit(kit = kitDefault) {
   S.paint(bodyGeo, { from: SOIL_LO, to: SOIL_HI, axis: 'y', noise: 0.012, seed: 30 });
   S.overlay(bodyGeo, FACE, (x, y, z) => S.sstep(-0.03, -0.1, y) * S.sstep(-0.05, 0.08, z) * 0.7);
   // The thistle mantle: a low violet cap over the back (mostly hidden) ...
-  const capGeo = S.spindle({ len: 0.24, r: 0.118, sx: 1.02, sy: 0.88, p: 0.9, radial: 16, rings: 10, profile: (t) => 0.95 - 0.1 * t });
+  const capGeo = S.spindle({ len: 0.3, r: 0.126, sx: 1.04, sy: 0.9, p: 0.9, radial: 16, rings: 10, profile: (t) => 0.95 - 0.1 * t });
   const cp = capGeo.attributes.position;
   for (let i = 0; i < cp.count; i++) { const y = cp.getY(i); if (y < 0.03) cp.setY(i, 0.03 + (y - 0.03) * 0.2); }
   S.pose(capGeo, [0, 0.012, -0.012]);
@@ -36,13 +36,13 @@ export function build_thistlit(kit = kitDefault) {
   // pale-tipped — the hedgehog silhouette.
   const quills = [];
   let n = 0;
-  for (let row = 0; row < 5; row++) {
-    const count = 7 - Math.abs(row - 2);
+  for (let row = 0; row < 6; row++) {
+    const count = 7 - Math.abs(row - 2.5) | 0;
     for (let i = 0; i < count; i++) {
       const u = count > 1 ? i / (count - 1) - 0.5 : 0;
       const yaw = u * 2.3;
-      const pitch = 1.0 - Math.abs(u) * 0.75 - row * 0.05;
-      const from = [0, 0, 0.08 - row * 0.055];
+      const pitch = 1.0 - Math.abs(u) * 0.8 - Math.max(0, row - 3) * 0.12;
+      const from = [0, 0, 0.1 - row * 0.05];
       const at = S.surface(capGeo, S.dirYP(yaw, pitch), { from, inset: 0.01 });
       const nrm = S.dirYP(yaw, pitch);
       const len = 0.075 + ((n * 7919) % 13) / 13 * 0.03 - row * 0.004;

@@ -15,6 +15,7 @@
 
 import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
+import * as S from './soft.js';
 import { applyVertexGradient, jitterGeometry } from '../../gfx/materials.js';
 
 export function build_sludgemaw(kit = kitDefault) {
@@ -72,8 +73,8 @@ export function build_sludgemaw(kit = kitDefault) {
   }
 
   // Venom-bright eyes riding proud of the crown slope, above the maw.
-  const eyeL = kit.at(body, kit.eye(0.052, { irisColor: 0xd0e86a, scleraColor: 0x141008, skinColor: 0x2a2414, glintSize: 0.019 }), 0.12, 0.42, 0.16, { ry: 0.22, rx: -0.1 });
-  const eyeR = kit.at(body, kit.eye(0.052, { irisColor: 0xd0e86a, scleraColor: 0x141008, skinColor: 0x2a2414, glintSize: 0.019 }), -0.12, 0.42, 0.14, { ry: -0.32, rx: -0.1 });
+  const eyeL = kit.at(body, S.eye(kit, 0.052, { irisColor: 0xd0e86a, scleraColor: 0x141008, skinColor: 0x2a2414, glintSize: 0.019 }), 0.12, 0.42, 0.16, { ry: 0.22, rx: -0.1 });
+  const eyeR = kit.at(body, S.eye(kit, 0.052, { irisColor: 0xd0e86a, scleraColor: 0x141008, skinColor: 0x2a2414, glintSize: 0.019 }), -0.12, 0.42, 0.14, { ry: -0.32, rx: -0.1 });
   // Heavy tar brows half-swallowing the eyes.
   kit.at(body, paint(kit.orb(0.085, tarV, { sy: 0.5, sz: 0.85 }), 72, TAR_LO, 0x453e20), 0.12, 0.48, 0.16, { rz: -0.3 });
   kit.at(body, paint(kit.orb(0.085, tarV, { sy: 0.5, sz: 0.85 }), 73, TAR_LO, 0x453e20), -0.12, 0.48, 0.14, { rz: 0.3 });

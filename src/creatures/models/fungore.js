@@ -12,6 +12,7 @@
 
 import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
+import * as S from './soft.js';
 
 export function build_fungore(kit = kitDefault) {
   const pal = kit.palette(['bloom', 'venom']);
@@ -49,8 +50,8 @@ export function build_fungore(kit = kitDefault) {
 
   // Sleepy eyes: half-lidded via the new lidBias rest pose + a slight head
   // droop — the juggernaut is awake, just barely.
-  const eyeL = kit.at(head, kit.eye(0.04, { irisColor: 0x2a1e12, skinColor: 0x4a5a34, glintSize: 0.014, lidBias: 0.34 }), 0.075, -0.01, 0.115, { ry: 0.24 });
-  const eyeR = kit.at(head, kit.eye(0.04, { irisColor: 0x2a1e12, skinColor: 0x4a5a34, glintSize: 0.014, lidBias: 0.34 }), -0.075, -0.01, 0.115, { ry: -0.24 });
+  const eyeL = kit.at(head, S.eye(kit, 0.04, { irisColor: 0x2a1e12, skinColor: 0x4a5a34, glintSize: 0.014, lidBias: 0.34 }), 0.075, -0.01, 0.115, { ry: 0.24 });
+  const eyeR = kit.at(head, S.eye(kit, 0.04, { irisColor: 0x2a1e12, skinColor: 0x4a5a34, glintSize: 0.014, lidBias: 0.34 }), -0.075, -0.01, 0.115, { ry: -0.24 });
   head.rotation.x = 0.1;
 
   const earL = kit.at(head, kit.ear(0.06, skin), 0.11, 0.1, -0.02, { rz: 0.3 });

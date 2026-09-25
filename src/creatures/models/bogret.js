@@ -13,6 +13,7 @@
 
 import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
+import * as S from './soft.js';
 import { seededRandom } from '../../core/rng.js';
 import { applyVertexGradient, jitterGeometry } from '../../gfx/materials.js';
 
@@ -45,8 +46,8 @@ export function build_bogret(kit = kitDefault) {
   kit.at(head, kit.box(0.19, 0.012, 0.03, kit.mat(0x22301e, { rough: 0.9 })), 0, -0.03, 0.1, { rx: -0.1 });
 
   // Bulging, alert toad eyes perched high on the head.
-  const eyeL = kit.at(head, kit.eye(0.048, { irisColor: 0xb3a020, skinColor: 0x5c7a54, glintSize: 0.017 }), 0.08, 0.06, 0.08, { ry: 0.35 });
-  const eyeR = kit.at(head, kit.eye(0.048, { irisColor: 0xb3a020, skinColor: 0x5c7a54, glintSize: 0.017 }), -0.08, 0.06, 0.08, { ry: -0.35 });
+  const eyeL = kit.at(head, S.eye(kit, 0.048, { irisColor: 0xb3a020, skinColor: 0x5c7a54, glintSize: 0.017 }), 0.08, 0.06, 0.08, { ry: 0.35 });
+  const eyeR = kit.at(head, S.eye(kit, 0.048, { irisColor: 0xb3a020, skinColor: 0x5c7a54, glintSize: 0.017 }), -0.08, 0.06, 0.08, { ry: -0.35 });
 
   // A perpetual grumpy frown-brow.
   kit.at(head, paint(kit.brow(0.06, skin), 98.2), 0.08, 0.1, 0.1, { rz: -0.35 });

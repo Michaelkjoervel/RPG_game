@@ -60,15 +60,15 @@ export function build_aurios(kit = kitDefault) {
   const HOVER = 0.13;
   const bodyGeo = S.spindle({
     len: 1.12, r: 0.23, sx: 0.86, sy: 1.08, p: 0.9, radial: 22, rings: 18,
-    profile: (t) => 0.72 + 0.18 * S.bump(t, 0.2, 0.26) + 0.3 * S.bump(t, 0.74, 0.3),
+    profile: (t) => 0.7 + 0.22 * S.bump(t, 0.2, 0.26) + 0.42 * S.bump(t, 0.76, 0.28),
     belly: (t) => 0.08 + 0.3 * S.bump(t, 0.42, 0.3),
     arch: (t) => 0.05 * S.sstep(0.45, 1, t) - 0.015 * S.bump(t, 0.4, 0.3),
   });
   S.paint(bodyGeo, { from: COAT_LO, to: COAT_HI, axis: 'y', exp: 0.9, noise: 0.012, seed: 61 });
-  S.overlay(bodyGeo, SADDLE, (x, y, z) => S.sstep(0.12, 0.24, y) * (1 - S.sstep(0.05, 0.14, Math.abs(x))) * 0.75);
+  S.overlay(bodyGeo, SADDLE, (x, y, z) => S.sstep(0.1, 0.22, y) * (1 - S.sstep(0.06, 0.16, Math.abs(x))) * 0.9);
   S.overlay(bodyGeo, PALE, (x, y, z) => S.sstep(-0.1, -0.2, y) * 0.9);
   const NECK_TILT = 0.58;
-  const neckGeo = S.spindle({ len: 0.62, r: 0.125, sx: 0.9, sy: 1.08, p: 0.9, radial: 16, rings: 12, profile: (t) => 1.1 - 0.28 * t });
+  const neckGeo = S.spindle({ len: 0.62, r: 0.135, sx: 0.88, sy: 1.12, p: 0.9, radial: 16, rings: 12, profile: (t) => 1.25 - 0.45 * t });
   const nDir = [0, Math.cos(NECK_TILT), Math.sin(NECK_TILT)];
   const neckBase = [0, 0.14, 0.4];
   S.pose(neckGeo, [0, neckBase[1] + nDir[1] * 0.26, neckBase[2] + nDir[2] * 0.26], [-(Math.PI / 2 - NECK_TILT), 0, 0]);
@@ -100,7 +100,7 @@ export function build_aurios(kit = kitDefault) {
   const headY = neckBase[1] + nDir[1] * 0.56 + 0.02;
   const headZ = neckBase[2] + nDir[2] * 0.56 + 0.06;
   const headGeo = S.spindle({
-    len: 0.44, r: 0.13, sx: 0.84, sy: 1.0, pTail: 1.0, pNose: 1.1, radial: 20, rings: 16, belly: 0.08,
+    len: 0.46, r: 0.145, sx: 0.84, sy: 1.0, pTail: 1.0, pNose: 1.1, radial: 20, rings: 16, belly: 0.08,
     profile: (t) => (t < 0.38 ? 1.0 : S.lerp(1.0, 0.56, S.sstep(0.38, 0.72, t))) - 0.1 * S.sstep(0.75, 1, t),
     syAt: (t) => S.lerp(0.92, 0.74, S.sstep(0.4, 0.75, t)),
     arch: (t) => -0.05 * S.sstep(0.35, 0.8, t),
@@ -177,11 +177,11 @@ export function build_aurios(kit = kitDefault) {
 
   // --- Legs: long, slender, real deer joints; glowing gold hooves --------
   const legDefs = [
-    [0.13, hipY, 0.3, -0.08, 0.075], [-0.13, hipY, 0.3, -0.08, 0.075],
-    [0.13, hipY + 0.02, -0.33, 0.42, 0.095], [-0.13, hipY + 0.02, -0.33, 0.42, 0.095],
+    [0.13, hipY, 0.3, -0.1, 0.11], [-0.13, hipY, 0.3, -0.1, 0.11],
+    [0.13, hipY + 0.02, -0.33, 0.45, 0.14], [-0.13, hipY + 0.02, -0.33, 0.45, 0.14],
   ];
   const legs = legDefs.map(([x, y, z, bend, thighR]) => kit.at(body, S.softLeg(LEG + (y - hipY), coat, {
-    thighR, shinR: 0.034, kneeR: 0.042, ankleR: 0.028, pawR: 0.042, pawLen: 1.15, pawH: 0.05, toes: 0,
+    thighR, shinR: 0.044, kneeR: 0.054, ankleR: 0.034, pawR: 0.048, pawLen: 1.15, pawH: 0.055, toes: 0,
     bend, split: 0.48, bulge: 0.34, color: 0xe6d0a8, shinColor: LEGC, pawColor: HOOF, radial: 10,
   }), x, y, z));
   // Each hoof stands on its own small disc of light...

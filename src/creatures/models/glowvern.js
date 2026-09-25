@@ -12,6 +12,7 @@
 
 import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
+import * as S from './soft.js';
 
 export function build_glowvern(kit = kitDefault) {
   const pal = kit.palette(['lumen']);
@@ -38,8 +39,8 @@ export function build_glowvern(kit = kitDefault) {
 
   const head = kit.at(body, kit.blob(0.075, skin, { seed: 190, squash: { x: 0.85, y: 0.85, z: 1.3 } }), 0, 0.055, 0.22);
   kit.paint(head, { from: 0x2c646a, to: 0x5aa89a, noise: 0.04, seed: 191 });
-  const eyeL = kit.at(head, kit.eye(0.031, { irisColor: 0xfff2c8, scleraColor: 0x14201f, skinColor: 0x3a7a78, glintSize: 0.012 }), 0.048, 0.014, 0.062, { ry: 0.26 });
-  const eyeR = kit.at(head, kit.eye(0.031, { irisColor: 0xfff2c8, scleraColor: 0x14201f, skinColor: 0x3a7a78, glintSize: 0.012 }), -0.048, 0.014, 0.062, { ry: -0.26 });
+  const eyeL = kit.at(head, S.eye(kit, 0.031, { irisColor: 0xfff2c8, scleraColor: 0x14201f, skinColor: 0x3a7a78, glintSize: 0.012 }), 0.048, 0.014, 0.062, { ry: 0.26 });
+  const eyeR = kit.at(head, S.eye(kit, 0.031, { irisColor: 0xfff2c8, scleraColor: 0x14201f, skinColor: 0x3a7a78, glintSize: 0.012 }), -0.048, 0.014, 0.062, { ry: -0.26 });
   const earL = kit.at(head, kit.ear(0.035, skin), 0.045, 0.045, -0.01, { rz: 0.3 });
   const earR = kit.at(head, kit.ear(0.035, skin), -0.045, 0.045, -0.01, { rz: -0.3 });
 

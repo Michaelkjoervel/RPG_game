@@ -18,6 +18,7 @@
 
 import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
+import * as S from './soft.js';
 import { applyVertexGradient, jitterGeometry, lobedMass } from '../../gfx/materials.js';
 
 export function build_nimbis(kit = kitDefault) {
@@ -39,8 +40,8 @@ export function build_nimbis(kit = kitDefault) {
   const puffs = lobedMass({ lobes: 4, radius: 0.075, spread: 0.8, squash: 0.85, from: 0xa2b2c0, to: 0xfbfdff, seed: 101, jitter: 0.16 });
   kit.at(body, puffs, -0.01, 0.07, -0.04);
 
-  const eyeL = kit.at(body, kit.eye(0.032, { irisColor: 0x4a5a6a, skinColor: 0xd2dee2, glintSize: 0.015 }), 0.05, 0.02, 0.15, { ry: 0.35 });
-  const eyeR = kit.at(body, kit.eye(0.032, { irisColor: 0x4a5a6a, skinColor: 0xd2dee2, glintSize: 0.015 }), -0.05, 0.02, 0.15, { ry: -0.35 });
+  const eyeL = kit.at(body, S.eye(kit, 0.032, { irisColor: 0x4a5a6a, skinColor: 0xd2dee2, glintSize: 0.015 }), 0.05, 0.02, 0.15, { ry: 0.35 });
+  const eyeR = kit.at(body, S.eye(kit, 0.032, { irisColor: 0x4a5a6a, skinColor: 0xd2dee2, glintSize: 0.015 }), -0.05, 0.02, 0.15, { ry: -0.35 });
 
   // The moody face: worried angled brows + a tiny wobble-frown.
   kit.at(body, kit.brow(0.035, skinDark), 0.05, 0.055, 0.145, { rz: 0.4 });

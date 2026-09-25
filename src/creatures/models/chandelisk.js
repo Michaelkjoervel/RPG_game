@@ -15,6 +15,7 @@
 
 import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
+import * as S from './soft.js';
 import { applyVertexGradient, jitterGeometry } from '../../gfx/materials.js';
 
 export function build_chandelisk(kit = kitDefault) {
@@ -42,10 +43,10 @@ export function build_chandelisk(kit = kitDefault) {
   const head = kit.orb(0.075, stoneV, { sz: 1.1, sy: 0.85 });
   applyVertexGradient(head.geometry, { from: STONE_LO, to: STONE_HI, noise: 0.05, seed: 63 });
   kit.at(thorax, head, 0, 0.0, 0.16);
-  const eyeL = kit.at(head, kit.eye(0.028, { irisColor: 0xffe9b0, scleraColor: 0x2c2414, skinColor: skinHex, glintSize: 0.011 }), 0.045, 0.01, 0.06, { ry: 0.4 });
-  const eyeR = kit.at(head, kit.eye(0.028, { irisColor: 0xffe9b0, scleraColor: 0x2c2414, skinColor: skinHex, glintSize: 0.011 }), -0.045, 0.01, 0.06, { ry: -0.4 });
-  const eyeL2 = kit.at(head, kit.eye(0.016, { irisColor: 0xffe9b0, scleraColor: 0x2c2414, skinColor: skinHex, glintSize: 0.006 }), 0.038, 0.034, 0.055, { ry: 0.4 });
-  const eyeR2 = kit.at(head, kit.eye(0.016, { irisColor: 0xffe9b0, scleraColor: 0x2c2414, skinColor: skinHex, glintSize: 0.006 }), -0.038, 0.034, 0.055, { ry: -0.4 });
+  const eyeL = kit.at(head, S.eye(kit, 0.028, { irisColor: 0xffe9b0, scleraColor: 0x2c2414, skinColor: skinHex, glintSize: 0.011 }), 0.045, 0.01, 0.06, { ry: 0.4 });
+  const eyeR = kit.at(head, S.eye(kit, 0.028, { irisColor: 0xffe9b0, scleraColor: 0x2c2414, skinColor: skinHex, glintSize: 0.011 }), -0.045, 0.01, 0.06, { ry: -0.4 });
+  const eyeL2 = kit.at(head, S.eye(kit, 0.016, { irisColor: 0xffe9b0, scleraColor: 0x2c2414, skinColor: skinHex, glintSize: 0.006 }), 0.038, 0.034, 0.055, { ry: 0.4 });
+  const eyeR2 = kit.at(head, S.eye(kit, 0.016, { irisColor: 0xffe9b0, scleraColor: 0x2c2414, skinColor: skinHex, glintSize: 0.006 }), -0.038, 0.034, 0.055, { ry: -0.4 });
   // Crystal mandibles.
   kit.at(head, kit.cone(0.012, 0.04, crystalMat, { segments: 4 }), 0.028, -0.02, 0.055, { rx: -0.6, rz: 0.25 });
   kit.at(head, kit.cone(0.012, 0.04, crystalMat, { segments: 4 }), -0.028, -0.02, 0.055, { rx: -0.6, rz: -0.25 });

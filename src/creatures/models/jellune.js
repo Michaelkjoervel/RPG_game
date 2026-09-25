@@ -13,6 +13,7 @@
 
 import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
+import * as S from './soft.js';
 
 export function build_jellune(kit = kitDefault) {
   const pal = kit.palette(['tide']);
@@ -41,8 +42,8 @@ export function build_jellune(kit = kitDefault) {
   const fringe = kit.orb(0.195, fringeMat, { sx: 1, sy: 0.16, sz: 1 });
   kit.at(bell, fringe, 0, -0.06, 0);
 
-  const eyeL = kit.at(bell, kit.eye(0.028, { irisColor: 0x1c3a5a, skinColor: 0xb4d0f0, glintSize: 0.012 }), 0.07, 0.0, 0.15, { ry: 0.3 });
-  const eyeR = kit.at(bell, kit.eye(0.028, { irisColor: 0x1c3a5a, skinColor: 0xb4d0f0, glintSize: 0.012 }), -0.07, 0.0, 0.15, { ry: -0.3 });
+  const eyeL = kit.at(bell, S.eye(kit, 0.028, { irisColor: 0x1c3a5a, skinColor: 0xb4d0f0, glintSize: 0.012 }), 0.07, 0.0, 0.15, { ry: 0.3 });
+  const eyeR = kit.at(bell, S.eye(kit, 0.028, { irisColor: 0x1c3a5a, skinColor: 0xb4d0f0, glintSize: 0.012 }), -0.07, 0.0, 0.15, { ry: -0.3 });
 
   // Trailing tentacles: varied lengths, a couple curling — drifting, not
   // hanging like straight strings.

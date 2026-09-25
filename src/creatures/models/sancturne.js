@@ -100,8 +100,8 @@ export function build_sancturne(kit = kitDefault) {
   const fp = S.surface(hoodGeo, S.dirYP(0, -0.05), { inset: 0.03 });
   kit.at(head, face, fp[0], fp[1], fp[2]);
   const eyeOpts = { irisColor: 0xffe9b0, scleraColor: 0x241f3a, skinColor: 0x554b7a, glintSize: 0.011 };
-  const eyeL = kit.at(face, kit.eye(0.026, eyeOpts), 0.036, 0.004, 0.035, { ry: 0.2 });
-  const eyeR = kit.at(face, kit.eye(0.026, eyeOpts), -0.036, 0.004, 0.035, { ry: -0.2 });
+  const eyeL = kit.at(face, S.eye(kit, 0.026, eyeOpts), 0.036, 0.004, 0.035, { ry: 0.2 });
+  const eyeR = kit.at(face, S.eye(kit, 0.026, eyeOpts), -0.036, 0.004, 0.035, { ry: -0.2 });
 
   // Soft sleeve-arms held forward over the urn.
   const sleeves = [1, -1].map((sd) => {

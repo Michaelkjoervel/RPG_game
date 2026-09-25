@@ -14,6 +14,7 @@
 
 import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
+import * as S from './soft.js';
 
 // A single jagged lightning-bolt-shaped flat plane, base at the origin,
 // pointing +Y — used as a "fur strand" substitute for the thunder mane.
@@ -59,8 +60,8 @@ export function build_stormane(kit = kitDefault) {
   const head = kit.at(body, kit.orb(0.12, skin, { sz: 1.15, sy: 0.9 }), 0, 0.1, 0.3);
   kit.paint(head, { from: 0x485064, to: 0x7d8698, noise: 0.05, seed: 114 });
   const snout = kit.at(head, kit.snout(0.13, skin, { r: 0.052, taper: 0.4, up: 0.08 }), 0, -0.035, 0.06);
-  const eyeL = kit.at(head, kit.eye(0.042, { irisColor: 0xffe97a, scleraColor: 0x18181c, skinColor: skinHex, glintSize: 0.016 }), 0.062, 0.024, 0.088, { ry: 0.24 });
-  const eyeR = kit.at(head, kit.eye(0.042, { irisColor: 0xffe97a, scleraColor: 0x18181c, skinColor: skinHex, glintSize: 0.016 }), -0.062, 0.024, 0.088, { ry: -0.24 });
+  const eyeL = kit.at(head, S.eye(kit, 0.042, { irisColor: 0xffe97a, scleraColor: 0x18181c, skinColor: skinHex, glintSize: 0.016 }), 0.062, 0.024, 0.088, { ry: 0.24 });
+  const eyeR = kit.at(head, S.eye(kit, 0.042, { irisColor: 0xffe97a, scleraColor: 0x18181c, skinColor: skinHex, glintSize: 0.016 }), -0.062, 0.024, 0.088, { ry: -0.24 });
   const earL = kit.at(head, kit.ear(0.08, skin), 0.07, 0.09, -0.01, { rz: 0.18, ry: -0.1 });
   const earR = kit.at(head, kit.ear(0.08, skin), -0.07, 0.09, -0.01, { rz: -0.18, ry: 0.1 });
 
