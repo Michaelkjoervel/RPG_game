@@ -230,6 +230,7 @@ uniform vec4 uGP2;   // snowLine, rockSlope, grainAmp, cobbleScale
 uniform vec4 uGWater; // water rect: cx, cz, halfSize, unused
 uniform vec4 uGField; // grass field (grass.js): centerX, centerZ, fadeStart, fadeEnd
 uniform vec4 uGFieldK; // x: soft AO under the blades (0 = no grass field)
+uniform vec4 uGStroke; // painterly stroke direction (x,z), amplitude
 
 float lfHash(vec2 p) {
   vec3 p3 = fract(vec3(p.xyx) * 0.1031);
@@ -298,10 +299,11 @@ vec3 lfGround(vec3 wp, vec3 nrm, float fw, vec4 m, out float grassAmt, out vec3 
   float mossT = smoothstep(0.58, 0.82, lfNoise(xz * 0.05 + vec2(41.0, -77.0))) * flatK;
   col = mix(col, uGMoss, mossT * 0.5);
   if (midK > 0.0) {
-    vec3 vc = lfVoronoi(xz * 0.42, ts);
+    vec3 vc = lfVoronoi(xz * 0.42 + vec2(n2, n1) * 0.6, ts);
     float crack = 1.0 - smoothstep(0.02, 0.02 + aa * 0.42 * 2.5, vc.y);
-    col *= 1.0 - crack * 0.28 * midK;
-    col *= 0.96 + (vc.z - 0.5) * 0.1 * midK;
+    crack *= smoothstep(0.25, 0.6, lfNoise(xz * 0.35 + vec2(vc.z * 3.0, 1.7)));  // some joints fade out
+    col *= 1.0 - crack * 0.3 * midK;
+    col *= 0.93 + (vc.z - 0.5) * 0.2 * midK;
   }
   col *= 0.94 + (n3 - 0.5) * 0.12 + (n4 - 0.5) * 0.08;
   col *= 1.0 - smoothstep(0.1, 0.5, slope) * 0.22 - hollowT * 0.14;
@@ -331,6 +333,11 @@ vec3 lfGround(vec3 wp, vec3 nrm, float fw, vec4 m, out float grassAmt, out vec3 
   col = mix(col, uGGrassSun, clamp(sunT * 0.42 + highT * 0.22, 0.0, 1.0));
   col = mix(col, uGGrassCool, hollowT * 0.45);
   col *= (1.0 - hollowT * 0.1) * (0.955 + (n3 - 0.5) * 0.12 + (n4 - 0.5) * uGP2.z);
+  {
+    vec2 sq = vec2(dot(xz, uGStroke.xy), dot(xz, vec2(-uGStroke.y, uGStroke.x)));
+    float stroke = lfNoise(sq * vec2(0.45, 2.2) + vec2(17.0, 3.0)) * 0.65 + lfNoise(sq * vec2(0.9, 4.4) + 5.0) * 0.35;
+    col *= 1.0 + (stroke - 0.5) * uGStroke.z * midK;
+  }
   grassAmt = 1.0;
   // trodden / bare patches (baked)
   float bare = m.b;
@@ -341,8 +348,9 @@ vec3 lfGround(vec3 wp, vec3 nrm, float fw, vec4 m, out float grassAmt, out vec3 
   // walls), strata ledges that catch the light, dark crevices
   float bankT = smoothstep(uGP2.y - 0.04, uGP2.y + 0.02, slope + (n3 - 0.5) * 0.08 + (n4 - 0.5) * 0.03);
   vec3 bank = mix(uGDirt * 0.78, uGGrassB * 0.72, 0.4 + (n3 - 0.5) * 0.6) * (0.92 + (n4 - 0.5) * 0.14);
+  if (bankT > 0.0) bank *= 0.88 + 0.24 * lfNoise(vec2(wp.x + wp.z, h * 2.2) * 1.3); // faint erosion streaks
   col = mix(col, bank, bankT * 0.8);
-  grassAmt *= 1.0 - bankT * 0.7;
+  grassAmt *= 1.0 - bankT * 0.6;
   float rockT = smoothstep(uGP2.y + 0.1, uGP2.y + 0.16, slope + (n3 - 0.5) * 0.1 + (n4 - 0.5) * 0.04);
   if (rockT > 0.0) {
     float wx = smoothstep(0.3, 0.7, abs(nrm.x) / (abs(nrm.x) + abs(nrm.z) + 1e-4));
@@ -364,6 +372,7 @@ vec3 lfGround(vec3 wp, vec3 nrm, float fw, vec4 m, out float grassAmt, out vec3 
     float line = uGP2.x + (n2 - 0.5) * 3.8 + (n3 - 0.5) * 1.6;
     float snowT = smoothstep(line - 0.35, line + 0.35, h + (n4 - 0.5) * 0.25);
     vec3 snow = mix(uGSnow, uGSnowShade, clamp(slope * 2.2 + hollowT * 0.4 + (n2 - 0.5) * 0.3, 0.0, 1.0));
+    snow *= 1.0 + step(0.975, lfHash(floor(xz * 5.0) + 0.5)) * 0.18 * fineK;
     col = mix(col, snow, snowT);
     grassAmt *= 1.0 - snowT;
   }
@@ -442,7 +451,8 @@ vec3 lfGround(vec3 wp, vec3 nrm, float fw, vec4 m, out float grassAmt, out vec3 
       keep = clamp(keep, 0.0, 1.0);
       pc = mix(pc, cob, keep);
       float bevel = (1.0 - smoothstep(0.0, 0.2, vc.y)) * (1.0 - mortar);
-      pbump.xz = mix(pbump.xz, -normalize(ts + 1e-4) * (0.18 + 0.75 * bevel), keep * midK);
+      // pillowed stones: smooth dome (tilt grows from the stone's center) + rounded rim
+      pbump.xz = mix(pbump.xz, -ts * 0.55 * (1.0 - mortar) - normalize(ts + 1e-4) * 0.6 * bevel, keep * midK);
     }
     // soil lip just inside the edge
     pc *= 1.0 - (1.0 - smoothstep(0.0, 0.32, depth)) * 0.2;
@@ -639,6 +649,7 @@ export function buildTerrain(zone) {
     uGWater: U(new THREE.Vector4(wx, wz, wHalf, 0)),
     uGField: U(new THREE.Vector4(0, 0, 10, 20)), // driven by grass.js each frame
     uGFieldK: U(new THREE.Vector4(0, 0, 0, 0)),
+    uGStroke: U(new THREE.Vector4(Math.cos((Math.abs(seed | 0) % 628) / 100), Math.sin((Math.abs(seed | 0) % 628) / 100), 0.1, 0)), // along grass.js's wind
   };
   const defines = { LF_GROUND_STYLE: style };
 

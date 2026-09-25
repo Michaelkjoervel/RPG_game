@@ -46,11 +46,12 @@ const BIOMES = {
   town: { density: 0.95, hMin: 0.2, hMax: 0.42, w: 0.08, lean: 0.22, windBase: 0.08, gust: 0.35, clump: 0.4, stalk: 0.02,
     tipMul: [1.18, 1.18, 0.95], tipAdd: [0.03, 0.028, 0.0], glow: null, flowers: 0.014, flowerCols: [0xfff4dc, 0xffd65c, 0xff9fbe] },
   forest: { density: 0.8, hMin: 0.26, hMax: 0.55, w: 0.13, lean: 0.55, windBase: 0.05, gust: 0.22, clump: 0.65, stalk: 0.02,
-    tipMul: [1.1, 1.16, 0.98], tipAdd: [0.0, 0.012, 0.0], glow: null, flowers: 0.006, flowerCols: [0xf6f2ff, 0xf6f2ff, 0xd9ccff] },
+    tipMul: [1.1, 1.16, 0.98], tipAdd: [0.0, 0.012, 0.0], glow: null, flowers: 0.006, flowerCols: [0xf6f2ff, 0xf6f2ff, 0xd9ccff],
+    ferns: 0.012, fernCol: 0x6f9a4a },
   glade: { density: 0.9, hMin: 0.28, hMax: 0.58, w: 0.08, lean: 0.3, windBase: 0.08, gust: 0.3, clump: 0.55, stalk: 0.04,
-    tipMul: [1.05, 1.2, 1.2], tipAdd: [0.0, 0.02, 0.035], glow: [0.1, 0.42, 0.5], flowers: 0.02, flowerCols: [0xbff2ff, 0xe8c8ff, 0xfff0b0] },
-  mountain: { density: 0.5, hMin: 0.16, hMax: 0.38, w: 0.055, lean: 0.18, windBase: 0.42, gust: 0.5, clump: 0.7, stalk: 0.03,
-    tipMul: [1.35, 1.25, 0.9], tipAdd: [0.07, 0.05, 0.012], glow: null, flowers: 0.008, flowerCols: [0xfdfcf4, 0xfdfcf4, 0xffe98a] },
+    tipMul: [1.05, 1.2, 1.2], tipAdd: [0.0, 0.02, 0.035], glow: [0.1, 0.42, 0.5], flowers: 0.012, flowerCols: [0xbff2ff, 0xe8c8ff, 0xfff0b0] },
+  mountain: { density: 0.7, hMin: 0.24, hMax: 0.52, w: 0.065, lean: 0.2, windBase: 0.42, gust: 0.5, clump: 0.85, stalk: 0.05,
+    tipMul: [1.55, 1.4, 0.95], tipAdd: [0.1, 0.075, 0.02], glow: null, flowers: 0.008, flowerCols: [0xfdfcf4, 0xfdfcf4, 0xffe98a] },
   ruins: { density: 0.55, hMin: 0.2, hMax: 0.42, w: 0.085, lean: 0.3, windBase: 0.1, gust: 0.35, clump: 0.6, stalk: 0.03,
     tipMul: [1.18, 1.18, 0.95], tipAdd: [0.03, 0.025, 0.0], glow: null, flowers: 0.008, flowerCols: [0xfff4dc, 0xffd65c, 0xfff4dc] },
 };
@@ -112,9 +113,11 @@ uniform vec3 uGTipMul;
 uniform vec3 uGTipAdd;
 uniform vec4 uGFlower;  // x: bloom threshold (hash > x)
 uniform vec3 uGFlowerA, uGFlowerB, uGFlowerC;
+uniform vec3 uGFernCol;
 varying vec3 vBladeCol;
 varying float vBladeT;
 varying vec3 vBladeW;
+varying vec3 vBladeFern; // x: across-blade side, y: fern frond flag, z: bloom
 `;
 const VERT_BODY = /* glsl */ `
   float bT = position.y;
@@ -123,7 +126,8 @@ const VERT_BODY = /* glsl */ `
   float bRnd = lfHash(bRoot.xz * 3.71 + 0.37);
   float bRnd2 = lfHash(bRoot.zx * 1.93 + 4.1);
   float bH = iShape.x;
-  float bW = iShape.y;
+  float bFern = step(iShape.y, 0.0);   // negative width marks a fern frond
+  float bW = abs(iShape.y);
   // shrink toward the field edge; collapse wherever the ground says "no grass"
   float bFade = 1.0 - smoothstep(uGField.z, uGField.w, distance(bRoot.xz, uGField.xy));
   float bGrass;
@@ -136,7 +140,7 @@ const VERT_BODY = /* glsl */ `
   float bFl = lfHash(bRoot.zx * 2.13 + 9.7);
   // (a distant-field effect: near the camera the real flower props take over)
   float bBloom = step(uGFlower.x, bFl) * smoothstep(4.5, 9.0, distance(bRoot, cameraPosition));
-  bW *= 1.0 + bBloom * 1.2 * smoothstep(0.3, 0.6, bT) * (1.0 - step(0.99, bT));
+  bW *= 1.0 + bBloom * 0.5 * smoothstep(0.3, 0.6, bT) * (1.0 - step(0.99, bT));
   vec2 bDir = vec2(sin(iRoot.w), cos(iRoot.w));
   vec2 bAcross = vec2(bDir.y, -bDir.x);
   // wind: slow traveling gust waves + per-blade flutter
@@ -152,7 +156,8 @@ const VERT_BODY = /* glsl */ `
   bH *= 1.0 - bPush * 0.3;
   float bBl = min(length(bBend), 1.6);
   vec3 bPos = bRoot;
-  bPos.xz += bAcross * (bSide * 0.5 * bW * (1.0 - bT * 0.88));
+  float bProf = mix(1.0 - bT * 0.88, 0.25 + 3.2 * bT * (1.0 - bT), bFern);
+  bPos.xz += bAcross * (bSide * 0.5 * bW * bProf);
   bPos.xz += bBend * (bT * bT * bH);
   bPos.y += bH * bT * (1.0 - 0.38 * bBl * bT);
   // soft, mostly-up normals: blades light like the ground they grow from,
@@ -164,13 +169,16 @@ const VERT_BODY = /* glsl */ `
   vBladeCol = mix(bGround, bTip, pow(bT, 1.25)) * (1.0 + bGust * 0.1 * bT);
   float bSel = fract(bFl * 61.7);
   vec3 bFc = bSel < 0.34 ? uGFlowerA : (bSel < 0.67 ? uGFlowerB : uGFlowerC);
-  vBladeCol = mix(vBladeCol, bFc, bBloom * smoothstep(0.5, 0.75, bT));
+  vBladeCol = mix(vBladeCol, bFc, bBloom * smoothstep(0.58, 0.8, bT) * (1.0 - bFern));
+  vBladeCol = mix(vBladeCol, mix(bGround, uGFernCol * (0.85 + bRnd * 0.3), smoothstep(0.0, 0.6, bT)), bFern);
   vBladeT = bT;
+  vBladeFern = vec3(bSide, bFern, bBloom);
 `;
 const FRAG_PARS = /* glsl */ `
 varying vec3 vBladeCol;
 varying float vBladeT;
 varying vec3 vBladeW;
+varying vec3 vBladeFern;
 uniform vec3 uGGlow;
 uniform vec3 uGSunDir;
 uniform vec3 uGSunCol;
@@ -201,6 +209,7 @@ export function createGrass(zone, world) {
     uGFlowerB: { value: new THREE.Color(B.flowerCols[1]) },
     uGFlowerC: { value: new THREE.Color(B.flowerCols[2]) },
     uGGlow: { value: new THREE.Color(...(B.glow ?? [0, 0, 0])) },
+    uGFernCol: { value: new THREE.Color(B.fernCol ?? 0x6f9a4a) },
     uGSunDir: { value: new THREE.Vector3(0, 1, 0) },
     uGSunCol: { value: new THREE.Color(0, 0, 0) },
   };
@@ -218,14 +227,18 @@ export function createGrass(zone, world) {
   vBladeW = (modelMatrix * vec4(transformed, 1.0)).xyz;`);
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>\n${FRAG_PARS}`)
-      .replace('#include <color_fragment>', 'diffuseColor.rgb = vBladeCol;')
+      .replace('#include <color_fragment>', `diffuseColor.rgb = vBladeCol;
+  if (vBladeFern.y > 0.5) { // leaflet stripes + darker mid-rib on fern fronds
+    float bLeaf = abs(fract(vBladeT * 7.0 - abs(vBladeFern.x) * 0.85) - 0.5);
+    diffuseColor.rgb *= (1.0 - 0.28 * smoothstep(0.32, 0.5, bLeaf)) * (1.0 - 0.18 * (1.0 - smoothstep(0.0, 0.18, abs(vBladeFern.x))));
+  }`)
       .replace('#include <normal_fragment_begin>', `#include <normal_fragment_begin>
 #ifdef DOUBLE_SIDED
   normal *= faceDirection; // undo the back-face flip: both sides share the soft up-normal
   nonPerturbedNormal = normal;
 #endif`)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
-  totalEmissiveRadiance += uGGlow * smoothstep(0.55, 1.0, vBladeT);
+  totalEmissiveRadiance += uGGlow * smoothstep(0.55, 1.0, vBladeT) * (1.0 - vBladeFern.y) * (1.0 - vBladeFern.z);
   {
     // backlit translucency: blades glow warm when you look toward the sun
     float bBack = pow(max(dot(normalize(vBladeW - cameraPosition), uGSunDir), 0.0), 4.0);
@@ -317,7 +330,14 @@ export function createGrass(zone, world) {
   const mS = { edge: 0, cobble: 0, bare: 0, apron: 0 };
   const localCol = new Float32Array(64 * 3); // colliders overlapping the chunk being filled
   const localRect = [];                      // building floors overlapping it (reused)
-  const rockNy = 1 - (ground.rockSlope + 0.03); // past the earth-bank band: bare bank / rock
+  const rockNy = 1 - (ground.rockSlope + 0.07); // sparse short grass climbs the earth banks; none on rock
+  let rs = 1; // mulberry32 state, reseeded per chunk (no closure allocations per fill)
+  const rng = () => {
+    rs = (rs + 0x6D2B79F5) | 0;
+    let t = Math.imul(rs ^ (rs >>> 15), 1 | rs);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 
   function fillChunk(slot, ci) {
     const cx = (ci % nC) + cMin, cz = Math.floor(ci / nC) + cMin;
@@ -341,7 +361,7 @@ export function createGrass(zone, world) {
       if (p.x + r < x0 || p.x - r > x0 + CS || p.z + r < z0 || p.z - r > z0 + CS) continue;
       localRect.push(p);
     }
-    const rng = seededRandom((Math.imul(cx, 73856093) ^ Math.imul(cz, 19349663) ^ Math.imul(seed, 83492791)) >>> 0);
+    rs = (Math.imul(cx, 73856093) ^ Math.imul(cz, 19349663) ^ Math.imul(seed, 83492791)) | 0 || 1;
     const cell = CS / grid;
     const G2 = grid * grid;
     const off = Math.floor(rng() * G2);
@@ -394,6 +414,23 @@ export function createGrass(zone, world) {
         const dx = x - P.at[0], dz = z - P.at[1], pr = P.r ?? 6;
         const d2 = dx * dx + dz * dz;
         if (d2 < pr * pr) { h *= 1 + 0.6 * sstep(0, 0.55, 1 - Math.sqrt(d2) / pr); break; }
+      }
+      if (B.ferns && r4 > 1 - B.ferns && mS.edge > 0.9 && n + 7 <= perChunk
+          && vnoise(x * 0.09, z * 0.09, seed + 53) > 0.45) {
+        const fronds = 5 + Math.floor(r2 * 3);
+        const fh = 0.5 + r1 * 0.35;
+        for (let f = 0; f < fronds; f++) {
+          const a = r3 * Math.PI * 2 + (f / fronds) * Math.PI * 2 + (rng() - 0.5) * 0.5;
+          const of = (base + n) * 4;
+          rootArr[of] = x + Math.sin(a) * 0.04; rootArr[of + 1] = y - 0.02; rootArr[of + 2] = z + Math.cos(a) * 0.04;
+          rootArr[of + 3] = a;
+          shapeArr[of] = fh * (0.85 + rng() * 0.3);
+          shapeArr[of + 1] = -(0.17 + r2 * 0.06) * tier.widthMul; // negative = fern frond
+          shapeArr[of + 2] = 0.95 + rng() * 0.35;
+          shapeArr[of + 3] = ny;
+          n++;
+        }
+        continue;
       }
       const o = (base + n) * 4;
       rootArr[o] = x; rootArr[o + 1] = y - 0.03; rootArr[o + 2] = z; rootArr[o + 3] = r3 * Math.PI * 2;
@@ -485,8 +522,9 @@ export function createGrass(zone, world) {
       qcx = fcx; qcz = fcz; centerValid = true;
       refreshWanted(qcx, qcz);
     }
-    // big refills (zone entry, teleport, fast camera swing) finish at once
-    processQueue(jump || qLen - qHead > 16 ? 120 : 2.5);
+    // zone entry / teleport refills finish at once; otherwise a small per-frame
+    // slice (nearest chunks first, so the edge of the field fills in unseen)
+    processQueue(jump ? 120 : 1.5);
 
     field.set(fcx, fcz, R * 0.58, R);
     fieldK.x = 0.14;

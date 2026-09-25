@@ -22,7 +22,8 @@ const VANTAGES = {
     [-44, 62, -84, 44, 'valley'],      // over the low western valley (below the snowline)
   ],
 };
-const DAYTIME = { dawnmeadow: 0.5, brighthollow: 0.5, whisperwood: 0.45, skyreach: 0.5 };
+const DAYTIME = { dawnmeadow: 0.5, brighthollow: 0.5, whisperwood: 0.45, skyreach: 0.5, mirrorlake: 0.55,
+  gloamcavern: 0.5, sunkenruins: 0.5, hollowspire: 0.5, starfallglade: 0.5 };
 
 const STATS = `(() => {
   const g = window.LF.game, r = g.renderer, ow = g.overworld;
@@ -30,13 +31,20 @@ const STATS = `(() => {
   r.info.autoReset = false; r.info.reset();
   r.render(ow.scene, ow.camera);
   const scene = { calls: r.info.render.calls, triangles: r.info.render.triangles };
+  let noGrass = null;
+  if (ow.grass?.mesh) {
+    ow.grass.mesh.visible = false; r.info.reset();
+    r.render(ow.scene, ow.camera);
+    noGrass = { calls: r.info.render.calls, triangles: r.info.render.triangles };
+    ow.grass.mesh.visible = true;
+  }
   r.info.autoReset = true;
   const tg = ow.terrain?.mesh?.geometry;
   const terrainTris = tg ? (tg.index ? tg.index.count / 3 : tg.attributes.position.count / 3) : 0;
   const gr = ow.grass?.stats?.() ?? null;
   let q = 'high';
   try { q = JSON.parse(localStorage.getItem('lumenfall_settings') || '{}').quality || 'high'; } catch (e) {}
-  return JSON.stringify({ zone: ow.zoneId, quality: q, briefExpr, sceneRender: scene, terrainTris, grass: gr,
+  return JSON.stringify({ zone: ow.zoneId, quality: q, briefExpr, sceneRender: scene, sceneWithoutGrass: noGrass, terrainTris, grass: gr,
     programs: r.info.programs?.length, geometries: r.info.memory.geometries, textures: r.info.memory.textures });
 })()`;
 
