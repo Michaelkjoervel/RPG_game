@@ -4,8 +4,8 @@
 // --artifact emits a fragment (no doctype/html/head/body) for hosts that supply
 // their own document shell, plus a first-click controls hint.
 import { build } from 'esbuild';
-import { readFile, writeFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { dirname, resolve } from 'node:path';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const OUT = resolve(process.argv[2] ?? 'dist/lumenfall.html');
@@ -93,5 +93,6 @@ ${BODY}
 </body>
 </html>
 `;
+await mkdir(dirname(OUT), { recursive: true });
 await writeFile(OUT, html, 'utf8');
 console.log(`wrote ${OUT} — ${(html.length / 1024 / 1024).toFixed(2)} MB`);
