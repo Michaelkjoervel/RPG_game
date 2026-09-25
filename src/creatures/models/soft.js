@@ -190,6 +190,34 @@ export function grooveTop(geo, pts, { radius = 0.008, lift = 0, radial = 4, seg 
 }
 
 /**
+ * A smooth tube swept along a Catmull-Rom curve through `pts` ([x,y,z]
+ * list), radius following radiusFn(t) (t 0..1 along the curve), with round
+ * end caps — static necks, arms of smoke, coils. Smooth normals, no uv.
+ */
+export function tubeAlong(pts, radiusFn, { radial = 14, tubular = 32, sy = 1 } = {}) {
+  const curve = new THREE.CatmullRomCurve3(pts.map((p) => new THREE.Vector3(p[0], p[1], p[2])));
+  const g = new THREE.TubeGeometry(curve, tubular, 1, radial, false);
+  g.deleteAttribute('uv');
+  const pos = g.attributes.position;
+  const P = new THREE.Vector3();
+  for (let i = 0; i <= tubular; i++) {
+    const t = i / tubular;
+    curve.getPointAt(t, P);
+    const r = radiusFn(t);
+    for (let j = 0; j <= radial; j++) {
+      const k = i * (radial + 1) + j;
+      pos.setXYZ(k, P.x + (pos.getX(k) - P.x) * r, P.y + (pos.getY(k) - P.y) * r * sy, P.z + (pos.getZ(k) - P.z) * r);
+    }
+  }
+  const a = curve.getPointAt(0), b = curve.getPointAt(1);
+  const capA = ball(radiusFn(0) * 0.98, { radial, rings: 8, sy }).translate(a.x, a.y, a.z);
+  const capB = ball(radiusFn(1) * 0.98, { radial, rings: 8, sy }).translate(b.x, b.y, b.z);
+  const out = mergeGeometries([g, capA, capB].map((x) => { if (x.attributes.normal) x.deleteAttribute('normal'); return x; }), false);
+  smoothGeometry(out);
+  return out;
+}
+
+/**
  * A layered 3D candle flame (nested smooth teardrops, unlit) that reads from
  * every angle — unlike a flat blade it never goes edge-on. Same contract as
  * kit.flame(): { group, update(dt, intensity) }; push it into parts.fx.
@@ -496,13 +524,14 @@ export function openWing(len, material, {
  */
 export function softTail(n, material, {
   segLen = 0.12, startR = 0.05, endR = 0.015, curl = 0, rootPitch = null, yaw = 0, color = 0x888888,
-  radial = 8, capSeg = 3, sx = 1, sy = 1, taperExp = 1, radiusFn = null,
+  radial = 8, capSeg = 3, sx = 1, sy = 1, taperExp = 1, radiusFn = null, band = null,
 } = {}) {
   const root = new THREE.Group(); root.name = 'tailRoot';
   const pivots = [root];
   let parent = root;
   const colAt = typeof color === 'function' ? color : () => color;
   const curlAt = typeof curl === 'function' ? curl : () => curl;
+  const yawAt = typeof yaw === 'function' ? yaw : () => yaw;
   const rAt = radiusFn ?? ((t) => lerp(startR, endR, Math.pow(t, taperExp)));
   let pitch = rootPitch ?? curlAt(0) * 0.5;
   root.rotation.x = pitch;
@@ -514,13 +543,22 @@ export function softTail(n, material, {
     g.rotateX(Math.PI / 2); // hang -Y -> trail -Z  ((0,-1,0) -> (0,0,-1))
     paint(g, { from: colAt(t1), to: colAt(t0), axis: 'z', lo: -segLen, hi: 0, noise: 0.012, seed: i + 3 });
     const end = bendArc(g, segLen, phi);
-    const seg = new THREE.Mesh(g, material);
+    let segGeo = g;
+    if (band && i < n - 1) {
+      // a slightly proud band at the joint (banded hide) — merged, same mesh
+      const bg = ball(r1 * (band.k ?? 1.07), { sz: band.sz ?? 0.32, radial, rings: 6 });
+      bg.rotateX(phi);
+      bg.translate(0, end[0], end[1]);
+      paint(bg, band.color ?? colAt(t1));
+      segGeo = mergeGeometries([g, bg], false);
+    }
+    const seg = new THREE.Mesh(segGeo, material);
     seg.name = 'tailSeg';
     parent.add(seg);
     const next = new THREE.Group();
     next.position.set(0, end[0], end[1]);
     next.rotation.x = phi;
-    next.rotation.y = i < n - 1 ? yaw : 0;
+    next.rotation.y = i < n - 1 ? yawAt(i) : 0;
     parent.add(next);
     if (i < n - 1) { next.name = `tailPivot${i + 1}`; pivots.push(next); parent = next; }
     else next.name = 'tailTip';

@@ -3,127 +3,130 @@
 // "Ghost bound to a cracked reliquary urn, keeper of the Ruins' oldest
 // trial." (Design Bible §4)
 // =============================================================================
-// Rebuilt for the visual overhaul around the lumen/umbra duality: a heavy,
-// leaning stone reliquary urn (violet-slate, vertex-gradient painted, gold
-// crack-seams leaking light) with the keeper itself pouring out of the mouth
-// as a hooded figure of pale light. Three shapes carry the silhouette:
-//   1. THE URN — big, tilted a few degrees (nothing this old stands square),
-//      carved gold band at the shoulder, cracks glowing from inside.
-//   2. THE KEEPER — a hooded wisp torso arcing up-forward out of the neck,
-//      trailing sleeve-fins and tendrils that pour BACK INTO the urn, so the
-//      binding is visible at a glance.
-//   3. THE BROKEN HALO — its signature: a shattered ring of shard-gold light
-//      floating behind the hood, one arc missing (the Ruins' oldest trial is
-//      not finished). Slowly counter-rotates via a tiny fx entry.
+// Visual pass v2 (soft stylized). v1's silhouette was busy (urn + rubble +
+// three tendrils + fins + halo all competing). v2 keeps THREE clean shapes:
+//   1. THE URN — a smooth, elegant lathed reliquary (foot, round belly,
+//      shoulder, narrow neck, flared lip) in violet-slate stone, leaning a few
+//      degrees, a worn gold band at the shoulder and gold light leaking from
+//      cracks laid ON its surface.
+//   2. THE KEEPER — one hooded figure of pale light rising out of the neck:
+//      a soft torso whose lower body pours back DOWN into the urn as a single
+//      curling wisp (parts.tail — it sways), two soft sleeve-arms held over
+//      the urn it guards, a deep hood with a dark void face and gold eyes.
+//   3. THE BROKEN HALO — a shattered ring of shard-gold light behind the
+//      hood, one arc missing, slowly counter-rotating.
 // parts.body is the ghost torso (breath/hover), the urn stays planted.
 
 import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
-import { applyVertexGradient, jitterGeometry } from '../../gfx/materials.js';
+import * as S from './soft.js';
+
+const URN_LO = 0x2e2744, URN_HI = 0x8a7eaa, GOLD = 0xffe9b0, GHOST_LO = 0x6a5ca8, GHOST_HI = 0xeee8ff;
+
+// Reliquary profile (radius, height) from the foot up to the lip.
+function urnGeo() {
+  const pts = [
+    [0.001, 0], [0.12, 0], [0.13, 0.02], [0.1, 0.05], [0.14, 0.09], [0.22, 0.18], [0.27, 0.3], [0.265, 0.4],
+    [0.22, 0.5], [0.14, 0.58], [0.085, 0.64], [0.075, 0.7], [0.1, 0.75], [0.115, 0.77], [0.1, 0.78], [0.07, 0.76], [0.001, 0.74],
+  ].map(([r, y]) => new THREE.Vector2(r, y));
+  return S.smooth(new THREE.LatheGeometry(pts, 26), 0.9);
+}
 
 export function build_sancturne(kit = kitDefault) {
   const pal = kit.palette(['lumen', 'umbra']);
-  const stoneV = kit.mat(0xffffff, { vertexColors: true, rough: 0.62 });
-  const URN_LO = 0x322b48, URN_HI = 0x8d81a8;
-  const goldMat = kit.mat(0xffe9b0, { unlit: true, transparent: true, opacity: 0.95 });
+  const stone = S.vcMat(kit, { rough: 0.48, metal: 0.05 });
+  const goldMat = kit.mat(GOLD, { unlit: true, transparent: true, opacity: 0.95 });
   const goldSoft = kit.mat(0xffd98c, { unlit: true, transparent: true, opacity: 0.8 });
-  // Ghost-stuff is UNLIT but NOT additive: additive over a lit stage blows
-  // out to a white blob; straight alpha keeps the violet->pale gradient.
-  const wispMat = kit.mat(0xbcaee8, { unlit: true, transparent: true, opacity: 0.68, side: THREE.DoubleSide });
-  const wispVert = kit.mat(0xffffff, { unlit: true, transparent: true, opacity: 0.88, vertexColors: true, side: THREE.DoubleSide });
-  const hoodMat = kit.mat(0xffffff, { vertexColors: true, rough: 0.5, transparent: true, opacity: 0.92 });
+  // Ghost-stuff is unlit but NOT additive (additive over a lit stage blows
+  // out to a white blob; straight alpha keeps the violet -> pale gradient).
+  const ghost = kit.mat(0xffffff, { unlit: true, transparent: true, opacity: 0.86, vertexColors: true });
+  ghost.userData.softVC = true;
+  const hoodMat = S.vcMat(kit, { rough: 0.5, transparent: true, opacity: 0.94 });
 
   const root = new THREE.Group();
 
-  // --- The reliquary urn: heavy, old, leaning ----------------------------
+  // --- 1. The reliquary urn -------------------------------------------------
   const urnGroup = new THREE.Group(); urnGroup.name = 'urn';
   root.add(urnGroup);
-  urnGroup.rotation.z = 0.07;                                     // ancient lean
-  // Taller, narrower vase — the squat first pass read as a rock pile.
-  const urn = kit.bulb(stoneV, { height: 0.72, width: 0.27, neck: 0.42, segments: 14 });
-  jitterGeometry(urn.geometry, 0.012, 5);
-  applyVertexGradient(urn.geometry, { from: URN_LO, to: URN_HI, noise: 0.05, seed: 5 });
+  urnGroup.rotation.z = 0.07; // nothing this old stands square
+  const ug = urnGeo();
+  S.paint(ug, { from: URN_LO, to: URN_HI, axis: 'y', noise: 0.02, seed: 5, exp: 0.9 });
+  S.overlay(ug, 0xc9a45c, (x, y, z) => S.bump(y, 0.5, 0.018));          // worn gold shoulder band
+  S.overlay(ug, 0xb89452, (x, y, z) => (y > 0.73 ? 0.8 : 0));             // gilded lip
+  const urn = S.bake([ug], stone, 'urnBody');
   urnGroup.add(urn);
-  // Carved shoulder band + lip ring in worn gold, sized to the bulb profile
-  // (the bulb's widest point is near its base; the neck is narrow).
-  const band = kit.orb(0.105, goldSoft.clone(), { sy: 0.04 });
-  kit.at(urn, band, 0, 0.44, 0);
-  const lip = kit.orb(0.07, goldSoft.clone(), { sy: 0.035 });
-  kit.at(urn, lip, 0, 0.71, 0);
-  // Glowing cracks — SHORT seams hugging the belly, light escaping the
-  // reliquary (long bars read as straws stuck in a pot).
-  const crackDefs = [
-    [0.16, 0.2, 0.12, 0.02, 0.15, 0.5, 0.2],
-    [-0.15, 0.15, -0.12, 0.016, 0.12, -0.7, -0.25],
-    [0.05, 0.11, 0.2, 0.018, 0.14, 0.1, 0.4],
-    [-0.09, 0.26, 0.14, 0.014, 0.1, 0.3, -0.3],
+  // gold light leaking from cracks ON the belly
+  const cracks = [
+    S.groove(ug, [[0.3, 0.15], [0.45, 0.05], [0.4, -0.12], [0.55, -0.25]], { from: [0, 0.3, 0], radius: 0.007, lift: 0.001 }),
+    S.groove(ug, [[-0.6, 0.2], [-0.8, 0.05], [-0.7, -0.1]], { from: [0, 0.3, 0], radius: 0.006, lift: 0.001 }),
+    S.groove(ug, [[2.4, 0.1], [2.6, -0.05], [2.5, -0.2]], { from: [0, 0.3, 0], radius: 0.006, lift: 0.001 }),
   ];
-  const cracks = [];
-  for (const [x, y, z, w, len, ry, rz] of crackDefs) {
-    const c = kit.box(w, len, 0.008, goldMat.clone());
-    kit.at(urn, c, x, y, z, { ry, rz });
-    cracks.push(c);
-  }
-  // A little rubble of the same stone at the base plants it.
-  for (const [x, z, r, seed] of [[0.22, 0.08, 0.038, 21], [-0.19, -0.1, 0.032, 22], [0.08, -0.22, 0.027, 23]]) {
-    const peb = kit.blob(r, stoneV, { seed, noise: 0.4 });
-    applyVertexGradient(peb.geometry, { from: URN_LO, to: 0x6e6390, noise: 0.06, seed });
-    kit.at(root, peb, x, r * 0.6, z);
-  }
+  const crackMesh = new THREE.Mesh(S.merge(cracks.map((g) => S.paint(g, 0xffffff))), goldMat);
+  crackMesh.name = 'urnCracks';
+  urnGroup.add(crackMesh);
+  const mouthGlow = S.glow(GOLD, 0.34, 0.6);
+  mouthGlow.position.set(0, 0.8, 0);
+  urnGroup.add(mouthGlow);
 
-  // --- The keeper: hooded figure of light pouring from the mouth ----------
-  // body leans forward out of the urn's neck: the ghost ARCS, it doesn't
-  // stack. Authored as a child of root (not the urn) so the urn's lean stays
-  // its own; the hover bob acts on this torso alone.
-  const body = kit.blob(0.16, wispVert, { seed: 151, noise: 0.2, squash: { x: 0.92, y: 1.3, z: 0.9 } });
-  applyVertexGradient(body.geometry, { from: 0x554687, to: 0xd9cfff, noise: 0.05, seed: 151, exp: 0.85 });
-  kit.at(root, body, 0.02, 0.96, 0.08, { rx: 0.22 });
-  // Inner core glow so the torso has a bright heart.
-  kit.at(body, kit.orb(0.06, kit.mat(0xf2ecff, { unlit: true, transparent: true, opacity: 0.55 })), 0, 0.02, 0.05);
-  // Smoke column: a translucent skirt flaring from the torso down INTO the
-  // urn mouth, so ghost and urn read as one continuous pour rather than a
-  // balloon hovering on strings.
-  const skirtMat = kit.mat(0xffffff, { unlit: true, transparent: true, opacity: 0.55, vertexColors: true, side: THREE.DoubleSide });
-  const skirt = kit.bulb(skirtMat, { height: 0.34, width: 0.17, neck: 0.42, segments: 12 });
-  applyVertexGradient(skirt.geometry, { from: 0x352b5c, to: 0x8d7fc0, noise: 0.06, seed: 155, exp: 0.9 });
-  skirt.geometry.rotateX(Math.PI);                   // flare DOWNWARD from the hips
-  kit.at(body, skirt, -0.01, -0.12, -0.06);
+  // --- 2. The keeper --------------------------------------------------------
+  const torsoGeo = S.spindle({ len: 0.34, r: 0.13, sx: 1.0, sy: 0.85, p: 1, radial: 18, rings: 14, profile: (t) => 0.55 + 0.45 * Math.sin(Math.PI * Math.min(1, t * 0.9 + 0.1)) });
+  torsoGeo.rotateX(-Math.PI / 2); // along +Y: t=1 (shoulders) up
+  S.paint(torsoGeo, { from: GHOST_LO, to: GHOST_HI, axis: 'y', noise: 0.02, exp: 0.8 });
+  const coreGlow = S.glow(0xf2ecff, 0.3, 0.45);
+  const body = new THREE.Mesh(torsoGeo, ghost);
+  body.name = 'body';
+  body.add(coreGlow);
+  kit.at(root, body, 0.03, 1.02, 0.07, { rx: 0.2 });
 
-  // Hooded head: a solid-enough cowl (readable at distance) over a dark void
-  // face with bright gold eyes.
-  const head = kit.blob(0.105, hoodMat, { seed: 152, noise: 0.08, squash: { x: 0.95, y: 1.1, z: 1.0 } });
-  applyVertexGradient(head.geometry, { from: 0x2f2850, to: 0x9c90c4, noise: 0.04, seed: 152 });
-  kit.at(body, head, 0, 0.2, 0.05, { rx: -0.1 });
-  const faceVoid = kit.orb(0.075, kit.mat(0x17122a, { rough: 0.9 }), { sz: 0.6 });
-  kit.at(head, faceVoid, 0, -0.005, 0.055);
-  // Hood peak drooping back.
-  const peak = kit.cone(0.05, 0.14, hoodMat, { segments: 7 });
-  applyVertexGradient(peak.geometry, { from: 0x4c4174, to: 0x9c90c4, noise: 0.04, seed: 153 });
-  kit.at(head, peak, 0, 0.06, -0.045, { rx: 0.85 });
+  // lower body pouring back down into the urn: one curling wisp (the tail)
+  const tail = S.softTail(5, ghost, {
+    segLen: 0.075, startR: 0.1, endR: 0.03, curl: 0.2, rootPitch: -1.1, radial: 10,
+    color: (t) => S.mixHex(0x9a8ad8, 0x4a3d86, t),
+  });
+  kit.at(body, tail, 0, -0.1, -0.02);
 
-  const eyeL = kit.at(head, kit.eye(0.026, { irisColor: 0xffe9b0, scleraColor: 0x241f3a, skinColor: 0x554b7a, glintSize: 0.011 }), 0.045, 0.0, 0.085, { ry: 0.2 });
-  const eyeR = kit.at(head, kit.eye(0.026, { irisColor: 0xffe9b0, scleraColor: 0x241f3a, skinColor: 0x554b7a, glintSize: 0.011 }), -0.045, 0.0, 0.085, { ry: -0.2 });
+  // Hood: a deep soft cowl over a dark void face, gold eyes.
+  const hoodGeo = S.spindle({ len: 0.24, r: 0.12, sx: 0.95, sy: 1.05, p: 1, pTail: 0.9, radial: 18, rings: 14, profile: (t) => 0.9 + 0.12 * S.bump(t, 0.4, 0.45) });
+  S.paint(hoodGeo, { from: 0x3a3160, to: 0xa89cd0, axis: 'y', noise: 0.015, seed: 152 });
+  const peak = S.taper(0.16, 0.06, { r1: 0.01, curve: -0.6, radial: 10, rings: 7 });
+  S.pose(peak, S.surface(hoodGeo, S.dirYP(0, 1.0), { inset: 0.04 }), [-0.9, 0, 0]);
+  S.paint(peak, { from: 0x4c4174, to: 0x9c90c4, axis: 'y' });
+  const hood = S.bake([hoodGeo, peak], hoodMat, 'hood');
+  const head = new THREE.Group(); head.name = 'head';
+  head.add(hood);
+  kit.at(body, head, 0, 0.23, 0.03, { rx: -0.08 });
+  const face = new THREE.Mesh(S.ball(0.085, { sz: 0.55, radial: 16, rings: 10 }), kit.mat(0x120e22, { rough: 0.95 }));
+  face.name = 'faceVoid';
+  const fp = S.surface(hoodGeo, S.dirYP(0, -0.05), { inset: 0.03 });
+  kit.at(head, face, fp[0], fp[1], fp[2]);
+  const eyeOpts = { irisColor: 0xffe9b0, scleraColor: 0x241f3a, skinColor: 0x554b7a, glintSize: 0.011 };
+  const eyeL = kit.at(face, kit.eye(0.026, eyeOpts), 0.036, 0.004, 0.035, { ry: 0.2 });
+  const eyeR = kit.at(face, kit.eye(0.026, eyeOpts), -0.036, 0.004, 0.035, { ry: -0.2 });
 
-  // Sleeve-arms: two long fin blades drooping forward like robed arms held
-  // over the urn it guards.
-  const sleeveL = kit.at(body, kit.fin(0.28, wispMat, { width: 0.16, curve: 0.3 }), 0.13, 0.04, 0.1, { rz: -1.65, ry: 0.7 });
-  const sleeveR = kit.at(body, kit.fin(0.28, wispMat, { width: 0.16, curve: 0.3 }), -0.13, 0.04, 0.1, { rz: Math.PI + 1.65, ry: -0.7 });
+  // Soft sleeve-arms held forward over the urn.
+  const sleeves = [1, -1].map((sd) => {
+    const g = S.taper(0.26, 0.06, { r1: 0.02, curve: 0.45, radial: 10, rings: 8, sx: 1.2, sz: 0.8 });
+    S.paint(g, { from: 0xd8d0f8, to: 0x7a6cb8, axis: 'y', noise: 0.02 });
+    const m = new THREE.Mesh(g, ghost);
+    m.name = 'sleeve';
+    kit.at(body, m, sd * 0.1, 0.12, 0.02, { rz: -sd * 2.25, rx: -0.5 });
+    return m;
+  });
 
-  // --- THE BROKEN HALO ----------------------------------------------------
-  // Two arcs of a ring behind the hood with a bite missing; a faint second
-  // ring turns slowly the other way. Torus arcs lie in the XY plane already —
-  // exactly the "behind the head" plane a halo wants.
+  // --- 3. The broken halo -----------------------------------------------------
   const halo = new THREE.Group(); halo.name = 'halo';
-  kit.at(body, halo, 0, 0.26, -0.08);
-  const arc1 = new THREE.Mesh(new THREE.TorusGeometry(0.14, 0.012, 6, 22, Math.PI * 1.35), goldMat.clone());
+  kit.at(body, halo, 0, 0.3, -0.1);
+  const arc1 = new THREE.Mesh(new THREE.TorusGeometry(0.15, 0.013, 6, 24, Math.PI * 1.35), goldMat.clone());
   arc1.rotation.z = 0.5;
   halo.add(arc1);
-  const arc2 = new THREE.Mesh(new THREE.TorusGeometry(0.14, 0.012, 6, 10, Math.PI * 0.4), goldMat.clone());
+  const arc2 = new THREE.Mesh(new THREE.TorusGeometry(0.15, 0.013, 6, 10, Math.PI * 0.4), goldMat.clone());
   arc2.rotation.z = -1.35;
   halo.add(arc2);
-  const haloOuter = new THREE.Mesh(new THREE.TorusGeometry(0.19, 0.006, 5, 26, Math.PI * 1.7), goldSoft.clone());
+  const haloOuter = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.006, 5, 26, Math.PI * 1.7), goldSoft.clone());
   haloOuter.material.opacity = 0.4;
   halo.add(haloOuter);
+  const haloGlow = S.glow(GOLD, 0.5, 0.35);
+  halo.add(haloGlow);
   let haloT = 0;
   const haloSpin = {
     update(dt) {
@@ -132,31 +135,17 @@ export function build_sancturne(kit = kitDefault) {
       const p = 0.75 + 0.25 * Math.sin(haloT * 1.6);
       arc1.material.opacity = 0.75 * p + 0.2;
       arc2.material.opacity = 0.75 * p + 0.2;
-      for (const c of cracks) c.material.opacity = 0.55 + 0.4 * Math.sin(haloT * 1.1 + 1.7) * 0.5 + 0.2;
+      goldMat.opacity = 0.7 + 0.25 * Math.sin(haloT * 1.1 + 1.7);
     },
   };
 
-  // --- Tendrils pouring back into the urn ---------------------------------
-  // Three wisp chains from the torso's skirt, posed to drape DOWN toward the
-  // urn mouth — the visible binding.
-  // Short chains that CURL as they fall, ending well above the urn's mouth —
-  // straight full-length drops read as stool legs, not smoke.
-  const tendrilDefs = [[0.06, 0.02, -0.35], [-0.06, 0.0, -0.55], [0, -0.04, -0.75]];
-  const tendrils = tendrilDefs.map(([x, z, bend], i) => {
-    const chain = kit.tailChain(4, wispMat, { segLen: 0.045, startR: 0.032, endR: 0.005 });
-    kit.at(body, chain, x, -0.14, z, { rx: -Math.PI / 2 + bend });
-    chain.pivots.forEach((p, j) => { if (j > 0) { p.rotation.x = 0.4; p.rotation.y = (i - 1) * 0.15; } });
-    return chain;
-  });
-
-  const auraMotes = kit.mote(10, { color: 0xd8ccff, size: 0.02, radius: 0.3, height: 0.32, speed: 0.28, seed: 152 });
+  const auraMotes = kit.mote(8, { color: 0xd8ccff, size: 0.02, radius: 0.3, height: 0.32, speed: 0.28, seed: 152 });
   kit.at(body, auraMotes, 0, 0.05, 0);
-  const goldRise = kit.mote(6, { color: 0xffe9b0, size: 0.016, radius: 0.14, height: 0.4, speed: 0.4, seed: 154 });
-  kit.at(urnGroup, goldRise, 0, 0.5, 0);
+  const goldRise = kit.mote(5, { color: GOLD, size: 0.016, radius: 0.12, height: 0.4, speed: 0.4, seed: 154 });
+  kit.at(urnGroup, goldRise, 0, 0.55, 0);
 
   const grounded = kit.groundPlant(root);
-  // Soft contact shadow so the creature reads planted on any ground.
-  const contact = kit.shadowDisc(0.35, 0.32);
+  const contact = kit.shadowDisc(0.35, 0.34);
   contact.position.y = 0.02 - grounded.position.y;
   grounded.add(contact);
 
@@ -166,15 +155,15 @@ export function build_sancturne(kit = kitDefault) {
       body,
       head,
       eyelids: [eyeL.getObjectByName('eyelid'), eyeR.getObjectByName('eyelid')],
-      tail: tendrils[0].pivots,
-      accents: [sleeveL, sleeveR, tendrils[1].group, tendrils[2].group, halo],
-      fx: [auraMotes, goldRise, haloSpin],
+      tail: tail.pivots,
+      accents: [...sleeves, halo],
+      fx: [auraMotes, goldRise, haloSpin, S.variantFx(root)],
     },
     hints: {
       personality: 'calm',
       locomotion: 'float',
       hover: true,
-      hoverAmp: 0.06,
+      hoverAmp: 0.05,
       breathAmp: 1.05,
       blinkEvery: 4.4,
     },

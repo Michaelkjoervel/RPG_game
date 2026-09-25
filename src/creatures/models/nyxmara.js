@@ -96,7 +96,7 @@ function starfield(kit, panel, count, span, chord, up, t0, t1, seed) {
   for (let i = 0; i < count; i++) {
     const t = t0 + (t1 - t0) * (0.05 + rng() * 0.9);
     const [hi, lo] = chordAt(t, chord, up, 1 - up);
-    const g = S.ball(0.009 + rng() * 0.012, { radial: 6, rings: 4 });
+    const g = S.ball(0.009 + rng() * 0.012, { radial: 4, rings: 3 });
     g.translate(span * (t - t0), -lo * 0.8 + rng() * (hi + lo) * 0.8, 0);
     geos.push(S.paint(g, 0xffffff));
   }
@@ -121,19 +121,9 @@ export function build_nyxmara(kit = kitDefault) {
   // deliberately LIGHTER than the wing membranes so the body separates from
   // its own wings instead of fusing into one purple mass.
   const furHex = 0x51477a;
-  const fur = kit.mat(furHex, { rough: 0.4, emissive: 0x241e46, emissiveIntensity: 0.5 });
-  const furLight = kit.mat(0x655a92, { rough: 0.45 });
-  const furDark = kit.mat(0x3c355e, { rough: 0.5 });
-  // Visual-overhaul pass: the big pelt masses are vertex-gradient painted
-  // (near-black violet under-body -> dusk lavender along the spine, faint
-  // mottle) so the cat shades as a lit volume instead of one flat purple.
-  const furV = kit.mat(0xffffff, { vertexColors: true, rough: 0.4, emissive: 0x241e46, emissiveIntensity: 0.5 });
+  // Visual pass v2: the pelt is one vertex-painted soft form (see below):
+  // near-black violet under-body -> dusk lavender along the spine.
   const FUR_LO = 0x342c54, FUR_HI = 0x776b9e;
-  const paintFur = (mesh, seed, jit = 0) => {
-    if (jit) jitterGeometry(mesh.geometry, jit, seed);
-    applyVertexGradient(mesh.geometry, { from: FUR_LO, to: FUR_HI, noise: 0.03, seed });
-    return mesh;
-  };
   const wingMat = kit.mat(0x201f42, {
     rough: 0.45, transparent: true, opacity: 0.96, side: THREE.DoubleSide,
     emissive: 0x14132c, emissiveIntensity: 0.5,
@@ -296,10 +286,10 @@ export function build_nyxmara(kit = kitDefault) {
       // wing read as a real shape in a black-on-white silhouette test. This is
       // the one place rotateZ is the RIGHT axis (kit.js's capsule note): a
       // spar is a genuine left-right crossbar, not a nose-to-tail body.
-      const spar = kit.capsule(0.017, span * 0.5, sparMat, { capSeg: 3, radSeg: 6 });
+      const spar = new THREE.Mesh(new THREE.CapsuleGeometry(0.017, span * 0.5, 3, 7), sparMat);
       spar.geometry.rotateZ(Math.PI / 2);
       kit.at(panel, spar, span * 0.25, 0, 0.012);
-      wingFx.push(starfield(kit, panel, i === 0 ? 20 : 13, span, chord, UP, t0, t1, seed + i));
+      wingFx.push(starfield(kit, panel, i === 0 ? 13 : 9, span, chord, UP, t0, t1, seed + i));
     });
 
     if (ocellus) {
@@ -307,9 +297,9 @@ export function build_nyxmara(kit = kitDefault) {
       const spot = new THREE.Group();
       spot.position.set(span * 0.3, chord * 0.12, 0.009);
       panels[0].add(spot);
-      kit.at(spot, kit.orb(chord * 0.19, paleMat, { sz: 0.04 }), 0, 0, 0);
-      kit.at(spot, kit.orb(chord * 0.12, wingMat, { sz: 0.04 }), 0, 0, 0.006);
-      kit.at(spot, kit.orb(chord * 0.05, glowMat.clone(), { sz: 0.06 }), 0, 0, 0.012);
+      kit.at(spot, new THREE.Mesh(S.ball(chord * 0.19, { sz: 0.04, radial: 20, rings: 6 }), paleMat), 0, 0, 0);
+      kit.at(spot, new THREE.Mesh(S.ball(chord * 0.12, { sz: 0.04, radial: 18, rings: 6 }), wingMat), 0, 0, 0.006);
+      kit.at(spot, new THREE.Mesh(S.ball(chord * 0.05, { sz: 0.06, radial: 12, rings: 5 }), glowMat.clone()), 0, 0, 0.012);
       wingAccents.push(spot);
     }
     wingBones.push(bones);
@@ -334,7 +324,7 @@ export function build_nyxmara(kit = kitDefault) {
   ];
   const legs = legDefs.map(([x, y, z, bend, thighR]) => kit.at(body, S.softLeg(LEG, pelt, {
     thighR, shinR: 0.058, kneeR: 0.066, ankleR: 0.05, pawR: 0.07, pawLen: 1.25, toes: 3,
-    bend, split: 0.5, bulge: 0.3, color: 0x51477a, shinColor: 0x463d6c, pawColor: 0x3a3360, radial: 11,
+    bend, split: 0.5, bulge: 0.3, color: 0x51477a, shinColor: 0x463d6c, pawColor: 0x3a3360, radial: 9,
   }), x, y, z));
 
   // --- Long heavy tail, carried in a slow rising curve ---------------------

@@ -1251,9 +1251,13 @@ export function hollowify(group, parts) {
 export function gleamify(group, parts) {
   group.traverse((node) => {
     if (!node.isMesh || !node.material || !node.material.color) return;
+    const c = node.material.color;
+    const k = Math.max(1, c.r, c.g, c.b); // keep HDR glow gain through the hue shift
+    if (k > 1) c.multiplyScalar(1 / k);
     const hsl = { h: 0, s: 0, l: 0 };
-    node.material.color.getHSL(hsl);
-    node.material.color.setHSL((hsl.h + 0.52) % 1, clamp01(hsl.s * 1.1 + 0.08), clamp01(hsl.l * 1.04 + 0.02));
+    c.getHSL(hsl);
+    c.setHSL((hsl.h + 0.52) % 1, clamp01(hsl.s * 1.1 + 0.08), clamp01(hsl.l * 1.04 + 0.02));
+    if (k > 1) c.multiplyScalar(k);
     if (node.material.emissive) node.material.emissiveIntensity = (node.material.emissiveIntensity ?? 1) * 1.3;
   });
   // NOTE: box3 is a WORLD-space measurement, but `sparkle.group` is about to
