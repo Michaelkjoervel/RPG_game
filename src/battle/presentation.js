@@ -253,6 +253,9 @@ export async function createPresentation(game, config = {}) {
     const t = Math.max(0, (dist - stop) / dist);
     const dash = { x: home.x + dx * t, z: home.z + dz * t };
     const bs = attacker.baseScale;
+    // swing to the near-profile impact angle as the dash begins, so contact
+    // lands with both heads in view (not behind the attacker's back)
+    camDir.shot('closeUp', { side: other, ms: 0, melee: true });
     await tween({
       from: 1, to: 0.82, dur: 0.09, ease: easeOutCubic,
       onUpdate: (v) => attacker.group.scale.set(bs.x * (2 - v), bs.y * v, bs.z * (2 - v)),
@@ -269,7 +272,6 @@ export async function createPresentation(game, config = {}) {
     });
     attacker.group.position.y = 0;
     attacker.group.scale.copy(bs);
-    camDir.shot('closeUp', { side: other, ms: 0, melee: true });
     await delay(0.017); // hold one frame at contact — the hit lands here
     // Return home only after the hit's hitstop releases (onHit/onMiss await this).
     meleeReturn = async () => {

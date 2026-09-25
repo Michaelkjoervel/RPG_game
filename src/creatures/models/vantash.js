@@ -3,115 +3,126 @@
 // "Lithe void-panther, used by Order elites; its tail ends in a hook of
 // dark." (Design Bible §4)
 // =============================================================================
-// A sleek predator quadruped: long low body, small alert ears, faint
-// umbra-violet glow along the spine and eyes. The signature feature is the
-// tail's tip — a `kit.horn()` bent into a hooked claw shape, fused
-// backward onto the last tailChain pivot so the whole hook still rides the
-// animator's tail-wave motion. `hints.personality:'regal'` (an elite's
-// mount, not a feral beast) gives it a composed, unhurried idle rather than
-// a twitchy predator stance.
+// Visual pass v2 (soft stylized). A long, low, lithe panther in void-indigo
+// fur with faint darker rosettes: high shoulder blades, a deep chest and a
+// tucked waist on slender legs with big soft paws; a compact cat head with
+// wide cheeks, small rounded ears, a short muzzle with little fangs, stern
+// brows and glowing violet eyes. A thin seam of violet void-light runs down
+// its spine. The signature: a long tail raised in a high arc that ends in a
+// HOOK OF DARK — a black crescent claw with a glowing violet inner edge.
+// Composed and unhurried (an elite's mount): regal personality.
 
 import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
 import * as S from './soft.js';
-import { applyVertexGradient, jitterGeometry } from '../../gfx/materials.js';
+
+const FUR_LO = 0x1c1830, FUR = 0x352e52, FUR_HI = 0x62578a, BELLY = 0x282240, ROSETTE = 0x17132a, VOID = 0x0e0b18, EDGE = 0xb48cff;
 
 export function build_vantash(kit = kitDefault) {
   const pal = kit.palette(['umbra']);
-  // Void-panther fur lifted to a readable dark violet-slate — vertex-gradient
-  // painted (near-void under, dusk-lit spine) so the cat is a shaded volume,
-  // never a black blob.
-  const fur = kit.mat(0xffffff, { vertexColors: true, rough: 0.4, emissive: 0x262042, emissiveIntensity: 0.45 });
-  const FUR_LO = 0x3a3158, FUR_HI = 0x8478ac;
-  const paint = (mesh, seed, jit = 0) => {
-    if (jit) jitterGeometry(mesh.geometry, jit, seed);
-    applyVertexGradient(mesh.geometry, { from: FUR_LO, to: FUR_HI, noise: 0.035, seed });
-    return mesh;
-  };
-  const furPlain = kit.mat(0x5e5484, { rough: 0.4, emissive: 0x262042, emissiveIntensity: 0.5 });
-  const furLight = kit.mat(0x776b9e, { rough: 0.42 });
-  const glowMat = kit.mat(0x9a7fd8, { unlit: true, transparent: true, opacity: 0.75 });
+  const fur = S.vcMat(kit, { rough: 0.5, emissive: 0x1a1530, emissiveIntensity: 0.5 });
+  const glowMat = kit.mat(EDGE, { unlit: true });
 
   const root = new THREE.Group();
 
-  // Lithe torso lying nose-to-tail along Z — the capsule's axis swing is baked
-  // about X. (About Z would put the long axis on X and lay the panther
-  // broadside to the view.) Torso height follows the leg length below so the
-  // paws reach the ground rather than dangling inside the barrel.
-  const body = kit.capsule(0.125, 0.42, fur, { capSeg: 5, radSeg: 10 });
-  body.geometry.rotateX(Math.PI / 2);
-  paint(body, 160);
-  root.add(body);
-  body.position.y = 0.46;
-
-  // A stalking cat's mass: deep chest, round haunches, standing scapulae.
-  kit.at(body, paint(kit.orb(0.145, fur, { sy: 1.02, sz: 0.9 }), 165, 0.006), 0, -0.015, 0.2);
-  kit.at(body, paint(kit.orb(0.115, fur, { sy: 1.15 }), 166, 0.005), 0.06, 0.01, -0.19);
-  kit.at(body, paint(kit.orb(0.115, fur, { sy: 1.15 }), 167, 0.005), -0.06, 0.01, -0.19);
-  kit.at(body, paint(kit.orb(0.065, fur, { sy: 1.3, sz: 0.75 }), 168), 0.07, 0.1, 0.16, { rz: -0.3 });
-  kit.at(body, paint(kit.orb(0.065, fur, { sy: 1.3, sz: 0.75 }), 169), -0.07, 0.1, 0.16, { rz: 0.3 });
-
-  // Faint void-glow stripe down the spine, plus a subtle glow seam along
-  // each flank so the silhouette edge reads even in deep shadow. All three run
-  // nose-to-tail with the body, and all three sit ON its surface (spine at
-  // y=+r; flank seams where the capsule is widest) or they never show at all.
-  const spineGlow = kit.capsule(0.02, 0.32, glowMat, { capSeg: 3, radSeg: 6 });
-  spineGlow.geometry.rotateX(Math.PI / 2);
-  kit.at(body, spineGlow, 0, 0.125, 0);
-  const seamMat = kit.mat(0x9a7fd8, { unlit: true, transparent: true, opacity: 0.35 });
-  for (const sx of [1, -1]) {
-    const seam = kit.capsule(0.008, 0.26, seamMat, { capSeg: 3, radSeg: 5 });
-    seam.geometry.rotateX(Math.PI / 2);
-    kit.at(body, seam, sx * 0.122, 0.04, 0);
+  // --- Torso: long and low, high shoulders, deep chest, tucked waist. -------
+  const torso = S.spindle({
+    len: 0.62, r: 0.11, sx: 0.84, sy: 1.08, p: 0.9, radial: 16, rings: 12,
+    profile: (t) => 0.72 + 0.2 * S.bump(t, 0.2, 0.26) + 0.26 * S.bump(t, 0.74, 0.3),
+    belly: (t) => 0.04 + 0.34 * S.bump(t, 0.36, 0.3),
+    arch: (t) => 0.02 * S.bump(t, 0.22, 0.2) + 0.03 * S.bump(t, 0.72, 0.16),
+  });
+  S.paint(torso, { from: FUR_LO, to: FUR_HI, axis: 'y', exp: 0.8, noise: 0.012, seed: 160 });
+  S.overlay(torso, BELLY, (x, y, z) => S.sstep(-0.05, -0.1, y) * 0.8);
+  for (const [yaw, pitch, z] of [[1.1, 0.45, 0.12], [1.2, 0.25, -0.02], [1.0, 0.6, -0.14], [1.25, 0.4, 0.22], [0.95, 0.35, -0.22],
+    [-1.1, 0.45, 0.08], [-1.2, 0.25, -0.06], [-1.0, 0.6, -0.16], [-1.25, 0.4, 0.2], [-0.95, 0.35, -0.24]]) {
+    S.blush(torso, S.surface(torso, S.dirYP(yaw, pitch), { from: [0, 0, z] }), 0.024, ROSETTE, 0.55);
   }
+  const neck = S.spindle({ len: 0.2, r: 0.075, sx: 0.95, sy: 1.05, p: 0.9, radial: 12, rings: 7, profile: (t) => 1.1 - 0.2 * t });
+  S.pose(neck, [0, 0.07, 0.3], [-0.55, 0, 0]);
+  S.paint(neck, { from: FUR_LO, to: FUR_HI, axis: 'y', noise: 0.012 });
+  const body = S.bake([torso, neck], fur, 'body');
+  root.add(body);
+  body.position.y = 0.36;
+  // the void seam down the spine
+  const seam = S.grooveTop(torso, [[0, 0.24], [0, 0.1], [0, -0.06], [0, -0.22]], { radius: 0.006, lift: 0.001 });
+  const seamMesh = new THREE.Mesh(S.paint(seam, 0xffffff), glowMat);
+  seamMesh.name = 'voidSeam';
+  body.add(seamMesh);
 
-  const head = kit.at(body, paint(kit.blob(0.115, fur, { seed: 160, squash: { x: 0.9, y: 0.85, z: 1.15 } }), 161), 0, 0.08, 0.32);
-  const eyeL = kit.at(head, S.eye(kit, 0.034, { irisColor: 0xc8b0ff, scleraColor: 0x120e1c, skinColor: 0x5e5484, glintSize: 0.014 }), 0.07, 0.02, 0.09, { ry: 0.35 });
-  const eyeR = kit.at(head, S.eye(kit, 0.034, { irisColor: 0xc8b0ff, scleraColor: 0x120e1c, skinColor: 0x5e5484, glintSize: 0.014 }), -0.07, 0.02, 0.09, { ry: -0.35 });
-  const earL = kit.at(head, paint(kit.ear(0.055, fur), 162), 0.07, 0.08, -0.01, { rz: 0.2 });
-  const earR = kit.at(head, paint(kit.ear(0.055, fur), 163), -0.07, 0.08, -0.01, { rz: -0.2 });
+  // --- Head: compact cat, wide cheeks, short muzzle, stern brows. ------------
+  const headGeo = S.spindle({
+    len: 0.19, r: 0.085, sx: 1.1, sy: 1.0, pTail: 1, pNose: 1.15, radial: 16, rings: 12, belly: 0.06,
+    profile: (t) => (t < 0.52 ? 1 : S.lerp(1, 0.6, S.sstep(0.52, 0.95, t))),
+    syAt: (t) => S.lerp(0.92, 0.72, S.sstep(0.5, 0.9, t)),
+    arch: (t) => -0.012 * S.sstep(0.5, 0.95, t),
+  });
+  S.paint(headGeo, { from: FUR_LO, to: FUR_HI, axis: 'y', noise: 0.01, seed: 161 });
+  S.overlay(headGeo, BELLY, (x, y, z) => S.sstep(-0.02, -0.06, y) * 0.8);
+  const SK = [0, 0, -0.02];
+  const nose = S.pose(S.paint(S.ball(0.014, { sx: 1.4, sy: 0.8, radial: 7, rings: 5 }), 0x0c0a14), S.surface(headGeo, [0, 0.35, 1], { from: [0, -0.005, 0.04], inset: 0.004 }));
+  const pads = [1, -1].map((sd) => S.pose(S.paint(S.ball(0.024, { sx: 1.0, sy: 0.8, radial: 8, rings: 6 }), 0x4a4270), S.surface(headGeo, [sd * 0.45, -0.25, 1], { from: [0, -0.02, 0.04], inset: 0.016 })));
+  const fangs = [1, -1].map((sd) => {
+    const g = S.taper(0.028, 0.006, { r1: 0.0015, radial: 5, rings: 3, capSeg: 1 });
+    g.rotateX(Math.PI);
+    S.paint(g, 0xece6f4);
+    return S.pose(g, S.surface(headGeo, [sd * 0.3, -0.55, 1], { from: [0, -0.02, 0.05], inset: 0.004 }));
+  });
+  const brows = [1, -1].map((sd) => S.paint(S.groove(headGeo, [[sd * 0.2, 0.46], [sd * 0.45, 0.5], [sd * 0.7, 0.4]], { from: SK, radius: 0.007, lift: 0.001 }), VOID));
+  const head = S.bake([headGeo, nose, ...pads, ...fangs, ...brows], fur, 'head');
+  kit.at(body, head, 0, 0.18, 0.43, { rx: 0.1 });
+  const eyeOpts = { irisColor: 0xc8a8ff, pupilColor: 0x0a0812, scleraColor: 0x120e1c, skinColor: 0x352e52, glintSize: 0.012 };
+  const eyeL = S.seatEye(kit, head, headGeo, 0.032, 0.56, 0.2, eyeOpts, { sink: 0.45, front: 0.6, from: SK });
+  const eyeR = S.seatEye(kit, head, headGeo, 0.032, -0.56, 0.2, eyeOpts, { sink: 0.45, front: 0.6, from: SK });
+  const mkEar = () => new THREE.Mesh(S.ear(0.08, 0.07, { color: FUR, inner: 0x6a4fa8, tip: 0.9, cup: 0.45, depth: 0.36, radial: 8, rings: 6 }), fur);
+  const earL = mkEar(), earR = mkEar();
+  earL.name = earR.name = 'ear';
+  const ea = S.surface(headGeo, S.dirYP(0.62, 0.9), { from: SK, inset: 0.012 });
+  kit.at(head, earL, ea[0], ea[1], ea[2], { rz: -0.45, ry: 0.25 });
+  kit.at(head, earR, -ea[0], ea[1], ea[2], { rz: 0.45, ry: -0.25 });
 
-  const muzzle = kit.at(head, kit.orb(0.05, furLight, { sz: 1.15, sy: 0.7 }), 0, -0.04, 0.1);
-  kit.at(muzzle, kit.fang(0.03, kit.mat(0xece6f0, { rough: 0.3 })), 0.02, -0.015, 0.02, { rz: 0.1 });
-  kit.at(muzzle, kit.fang(0.03, kit.mat(0xece6f0, { rough: 0.3 })), -0.02, -0.015, 0.02, { rz: -0.1 });
-
-  // Hips sit just under the belly (local Y is measured from the torso centre);
-  // kit.leg(0.3) drops 0.327 from there, planting the paws on y=0. Fore/hind
-  // pairs stand under the shoulders and haunches of the 0.31 half-length.
-  const legDefs = [
-    [0.11, -0.133, 0.22], [-0.11, -0.133, 0.22],
-    [0.11, -0.133, -0.22], [-0.11, -0.133, -0.22],
-  ];
-  const legs = legDefs.map(([x, y, z], i) => {
-    const l = kit.at(body, kit.leg(0.3, fur, { thighR: 0.055, shinR: 0.04, footLen: 0.09, footMat: furPlain }), x, y, z);
-    for (const c of l.hip.children) if (c.isMesh && c.geometry) paint(c, 170 + i);
-    for (const c of l.knee.children) if (c.isMesh && c.geometry && c !== l.foot) paint(c, 174 + i);
+  // --- Slender legs, big soft paws. ---------------------------------------------
+  const fore = { thighR: 0.062, shinR: 0.03, kneeR: 0.036, ankleR: 0.026, pawR: 0.044, pawLen: 1.2, bend: -0.1, split: 0.5, bulge: 0.3 };
+  const hind = { thighR: 0.078, shinR: 0.03, kneeR: 0.036, ankleR: 0.026, pawR: 0.044, pawLen: 1.2, bend: 0.42, split: 0.46, bulge: 0.36 };
+  const legs = [[0.07, -0.05, 0.2, fore], [-0.07, -0.05, 0.2, fore], [0.068, -0.03, -0.21, hind], [-0.068, -0.03, -0.21, hind]].map(([x, y, z, d]) => {
+    const l = S.softLeg(0.36 + y, fur, { ...d, color: FUR, shinColor: FUR_LO, pawColor: 0x2a2442, toes: 3, radial: 7 });
+    kit.at(body, l, x, y, z);
     return l;
   });
 
-  // Long tail carried in a rising curve, ending in the HOOK OF DARK — a
-  // solid void-black crescent with a glowing edge seam, big enough to be the
-  // second thing the eye finds after the eyes.
-  const tail = kit.at(body, kit.tailChain(7, fur, { segLen: 0.09, startR: 0.042, endR: 0.013 }), 0, 0.07, -0.32);
-  tail.pivots.forEach((p, i) => {
-    p.rotation.x = i === 0 ? 0.5 : (i < 4 ? 0.1 : -0.05);
-    for (const c of p.children) if (c.isMesh && c.geometry && c.geometry.attributes) paint(c, 178 + i);
+  // --- The tail: a high arc ending in the HOOK OF DARK. ---------------------
+  const curls = [0.4, 0.3, 0.12, -0.08, -0.2, -0.26];
+  const tail = S.softTail(6, fur, {
+    segLen: 0.085, startR: 0.034, endR: 0.02, curl: (i) => curls[i], rootPitch: 0.45, radial: 8,
+    color: (t) => S.mixHex(FUR, FUR_LO, t),
   });
-  const hookTip = tail.pivots[tail.pivots.length - 1];
-  const hook = kit.at(hookTip, kit.horn(0.16, kit.mat(0x1c1730, { rough: 0.3 }), { baseR: 0.03, tipR: 0.006, bend: 1.3 }), 0, 0, -0.07, { rx: -Math.PI / 2 - 0.3 });
-  kit.at(hook, kit.horn(0.15, glowMat, { baseR: 0.012, tipR: 0.003, bend: 1.3 }), 0.014, 0.005, 0);
+  kit.at(body, tail, 0, 0.06, -0.3);
+  const hook = new THREE.Group(); hook.name = 'hook';
+  const hookGeo = S.taper(0.19, 0.028, { r1: 0.004, curve: 1.15, radial: 7, rings: 8, sx: 0.55 });
+  hookGeo.rotateX(-Math.PI / 2); // grow on along the tail (-Z), curl up (+Y)
+  S.paint(hookGeo, { from: 0x2a2244, to: VOID, axis: 'z' });
+  hook.add(new THREE.Mesh(hookGeo, fur));
+  const edgeGeo = S.taper(0.17, 0.009, { r1: 0.002, curve: 1.2, radial: 5, rings: 7, sx: 0.8 });
+  edgeGeo.rotateX(-Math.PI / 2);
+  edgeGeo.translate(0, 0.012, 0.004);
+  const edge = new THREE.Mesh(S.paint(edgeGeo, 0xffffff), glowMat);
+  edge.name = 'hookEdge';
+  hook.add(edge);
+  const hookGlow = S.glow(0x9a70ff, 0.2, 0.35);
+  hookGlow.position.set(0, 0.07, -0.1);
+  hook.add(hookGlow);
+  kit.at(tail.tipAnchor, hook, 0, 0, 0.01);
 
-  const spark = kit.heartspark(0.036, pal.eye, { seed: 161 });
-  kit.at(body, spark, 0, 0.02, 0.12);
+  const wisps = kit.mote(5, { color: 0x4a3a80, size: 0.026, radius: 0.24, height: 0.22, speed: 0.25, seed: 162 });
+  kit.at(body, wisps, 0, 0.06, -0.05);
+  const spark = kit.heartspark(0.026, pal.eye, { seed: 161 });
+  const sp = S.surface(torso, S.dirYP(0, -0.15), { from: [0, 0, 0.12], inset: 0.01 });
+  kit.at(body, spark, sp[0], sp[1], sp[2]);
 
-  const grounded = kit.groundPlant(root);
-  // Soft contact shadow so the creature reads planted on any ground.
-  const contact = kit.shadowDisc(0.32, 0.32);
-  contact.position.y = 0.02 - grounded.position.y;
-  grounded.add(contact);
+  root.add(kit.shadowDisc(0.3, 0.36));
 
   return {
-    group: grounded,
+    group: kit.groundPlant(root),
     parts: {
       body,
       head,
@@ -119,7 +130,7 @@ export function build_vantash(kit = kitDefault) {
       tail: tail.pivots,
       legs: legs.map((l) => ({ hip: l.hip, knee: l.knee, foot: l.foot })),
       accents: [earL, earR, hook],
-      fx: [spark],
+      fx: [wisps, spark, S.variantFx(root)],
     },
     hints: {
       personality: 'regal',

@@ -3,127 +3,174 @@
 // "Radiant deer, antlers of hard light, hooves leave glowing blossoms.
 // Awakens only where shardlight pools." (Design Bible §4)
 // =============================================================================
-// Dapplyn grown into full radiance: the same graceful fawn proportions and
-// gentle temperament, but adult-sized with pale gold-cream fur and the
-// bible's signature "antlers of hard light" — a branching antler structure
-// built the same way sylvathorn.js branches its bark antlers, but in an
-// unlit, translucent, glowing material instead of solid bark. "Hooves leave
-// glowing blossoms" becomes small emissive petal blooms resting at each
-// footfall.
+// Visual pass v2 (soft stylized). Dapplyn's fawn grown into a graceful adult
+// doe-stag: a lean ivory-and-honey body whose neck flows up out of the chest
+// (one sculpted form, no tube-on-barrel join), long slender legs on gold
+// hooves, a gentle head with big dark eyes and wide leaf ears, the fawn's
+// cream dapples still on its back. The signature reads at any distance: a
+// crown of HARD-LIGHT ANTLERS — lyre-shaped beams with forward tines, made of
+// unlit gold light that brightens to white at the tips (they bloom on High).
+// Each hoof stands on a small glowing blossom.
 
 import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
 import * as S from './soft.js';
-import { applyVertexGradient, jitterGeometry } from '../../gfx/materials.js';
+
+const COAT_LO = 0xa8844e, COAT = 0xd8bc88, COAT_HI = 0xf6ead0, CREAM = 0xfffaf0, HOOF = 0xc8963c;
+const LIGHT = [0xe88f22, 0xffc850, 0xfff4cc];
+
+// One hard-light antler (left side for sd = +1). Base at the origin.
+function antlerGeo(sd) {
+  const L = 0.34, C = -0.32; // the beam curves back in toward the crown at the top
+  const parts = [S.taper(L, 0.017, { r1: 0.005, curve: C, radial: 6, rings: 7, capSeg: 1 })];
+  for (const [t, len, dx] of [[0.32, 0.11, 0.9], [0.58, 0.12, 0.6], [0.82, 0.08, 0.4]]) {
+    const g = S.taper(len, 0.009, { r1: 0.003, curve: 0.25, radial: 5, rings: 4, capSeg: 1 });
+    S.aim(g, [dx, 1, -0.35]);
+    parts.push(S.pose(g, [0, t * L, C * L * t * t]));
+  }
+  const g = S.merge(parts);
+  // local +Z (the beam's bend) -> inward; local +X -> forward; then splay out and back
+  g.rotateY(-sd * Math.PI / 2);
+  g.rotateZ(-sd * 0.55);
+  g.rotateX(-0.3);
+  g.computeBoundingBox();
+  const h = g.boundingBox.max.y;
+  S.paint(g, { fn: (x, y, z) => S.clamp01(y / h), from: LIGHT[0], to: LIGHT[2] });
+  const col = g.attributes.color, pos = g.attributes.position, c = new THREE.Color();
+  for (let i = 0; i < pos.count; i++) {
+    const t = S.clamp01(pos.getY(i) / h);
+    c.setHex(t < 0.55 ? S.mixHex(LIGHT[0], LIGHT[1], t / 0.55) : S.mixHex(LIGHT[1], LIGHT[2], (t - 0.55) / 0.45));
+    col.setXYZ(i, c.r, c.g, c.b);
+  }
+  return g;
+}
+
+// A flat five-petal rosette of light (normal +Y), for under each hoof.
+function blossomGeo(r) {
+  const g = new THREE.CircleGeometry(r, 30);
+  g.deleteAttribute('uv');
+  const pos = g.attributes.position;
+  for (let i = 1; i < pos.count; i++) {
+    const x = pos.getX(i), y = pos.getY(i);
+    const a = Math.atan2(y, x);
+    const k = 0.45 + 0.55 * Math.pow(Math.abs(Math.cos(2.5 * a)), 0.6);
+    pos.setXY(i, x * k, y * k);
+  }
+  g.rotateX(-Math.PI / 2);
+  S.paint(g, { fn: (x, y, z) => S.clamp01(Math.hypot(x, z) / r), from: 0xfff2c4, to: 0xff8fc0 });
+  return g;
+}
 
 export function build_cervalume(kit = kitDefault) {
   const pal = kit.palette(['lumen', 'bloom']);
-  // Radiant coat: vertex gradient from warm fawn-gold under-body to near-
-  // ivory along the spine, so the deer shades as morning light, not plastic.
-  const skin = kit.mat(0xffffff, { vertexColors: true, rough: 0.45 });
-  const COAT_LO = 0xc2a26c, COAT_HI = 0xfdf6e0;
-  const paint = (mesh, seed, jit = 0) => {
-    if (jit) jitterGeometry(mesh.geometry, jit, seed);
-    applyVertexGradient(mesh.geometry, { from: COAT_LO, to: COAT_HI, noise: 0.035, seed });
-    return mesh;
-  };
-  const hoofMat = kit.mat(0xd8b46a, { rough: 0.4, emissive: 0xa87c28, emissiveIntensity: 0.6 });
-  const lightMat = kit.mat(0xffda80, { unlit: true, transparent: true, opacity: 0.85 }); // hard-light glow tips
-  // Solid saturated gold core — pale-cream antlers vanished against a pale
-  // coat and a bright sky; this reads as METAL LIGHT at any distance.
-  const lightCore = kit.mat(0xf0a83a, { rough: 0.3, metal: 0.1, emissive: 0xc87818, emissiveIntensity: 0.85 });
-  const bloomMat = kit.mat(pal.secondary, { unlit: true, transparent: true, opacity: 0.85 });
+  const fur = S.vcMat(kit, { rough: 0.6 });
+  const lightMat = kit.mat(0xffffff, { unlit: true, vertexColors: true });
+  lightMat.userData.softVC = true;
+  const bloomMat = kit.mat(0xffffff, { unlit: true, vertexColors: true, transparent: true, opacity: 0.85 });
+  bloomMat.depthWrite = false;
+  bloomMat.userData.softVC = true;
 
   const root = new THREE.Group();
 
-  // Deer torso lying nose-to-tail along Z — the capsule's axis swing is baked
-  // about X (about Z would lay the doe sideways across the view). Torso height
-  // is tied to the leg length below so the hooves reach the ground.
-  const body = kit.capsule(0.17, 0.4, skin, { capSeg: 5, radSeg: 9 });
-  body.geometry.rotateX(Math.PI / 2);
-  paint(body, 150, 0.005);
-  root.add(body);
-  body.position.y = 0.66;
-
-  // Deer chest + haunch mass so the barrel isn't a pipe.
-  kit.at(body, paint(kit.orb(0.175, skin, { sy: 1.05, sz: 0.9 }), 154, 0.007), 0, -0.02, 0.2);
-  kit.at(body, paint(kit.orb(0.16, skin, { sy: 1.08, sz: 0.95 }), 155, 0.007), 0, -0.01, -0.22);
-
-  const head = kit.at(body, paint(kit.blob(0.13, skin, { seed: 150, squash: { x: 0.85, y: 0.9, z: 1.3 } }), 156), 0, 0.2, 0.3);
-  const eyeL = kit.at(head, S.eye(kit, 0.042, { irisColor: 0x3a2c14, skinColor: 0xe8dcc0, glintSize: 0.016 }), 0.078, 0.01, 0.1, { ry: 0.3 });
-  const eyeR = kit.at(head, S.eye(kit, 0.042, { irisColor: 0x3a2c14, skinColor: 0xe8dcc0, glintSize: 0.016 }), -0.078, 0.01, 0.1, { ry: -0.3 });
-  const earL = kit.at(head, paint(kit.ear(0.075, skin, { floppy: true }), 157), 0.085, 0.09, -0.02, { rz: 0.35 });
-  const earR = kit.at(head, paint(kit.ear(0.075, skin, { floppy: true }), 158), -0.085, 0.09, -0.02, { rz: -0.35 });
-
-  // Branching hard-light antlers: a SOLID emissive-gold core horn (survives
-  // a silhouette test) wearing a translucent additive glow shell, branches
-  // grafted the same way sylvathorn.js does its bark rack.
-  const antlerAccents = [];
-  const A_LEN = 0.42, A_BEND = 0.4;
-  for (const side of [1, -1]) {
-    const main = kit.horn(A_LEN, lightCore, { bend: side * A_BEND, baseR: 0.048, tipR: 0.012 });
-    const mainAt = kit.at(head, main, side * 0.07, 0.11, -0.01, { rz: -side * 0.55, ry: side * 0.1, rx: -0.15 });
-    antlerAccents.push(mainAt);
-    for (const [t, s] of [[0.34, 0.78], [0.62, 0.55]]) {
-      const bLen = 0.26 * s;
-      const branch = kit.horn(bLen, lightCore, { bend: side * 0.5, baseR: 0.024, tipR: 0.007 });
-      const bAt = kit.at(mainAt, branch, side * A_BEND * t * t * A_LEN, A_LEN * t, 0, { rz: side * -0.8, ry: side * 0.4 });
-      kit.at(bAt, kit.orb(0.02, lightMat.clone()), side * 0.5 * bLen * 0.4, bLen, 0);
-    }
-    kit.at(mainAt, kit.orb(0.026, lightMat.clone()), side * A_BEND * A_LEN, A_LEN, 0);
+  // --- Body + neck: one swept form; dapples on the back. ----------------------
+  const bodyGeo = S.spindle({
+    len: 0.54, r: 0.125, sx: 0.84, sy: 1.08, p: 0.92, radial: 16, rings: 12,
+    profile: (t) => 0.76 + 0.14 * S.bump(t, 0.2, 0.28) + 0.26 * S.bump(t, 0.72, 0.32),
+    belly: (t) => 0.06 + 0.3 * S.bump(t, 0.4, 0.28),
+    arch: (t) => 0.03 * S.sstep(0.5, 1, t),
+  });
+  S.paint(bodyGeo, { from: COAT_LO, to: COAT_HI, axis: 'y', noise: 0.012, seed: 150 });
+  S.overlay(bodyGeo, CREAM, (x, y, z) => S.sstep(-0.05, -0.11, y) * 0.95);
+  for (const [yaw, pitch, z] of [[0.9, 0.75, 0.1], [1.1, 0.5, -0.04], [0.8, 0.8, -0.16], [0.35, 1.2, 0.02],
+    [-0.9, 0.75, 0.06], [-1.1, 0.5, -0.1], [-0.8, 0.8, 0.14], [-0.35, 1.2, -0.12]]) {
+    S.blush(bodyGeo, S.surface(bodyGeo, S.dirYP(yaw, pitch), { from: [0, 0, z] }), 0.022, CREAM, 0.95);
   }
+  const neckGeo = S.tubeAlong([[0, 0.02, 0.17], [0, 0.14, 0.245], [0, 0.26, 0.29], [0, 0.34, 0.31]], (t) => S.lerp(0.085, 0.056, t), { radial: 12, tubular: 12 });
+  S.paint(neckGeo, { from: COAT, to: COAT_HI, axis: 'y', noise: 0.012 });
+  S.overlayN(neckGeo, CREAM, (nx, ny, nz) => S.sstep(0.3, 0.7, nz - ny * 0.3) * 0.9);
+  const body = S.bake([bodyGeo, neckGeo], fur, 'body');
+  root.add(body);
+  body.position.y = 0.46;
 
-  // --- Legs: four long, elegant legs — grown from Dapplyn's fawn stance. ---
-  // Hip Y is local to the torso: just under the belly (-0.151 ≈ -radius), from
-  // where kit.leg(0.5) drops 0.509 to the hoof — hooves land on y=0. Fore and
-  // hind pairs sit under the shoulders/haunches of the 0.37 torso half-length.
-  const legDefs = [
-    [0.13, -0.151, 0.25], [-0.13, -0.151, 0.25],
-    [0.13, -0.151, -0.24], [-0.13, -0.151, -0.24],
-  ];
-  const legs = legDefs.map(([x, y, z], i) => {
-    const l = kit.at(body, kit.leg(0.5, skin, { thighR: 0.055, shinR: 0.038, footLen: 0.09, footMat: hoofMat }), x, y, z);
-    for (const c of l.hip.children) if (c.isMesh && c.geometry) paint(c, 160 + i);
-    for (const c of l.knee.children) if (c.isMesh && c.geometry && c !== l.foot) paint(c, 164 + i);
+  // --- Head: gentle, big dark eyes, wide leaf ears, the light crown. ---------
+  const headGeo = S.spindle({
+    len: 0.23, r: 0.088, sx: 0.9, sy: 1.0, pTail: 1, pNose: 1.1, radial: 16, rings: 12,
+    profile: (t) => (t < 0.42 ? 1 : S.lerp(1, 0.6, S.sstep(0.42, 0.85, t))),
+    syAt: (t) => S.lerp(0.98, 0.76, S.sstep(0.4, 0.85, t)),
+    arch: (t) => -0.018 * S.sstep(0.4, 0.9, t),
+  });
+  S.paint(headGeo, { from: COAT_LO, to: COAT_HI, axis: 'y', noise: 0.01, seed: 151 });
+  S.overlay(headGeo, CREAM, (x, y, z) => S.sstep(0.04, 0.1, z) * S.sstep(0.0, -0.04, y) * 0.9);
+  const nose = S.pose(S.paint(S.ball(0.013, { sx: 1.3, sy: 0.8, radial: 7, rings: 5 }), 0x3a2a20), S.surface(headGeo, [0, 0.3, 1], { from: [0, -0.01, 0.03], inset: 0.004 }));
+  const head = S.bake([headGeo, nose], fur, 'head');
+  kit.at(body, head, 0, 0.38, 0.37, { rx: 0.18 });
+  const SK = [0, 0, -0.03];
+  const eyeOpts = { irisColor: 0x2e1c10, skinColor: 0xd8bc88, glintSize: 0.014 };
+  const eyeL = S.seatEye(kit, head, headGeo, 0.038, 0.62, 0.2, eyeOpts, { sink: 0.42, front: 0.5, from: SK });
+  const eyeR = S.seatEye(kit, head, headGeo, 0.038, -0.62, 0.2, eyeOpts, { sink: 0.42, front: 0.5, from: SK });
+  const mkEar = () => new THREE.Mesh(S.ear(0.14, 0.085, { color: COAT, inner: 0xf2d8c4, tip: 1.0, cup: 0.5, depth: 0.3, radial: 8, rings: 7 }), fur);
+  const earL = mkEar(), earR = mkEar();
+  earL.name = earR.name = 'ear';
+  const ea = S.surface(headGeo, S.dirYP(1.0, 0.45), { from: SK, inset: 0.01 });
+  kit.at(head, earL, ea[0], ea[1], ea[2] - 0.015, { rz: -1.15, ry: 0.35, rx: -0.1 });
+  kit.at(head, earR, -ea[0], ea[1], ea[2] - 0.015, { rz: 1.15, ry: -0.35, rx: -0.1 });
+
+  // THE ANTLERS OF HARD LIGHT (accents: they sway about their base).
+  const antlers = [1, -1].map((sd) => {
+    const m = new THREE.Mesh(antlerGeo(sd), lightMat);
+    m.name = 'antler';
+    const at = S.surface(headGeo, S.dirYP(sd * 0.32, 1.05), { from: SK, inset: 0.012 });
+    kit.at(head, m, at[0], at[1], at[2]);
+    return m;
+  });
+  const crownGlow = S.glow(0xffe0a0, 0.42, 0.3);
+  crownGlow.position.set(0, 0.28, -0.08);
+  head.add(crownGlow);
+
+  // --- Long legs on gold hooves, each standing on a blossom of light. -------
+  const legs = [[0.068, -0.06, 0.17, -0.08, 0.05], [-0.068, -0.06, 0.17, -0.08, 0.05], [0.068, -0.04, -0.17, 0.42, 0.07], [-0.068, -0.04, -0.17, 0.42, 0.07]].map(([x, y, z, bend, thighR]) => {
+    const l = S.softLeg(0.46 + y, fur, { thighR, shinR: 0.024, kneeR: 0.03, ankleR: 0.02, pawR: 0.027, pawLen: 1.25, pawH: 0.028, toes: 0, bend, split: 0.5, bulge: 0.32, color: COAT, shinColor: COAT_HI, pawColor: HOOF, radial: 7 });
+    kit.at(body, l, x, y, z);
     return l;
   });
-
-  // Glowing blossoms resting at each footfall — hooves that leave light
-  // behind them.
-  const blossoms = legs.map((l, i) => {
-    const p = kit.at(l.foot, kit.petal(0.08, bloomMat.clone(), { width: 0.07 }), 0, -0.018, 0.02, { rx: -Math.PI / 2, ry: i * 1.7 });
-    kit.at(l.foot, kit.orb(0.05, kit.mat(0xfff2c8, { unlit: true, additive: true, opacity: 0.4 }), { sy: 0.12 }), 0, -0.02, 0.01);
-    return p;
+  const blossom = blossomGeo(0.055);
+  legs.forEach((l, i) => {
+    l.foot.geometry.computeBoundingBox();
+    const bb = l.foot.geometry.boundingBox;
+    const b = new THREE.Mesh(blossom, bloomMat);
+    b.name = 'blossom';
+    b.position.set(0, bb.min.y + 0.003, (bb.min.z + bb.max.z) * 0.5 + 0.1 * (bb.max.z - bb.min.z));
+    b.rotation.y = i * 1.3;
+    l.foot.add(b);
   });
 
-  const tail = kit.at(body, kit.tailChain(2, skin, { segLen: 0.05, startR: 0.03, endR: 0.014 }), 0, 0.12, -0.34);
-  tail.pivots.forEach((p, i) => {
-    for (const c of p.children) if (c.isMesh && c.geometry && c.geometry.attributes) paint(c, 168 + i);
+  // --- Short white flag of a tail. ---------------------------------------------
+  const tail = S.softTail(2, fur, {
+    segLen: 0.045, curl: 0.35, rootPitch: 0.7, radial: 8,
+    radiusFn: (t) => 0.026 + 0.012 * Math.sin(Math.PI * Math.min(1, t + 0.2)),
+    color: (t) => S.mixHex(COAT, CREAM, t),
   });
+  kit.at(body, tail, 0, 0.08, -0.27);
 
-  // A slow, calm drift of gold-green light motes about the shoulders.
-  const glow = kit.mote(10, { color: 0xfff2c8, size: 0.02, radius: 0.3, height: 0.3, speed: 0.3, seed: 151 });
-  kit.at(body, glow, 0, 0.15, 0.1);
+  // A slow drift of pale-gold light about the shoulders.
+  const motes = kit.mote(8, { color: 0xfff2c8, size: 0.02, radius: 0.3, height: 0.3, speed: 0.3, seed: 151 });
+  kit.at(body, motes, 0, 0.18, 0.08);
+  const spark = kit.heartspark(0.03, 0xfff2c8, { seed: 152 });
+  const sp = S.surface(bodyGeo, S.dirYP(0, -0.1), { from: [0, 0, 0.12], inset: 0.01 });
+  kit.at(body, spark, sp[0], sp[1], sp[2]);
 
-  const spark = kit.heartspark(0.05, 0xfff2c8, { seed: 152 });
-  kit.at(body, spark, 0, 0.05, 0.22);
-
-  const grounded = kit.groundPlant(root);
-  // Soft contact shadow so the creature reads planted on any ground.
-  const contact = kit.shadowDisc(0.4, 0.32);
-  contact.position.y = 0.02 - grounded.position.y;
-  grounded.add(contact);
+  root.add(kit.shadowDisc(0.28, 0.36));
 
   return {
-    group: grounded,
+    group: kit.groundPlant(root),
     parts: {
       body,
       head,
       eyelids: [eyeL.getObjectByName('eyelid'), eyeR.getObjectByName('eyelid')],
       tail: tail.pivots,
       legs: legs.map((l) => ({ hip: l.hip, knee: l.knee, foot: l.foot })),
-      accents: [earL, earR, ...antlerAccents],
-      fx: [glow, spark],
+      accents: [earL, earR, ...antlers],
+      fx: [motes, spark, S.variantFx(root)],
     },
     hints: {
       personality: 'regal',

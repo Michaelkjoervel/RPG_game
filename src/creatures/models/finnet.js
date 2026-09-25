@@ -3,70 +3,121 @@
 // "Glass-finned koi, transparent fins like stained glass. Mirror-gazer."
 // (Design Bible §4)
 // =============================================================================
-// A small ornamental koi. `hints.locomotion:'float'` + `hover:true` gives it
-// a gentle hover-bob whether it's technically "standing" on a lake bed or
-// glimpsed drifting mid-water by wildlife.js — no legs needed. Its fins are
-// the whole point: several kit.fin() panels in jewel-tone, glassy,
-// transparent materials (a different hue per fin, echoing "stained glass"
-// rather than one flat color) fanned from a simple lozenge body.
+// Visual pass v2 (soft stylized). A chubby little ornamental koi (Prismfin's
+// fry): a round, laterally soft body in cream and gold with kohaku-red
+// saddle patches, a big-eyed face, tiny barbels. The signature is its fins:
+// real STAINED GLASS — each fin a luminous translucent pane split into jewel
+// colored cells (sapphire, teal, amethyst, gold) by dark leading along a
+// centre rib and the rim. Dorsal, pectorals, pelvics and a two-lobed tail fan.
+// It hovers (float + hover hints).
 
 import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
 import * as S from './soft.js';
-import { applyVertexGradient, jitterGeometry } from '../../gfx/materials.js';
+
+const CREAM = 0xfdf2d8, GOLD_LO = 0xd8a04a, KOHAKU = 0xe8502a, LEAD = 0x1c2638;
+const GLASS = [0x3f7cf0, 0x2fc8b4, 0x9a62f0, 0xffc24a, 0x4fa8ff];
+
+// A stained-glass fin: a flat, slightly cupped pane along +Z (base at 0,
+// width along Y) built from explicit quads so every cell is one crisp colour
+// and the leading (rim, centre rib, two cross bars) is a hard dark strip.
+const LEAD_C = new THREE.Color(LEAD), _fc = new THREE.Color();
+function glassFin(len, width, { profile = null, seed = 0, cup = 0.12 } = {}) {
+  const prof = profile ?? ((t) => Math.pow(Math.sin(Math.PI * Math.min(1, t * 0.95 + 0.05)), 0.7));
+  const U = [0, 0.16, 0.3, 0.34, 0.49, 0.63, 0.67, 0.84, 1];
+  const V = [-1, -0.86, -0.45, -0.06, 0.06, 0.45, 0.86, 1];
+  const uCell = (a) => (a < 0.3 ? 0 : a < 0.34 ? -1 : a < 0.63 ? 1 : a < 0.67 ? -1 : 2);
+  const vCell = (a) => (Math.abs(a) > 0.86 || Math.abs(a) < 0.06 ? -1 : a > 0 ? 1 : 0);
+  const P = (u, v) => [cup * width * v * v, v * width * 0.5 * prof(u), u * len];
+  const pos = [], col = [];
+  for (let i = 0; i < U.length - 1; i++) for (let j = 0; j < V.length - 1; j++) {
+    const u0 = U[i], u1 = U[i + 1], v0 = V[j], v1 = V[j + 1];
+    const uc = uCell((u0 + u1) / 2), vc = vCell((v0 + v1) / 2);
+    if (uc < 0 || vc < 0) _fc.copy(LEAD_C);
+    else _fc.setHex(GLASS[(uc * 2 + vc + seed) % GLASS.length]);
+    const a = P(u0, v0), b = P(u1, v0), c = P(u1, v1), d = P(u0, v1);
+    pos.push(...a, ...b, ...c, ...a, ...c, ...d);
+    for (let k = 0; k < 6; k++) col.push(_fc.r, _fc.g, _fc.b);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.computeVertexNormals();
+  return g;
+}
 
 export function build_finnet(kit = kitDefault) {
   const pal = kit.palette(['tide']);
-  // Ornamental koi gold: warm amber belly rising to pale cream along the
-  // spine, mottled — a jewel-fish, not a flat yellow lozenge.
-  const skin = kit.mat(0xffffff, { vertexColors: true, rough: 0.35, metal: 0.05 });
-  const skinDark = kit.mat(0xd8814a, { rough: 0.35 });
-  const finBlue = kit.mat(0x6fc4e8, { rough: 0.12, transparent: true, opacity: 0.72, side: THREE.DoubleSide, emissive: 0x2a7aa0, emissiveIntensity: 0.4 });
-  const finTeal = kit.mat(0x7ae8c8, { rough: 0.12, transparent: true, opacity: 0.68, side: THREE.DoubleSide, emissive: 0x2f9678, emissiveIntensity: 0.4 });
+  const skin = S.vcMat(kit, { rough: 0.32, metal: 0.05 });
+  const glass = kit.mat(0xffffff, { unlit: true, vertexColors: true, transparent: true, opacity: 0.82, side: THREE.DoubleSide, glow: 1.25 });
+  glass.depthWrite = false;
+  glass.userData.softVC = true;
 
   const root = new THREE.Group();
 
-  const body = kit.blob(0.11, skin, { seed: 80, noise: 0.06, squash: { x: 0.66, y: 0.85, z: 1.25 } });
-  jitterGeometry(body.geometry, 0.004, 80);
-  applyVertexGradient(body.geometry, { from: 0xc9963e, to: 0xfaf0d0, noise: 0.045, seed: 80 });
-  root.add(body);
-  body.position.y = 0.13;
-
-  // Koi mottling — bold saddle patches.
-  kit.at(body, kit.orb(0.05, skinDark), 0.035, 0.04, 0.06, { sy: 0.45 });
-  kit.at(body, kit.orb(0.04, skinDark), -0.025, 0.02, -0.06, { sy: 0.45 });
-  kit.at(body, kit.orb(0.03, kit.mat(0xf2f0e4, { rough: 0.35 })), 0.01, 0.05, -0.01, { sy: 0.4 });
-
-  const eyeL = kit.at(body, S.eye(kit, 0.026, { irisColor: 0x123a4a, skinColor: 0xe0b45e, glintSize: 0.011 }), 0.058, 0.03, 0.12, { ry: 0.45 });
-  const eyeR = kit.at(body, S.eye(kit, 0.026, { irisColor: 0x123a4a, skinColor: 0xe0b45e, glintSize: 0.011 }), -0.058, 0.03, 0.12, { ry: -0.45 });
-
-  // Barbel whiskers, koi-appropriate.
-  const whiskerMat = kit.mat(0xf2e6c4, { unlit: true, transparent: true, opacity: 0.7 });
-  const whiskL = kit.at(body, kit.leafBlade(0.045, whiskerMat, { width: 0.004 }), 0.045, -0.01, 0.14, { ry: -0.3, rz: 0.1 });
-  const whiskR = kit.at(body, kit.leafBlade(0.045, whiskerMat, { width: 0.004 }), -0.045, -0.01, 0.14, { ry: Math.PI + 0.3, rz: -0.1 });
-
-  // Stained-glass fins: dorsal, two pectoral, one ventral — alternating hue,
-  // each big enough to catch light like a window pane.
-  const dorsal = kit.at(body, kit.fin(0.15, finBlue, { width: 0.11 }), 0, 0.08, 0.02, { rx: -1.15, ry: Math.PI });
-  const pecL = kit.at(body, kit.fin(0.1, finTeal, { width: 0.07 }), 0.06, -0.01, 0.05, { rx: -0.15, ry: 0.9 });
-  const pecR = kit.at(body, kit.fin(0.1, finTeal, { width: 0.07 }), -0.06, -0.01, 0.05, { rx: -0.15, ry: -0.9 });
-  const ventral = kit.at(body, kit.fin(0.08, finBlue, { width: 0.055 }), 0, -0.075, -0.02, { rx: 1.3, ry: Math.PI });
-
-  // Flowing tail fin — the koi's signature flourish, kept modest so the
-  // model's length:height ratio doesn't balloon once registry.js rescales
-  // the whole body uniformly to match SPECIES.finnet.size against measured
-  // bbox HEIGHT (a small ornamental koi should stay small end-to-end).
-  const tail = kit.at(body, kit.tailChain(3, skin, { segLen: 0.028, startR: 0.045, endR: 0.014 }), 0, 0, -0.1);
-  tail.pivots.forEach((p, i) => {
-    for (const c of p.children) if (c.isMesh && c.geometry && c.geometry.attributes) {
-      applyVertexGradient(c.geometry, { from: 0xc9963e, to: 0xf5e8c4, noise: 0.045, seed: 86 + i });
-    }
+  // --- Body: a chubby round koi. ------------------------------------------------
+  const bodyGeo = S.spindle({
+    len: 0.3, r: 0.1, sx: 0.74, sy: 1.0, pTail: 0.75, pNose: 1.05, radial: 16, rings: 12, belly: 0.06,
+    profile: (t) => 0.34 + 0.66 * Math.pow(Math.sin(Math.PI * Math.min(1, t * 0.68 + 0.2)), 0.8),
   });
-  const tailFin = kit.at(tail.pivots[tail.pivots.length - 1], kit.fin(0.11, finBlue, { width: 0.08 }), 0, 0, -0.02, { ry: Math.PI / 2 });
-  const tailFin2 = kit.at(tail.pivots[tail.pivots.length - 1], kit.fin(0.11, finTeal, { width: 0.08 }), 0, 0, -0.02, { ry: -Math.PI / 2 });
+  S.paint(bodyGeo, { from: GOLD_LO, to: CREAM, axis: 'y', noise: 0.012, seed: 80 });
+  for (const [yaw, pitch, z, r] of [[0.35, 1.0, 0.03, 0.05], [-0.6, 0.8, -0.05, 0.045], [0.9, 0.5, -0.07, 0.035], [0, 1.2, 0.09, 0.035]]) {
+    S.blush(bodyGeo, S.surface(bodyGeo, S.dirYP(yaw, pitch), { from: [0, 0, z] }), r, KOHAKU, 1);
+    S.blush(bodyGeo, S.surface(bodyGeo, S.dirYP(yaw, pitch), { from: [0, 0, z] }), r * 0.6, KOHAKU, 1);
+  }
+  const mouth = S.paint(S.groove(bodyGeo, [[-0.3, -0.12], [0, -0.18], [0.3, -0.12]], { from: [0, -0.005, 0.1], radius: 0.004, lift: -0.001 }), 0x8a4a3a);
+  const body = S.bake([bodyGeo, mouth], skin, 'body');
+  root.add(body);
+  body.position.y = 0.2;
+  const eyeOpts = { irisColor: 0x123a4a, skinColor: 0xf0dcb0, glintSize: 0.012 };
+  const eyeL = S.seatEye(kit, body, bodyGeo, 0.03, 0.95, 0.12, eyeOpts, { sink: 0.35, front: 0.35, from: [0, 0, 0.09] });
+  const eyeR = S.seatEye(kit, body, bodyGeo, 0.03, -0.95, 0.12, eyeOpts, { sink: 0.35, front: 0.35, from: [0, 0, 0.09] });
 
-  const spark = kit.heartspark(0.028, pal.eye, { seed: 81 });
-  kit.at(body, spark, 0, 0, 0.08);
+  // --- Tiny barbels (accents). -------------------------------------------------
+  const barbels = [1, -1].map((sd) => {
+    const g = S.taper(0.05, 0.004, { r1: 0.0015, curve: -0.6, radial: 4, rings: 4, capSeg: 1 });
+    g.rotateX(Math.PI / 2 + 0.6);
+    S.paint(g, 0xf0dcc0);
+    const m = new THREE.Mesh(g, skin);
+    m.name = 'barbel';
+    const p = S.surface(bodyGeo, [sd * 0.5, -0.4, 1], { from: [0, -0.005, 0.1], inset: 0.003 });
+    kit.at(body, m, p[0], p[1], p[2], { ry: sd * 0.6 });
+    return m;
+  });
+
+  // --- Stained-glass fins. -------------------------------------------------------
+  const fin = (geo, name) => { const m = new THREE.Mesh(geo, glass); m.name = name; return m; };
+  const dorsal = fin(glassFin(0.17, 0.1, { seed: 0, profile: (t) => Math.pow(Math.sin(Math.PI * Math.min(1, t * 0.9 + 0.1)), 0.6) * (0.65 + 0.35 * (1 - t)) }), 'dorsalFin');
+  const dp = S.surface(bodyGeo, [0, 1, 0], { from: [0, 0, 0.02], inset: 0.008 });
+  kit.at(body, dorsal, dp[0], dp[1] + 0.015, dp[2], { rx: -2.0 });
+  const pecs = [1, -1].map((sd, i) => {
+    const m = fin(glassFin(0.11, 0.08, { seed: 1 + i }), 'pecFin');
+    const p = S.surface(bodyGeo, [sd, -0.4, 0], { from: [0, 0, 0.05], inset: 0.008 });
+    kit.at(body, m, p[0], p[1], p[2], { ry: Math.PI + sd * 0.8, rz: sd * 0.5 });
+    return m;
+  });
+  const pelvics = [1, -1].map((sd, i) => {
+    const m = fin(glassFin(0.07, 0.05, { seed: 3 + i }), 'pelvicFin');
+    const p = S.surface(bodyGeo, [sd * 0.4, -1, 0], { from: [0, 0, -0.03], inset: 0.008 });
+    kit.at(body, m, p[0], p[1], p[2], { ry: Math.PI + sd * 0.4, rx: 0.5 });
+    return m;
+  });
+
+  // --- Tail stock + two-lobed glass tail fan. ------------------------------------
+  const tail = S.softTail(2, skin, { segLen: 0.05, startR: 0.032, endR: 0.02, sx: 0.7, curl: 0.03, radial: 8, color: (t) => S.mixHex(CREAM, GOLD_LO, t) });
+  kit.at(body, tail, 0, 0.0, -0.13);
+  const tailFin = new THREE.Group(); tailFin.name = 'tailFin';
+  for (const sd of [1, -1]) {
+    const g = glassFin(0.16, 0.1, { seed: sd > 0 ? 2 : 4, profile: (t) => Math.pow(Math.sin(Math.PI * Math.min(1, t * 0.95 + 0.05)), 0.6) * (0.55 + 0.45 * t) });
+    g.rotateY(Math.PI); // trail backward (-Z)
+    g.rotateX(sd * 0.6);
+    tailFin.add(fin(g, 'tailLobe'));
+  }
+  kit.at(tail.tipAnchor, tailFin, 0, 0, 0);
+
+  const spark = kit.heartspark(0.022, pal.eye, { seed: 81 });
+  const sp = S.surface(bodyGeo, [0, -0.4, 1], { from: [0, 0, 0.03], inset: 0.008 });
+  kit.at(body, spark, sp[0], sp[1], sp[2]);
 
   return {
     group: kit.groundPlant(root),
@@ -74,8 +125,8 @@ export function build_finnet(kit = kitDefault) {
       body,
       eyelids: [eyeL.getObjectByName('eyelid'), eyeR.getObjectByName('eyelid')],
       tail: tail.pivots,
-      accents: [whiskL, whiskR, dorsal, pecL, pecR, ventral, tailFin, tailFin2],
-      fx: [spark],
+      accents: [...barbels, dorsal, ...pecs, ...pelvics, tailFin],
+      fx: [spark, S.variantFx(root)],
     },
     hints: {
       personality: 'calm',

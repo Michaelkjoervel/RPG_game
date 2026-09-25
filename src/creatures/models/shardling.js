@@ -3,78 +3,142 @@
 // "Crystal spiderling, translucent gem abdomen refracting light. Collector."
 // (Design Bible §4)
 // =============================================================================
-// A small six-legged crawler built around one glowing focal point: a
-// faceted gem abdomen (kit.crystal) that IS its collector's-eye centerpiece.
-// Six thin `kit.leg()` limbs fan out radially from a stone-toned thorax —
-// legN>=4 resolves the animator to 'quad' locomotion, which reads fine as a
-// scuttling gait for a small many-legged creature. Kept low, wary, and
-// glinting.
+// Visual pass v2 (soft stylized). A chubby little spider built around one
+// focal point: a big cut GEM abdomen — a faceted brilliant (flat shaded on
+// purpose) whose facets throw back gold, rose, mint and sky light like a
+// prism, with a glowing core inside and two small hoard-shards stuck to it.
+// The body is a round sandstone thorax with a big-eyed head (two big eyes,
+// two small), little crystal fangs, and six slim legs with high arched
+// knees — the classic spider silhouette — ending in tiny crystal tips.
 
 import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
 import * as S from './soft.js';
 
+const STONE_LO = 0x5e5140, STONE = 0x8c7c60, STONE_HI = 0xc0b08a, LEG = 0x4a4034, LEG_HI = 0x7a6c56, TIP = 0xf8e6b0;
+const PRISM = [0xffd97a, 0xffc0a8, 0xbff0d0, 0xb8dcff, 0xfff2c8, 0xf0c060];
+
+// A cut brilliant: pavilion + crown + table, 8-fold, flat facets with a
+// prismatic colour per facet. Non-indexed (crisp facets), normal +Y up.
+function brilliant(r, h1, h2, seed = 0) {
+  const g = new THREE.LatheGeometry([new THREE.Vector2(0, -h1), new THREE.Vector2(r, 0), new THREE.Vector2(r * 0.62, h2), new THREE.Vector2(0, h2)], 8).toNonIndexed();
+  g.deleteAttribute('uv');
+  g.computeVertexNormals();
+  const n = g.attributes.position.count;
+  const col = new Float32Array(n * 3), c = new THREE.Color();
+  for (let f = 0; f < n / 3; f++) {
+    c.setHex(PRISM[(f * 7 + seed) % PRISM.length]);
+    for (let k = 0; k < 3; k++) { col[(f * 3 + k) * 3] = c.r; col[(f * 3 + k) * 3 + 1] = c.g; col[(f * 3 + k) * 3 + 2] = c.b; }
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  return g;
+}
+
 export function build_shardling(kit = kitDefault) {
   const pal = kit.palette(['terra', 'lumen']);
-  const stone = kit.mat(0x8a7a5c, { rough: 0.6 });
-  const gemMat = kit.mat(0xf0dc9a, { rough: 0.1, metal: 0.06, transparent: true, opacity: 0.9, emissive: 0xd8a028, emissiveIntensity: 0.75 });
+  const skin = S.vcMat(kit, { rough: 0.7 });
+  const gemMat = kit.mat(0xffffff, { vertexColors: true, flat: true, rough: 0.08, metal: 0.1, transparent: true, opacity: 0.86, emissive: 0x6a4a18, emissiveIntensity: 0.55 });
+  const coreMat = kit.mat(0xffe6a0, { unlit: true });
 
   const root = new THREE.Group();
 
-  const thorax = kit.blob(0.07, stone, { seed: 60, noise: 0.1, squash: { x: 1, y: 0.85, z: 1.05 } });
-  kit.paint(thorax, { from: 0x5e5138, to: 0xa8986e, noise: 0.05, seed: 60, rough: 0.6 });
-  root.add(thorax);
-  thorax.position.y = 0.09;
+  // --- Thorax: round sandstone body. ---------------------------------------------
+  const bodyGeo = S.ball(0.085, { sx: 1.0, sy: 0.82, sz: 1.08, radial: 16, rings: 10 });
+  S.paint(bodyGeo, { from: STONE_LO, to: STONE_HI, axis: 'y', noise: 0.02, seed: 60 });
+  const body = S.bake([bodyGeo], skin, 'body');
+  root.add(body);
+  body.position.y = 0.13;
 
-  // Translucent gem abdomen, trailing behind the thorax — the collector's
-  // prize, refracting a faint scatter of light of its own. Bigger than the
-  // body that drags it: the hoard IS the silhouette.
-  const abdomen = kit.crystal(0.085, gemMat, { coreColor: pal.eye, detail: 0 });
-  kit.at(thorax, abdomen, 0, 0.03, -0.1, { s: 1 });
-  abdomen.rotation.x = 0.3;
-  // Two smaller hoard-shards fused to its rim.
-  kit.at(abdomen, kit.crystal(0.032, gemMat, { coreColor: 0xfff6dc, detail: 0 }), 0.06, 0.04, -0.02);
-  kit.at(abdomen, kit.crystal(0.026, gemMat, { coreColor: 0xfff6dc, detail: 0 }), -0.055, 0.05, 0.02);
+  // --- The GEM abdomen (an accent: it sways gently). ------------------------------
+  const abdomen = new THREE.Group(); abdomen.name = 'gemAbdomen';
+  const gem = new THREE.Mesh(brilliant(0.1, 0.13, 0.05, 0), gemMat);
+  gem.name = 'gem';
+  gem.rotation.x = -Math.PI / 2 + 0.35; // table faces back and a little up
+  abdomen.add(gem);
+  const core = new THREE.Mesh(S.ball(0.04, { radial: 10, rings: 7 }), coreMat);
+  core.name = 'gemCore';
+  core.position.set(0, 0, -0.02);
+  abdomen.add(core);
+  const coreGlow = S.glow(0xffd070, 0.32, 0.4);
+  coreGlow.position.set(0, 0.01, -0.03);
+  abdomen.add(coreGlow);
+  for (const [x, y, z, r, rx, rz, seed] of [[0.065, 0.05, -0.05, 0.028, -0.5, -0.6, 2], [-0.06, 0.06, -0.02, 0.022, -0.3, 0.7, 4]]) {
+    const shard = new THREE.Mesh(brilliant(r, r * 1.5, r * 0.5, seed), gemMat);
+    shard.name = 'hoardShard';
+    shard.position.set(x, y, z);
+    shard.rotation.set(rx, 0, rz);
+    abdomen.add(shard);
+  }
+  const ab = S.surface(bodyGeo, [0, 0.35, -1], { inset: 0.02 });
+  kit.at(body, abdomen, ab[0], ab[1] + 0.02, ab[2] - 0.07);
 
-  const head = kit.at(thorax, kit.paint(kit.orb(0.036, stone, { sz: 1.1, sy: 0.85 }), { from: 0x5e5138, to: 0xa8986e, noise: 0.05, seed: 61, rough: 0.6 }), 0, 0.01, 0.075);
-  const eyeL = kit.at(head, S.eye(kit, 0.014, { irisColor: 0xffe9b0, skinColor: 0x8a7a5c, glintSize: 0.006 }), 0.024, 0.006, 0.03, { ry: 0.4 });
-  const eyeR = kit.at(head, S.eye(kit, 0.014, { irisColor: 0xffe9b0, skinColor: 0x8a7a5c, glintSize: 0.006 }), -0.024, 0.006, 0.03, { ry: -0.4 });
-  const eyeL2 = kit.at(head, S.eye(kit, 0.009, { irisColor: 0xffe9b0, skinColor: 0x8a7a5c, glintSize: 0.004 }), 0.02, 0.017, 0.028, { ry: 0.4 });
-  const eyeR2 = kit.at(head, S.eye(kit, 0.009, { irisColor: 0xffe9b0, skinColor: 0x8a7a5c, glintSize: 0.004 }), -0.02, 0.017, 0.028, { ry: -0.4 });
+  // --- Head: big-eyed, little crystal fangs. ---------------------------------------
+  const headGeo = S.ball(0.062, { sx: 1.08, sy: 0.9, sz: 0.95, radial: 14, rings: 10 });
+  S.paint(headGeo, { from: STONE_LO, to: STONE_HI, axis: 'y', noise: 0.015, seed: 61 });
+  const fangs = [1, -1].map((sd) => {
+    const g = S.taper(0.028, 0.009, { r1: 0.002, curve: 0.5, radial: 5, rings: 4, capSeg: 1 });
+    g.rotateX(Math.PI);
+    S.paint(g, TIP);
+    return S.pose(g, S.surface(headGeo, S.dirYP(sd * 0.3, -0.55), { inset: 0.006 }));
+  });
+  const head = S.bake([headGeo, ...fangs], skin, 'head');
+  const hp = S.surface(bodyGeo, [0, 0.1, 1], { inset: 0.02 });
+  kit.at(body, head, hp[0], hp[1] + 0.01, hp[2] + 0.035);
+  const eyeOpts = { irisColor: 0x3a2a14, skinColor: 0x8c7c60, glintSize: 0.012 };
+  const eyeL = S.seatEye(kit, head, headGeo, 0.03, 0.42, 0.1, eyeOpts, { sink: 0.4, front: 0.55 });
+  const eyeR = S.seatEye(kit, head, headGeo, 0.03, -0.42, 0.1, eyeOpts, { sink: 0.4, front: 0.55 });
+  const smallOpts = { ...eyeOpts, detail: 0.5, microGlint: false };
+  const eyeL2 = S.seatEye(kit, head, headGeo, 0.014, 0.28, 0.72, smallOpts, { sink: 0.4, front: 0.55 });
+  const eyeR2 = S.seatEye(kit, head, headGeo, 0.014, -0.28, 0.72, smallOpts, { sink: 0.4, front: 0.55 });
 
-  // Small crystalline mandible spikes.
-  kit.at(head, kit.cone(0.008, 0.024, gemMat, { segments: 4 }), 0.018, -0.015, 0.032, { rx: -0.5, rz: 0.2 });
-  kit.at(head, kit.cone(0.008, 0.024, gemMat, { segments: 4 }), -0.018, -0.015, 0.032, { rx: -0.5, rz: -0.2 });
+  // --- Six slim legs with high arched knees. -----------------------------------------
+  // hip on the thorax side; knee up and out; the foot tip out and down on the
+  // ground. hip/knee are real pivots (the animator swings them), foot = shin.
+  const H = body.position.y;
+  const legs = [];
+  for (const [a, i] of [[0.55, 0], [0.05, 1], [-0.5, 2]]) for (const sd of [1, -1]) {
+    const dir = new THREE.Vector3(sd * Math.cos(a), 0, Math.sin(a));
+    const hipAt = S.surface(bodyGeo, [dir.x, -0.1, dir.z], { inset: 0.012 });
+    const hip = new THREE.Group(); hip.name = 'legHip';
+    hip.position.set(...hipAt);
+    body.add(hip);
+    const out = 0.07 + 0.01 * (1 - i % 2), up = 0.06;
+    const K = dir.clone().multiplyScalar(out).setY(up);
+    const F = dir.clone().multiplyScalar(out + 0.06).setY(-(H + hipAt[1]));
+    const tg = S.limb(K.length(), 0.013, 0.01, { radial: 7, capSeg: 2, shaftSeg: 2 });
+    S.paint(tg, { from: LEG, to: LEG_HI, axis: 'y' });
+    S.aim(tg, K.clone().negate().toArray());
+    const thigh = new THREE.Mesh(tg, skin); thigh.name = 'legThigh';
+    hip.add(thigh);
+    const knee = new THREE.Group(); knee.name = 'legKnee';
+    knee.position.copy(K);
+    hip.add(knee);
+    const D = F.clone().sub(K);
+    const sg = S.limb(D.length(), 0.0105, 0.006, { radial: 7, capSeg: 2, shaftSeg: 3 });
+    S.paint(sg, { from: TIP, to: LEG, axis: 'y', lo: -D.length(), hi: -D.length() + 0.03 });
+    S.aim(sg, D.clone().negate().toArray());
+    const foot = new THREE.Mesh(sg, skin); foot.name = 'legFoot';
+    knee.add(foot);
+    legs.push({ hip, knee, foot });
+  }
 
-  // Six thin legs fanned radially — three pairs along the thorax.
-  const legSpots = [
-    { x: 0.06, z: 0.05, ry: 0.55 }, { x: -0.06, z: 0.05, ry: -0.55 },
-    { x: 0.075, z: -0.01, ry: 0.95 }, { x: -0.075, z: -0.01, ry: -0.95 },
-    { x: 0.06, z: -0.06, ry: 1.4 }, { x: -0.06, z: -0.06, ry: -1.4 },
-  ];
-  const legMat = kit.mat(0x655640, { rough: 0.6 }); // darker than the gem so the prize stays the bright thing
-  const legs = legSpots.map(({ x, z, ry }) => kit.at(thorax, kit.leg(0.11, legMat, { thighR: 0.014, shinR: 0.01, footLen: 0.03 }), x, 0.09, z, { ry }));
-
-  const legParts = legs.map((l) => ({ hip: l.hip, knee: l.knee, foot: l.foot }));
-
-  const spark = kit.heartspark(0.024, pal.eye, { seed: 61 });
-  kit.at(abdomen, spark, 0, 0, 0);
+  const spark = kit.heartspark(0.02, pal.eye, { seed: 61 });
+  kit.at(abdomen, spark, 0, 0, 0.02);
 
   const grounded = kit.groundPlant(root);
-  // Soft contact shadow so the creature reads planted on any ground.
-  const contact = kit.shadowDisc(0.16, 0.32);
+  const contact = kit.shadowDisc(0.2, 0.36);
   contact.position.y = 0.02 - grounded.position.y;
   grounded.add(contact);
 
   return {
     group: grounded,
     parts: {
-      body: thorax,
+      body,
       head,
-      eyelids: [eyeL.getObjectByName('eyelid'), eyeR.getObjectByName('eyelid'), eyeL2.getObjectByName('eyelid'), eyeR2.getObjectByName('eyelid')],
-      legs: legParts,
+      eyelids: [eyeL, eyeR, eyeL2, eyeR2].map((e) => e.getObjectByName('eyelid')),
+      legs,
       accents: [abdomen],
-      fx: [spark],
+      fx: [spark, S.variantFx(root)],
     },
     hints: {
       personality: 'skittish',

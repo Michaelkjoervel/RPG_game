@@ -49,7 +49,7 @@ const BIOMES = {
     tipMul: [1.1, 1.16, 0.98], tipAdd: [0.0, 0.012, 0.0], glow: null, flowers: 0.006, flowerCols: [0xf6f2ff, 0xf6f2ff, 0xd9ccff],
     ferns: 0.012, fernCol: 0x6f9a4a },
   glade: { density: 0.9, hMin: 0.28, hMax: 0.58, w: 0.08, lean: 0.3, windBase: 0.08, gust: 0.3, clump: 0.55, stalk: 0.04,
-    tipMul: [1.05, 1.2, 1.2], tipAdd: [0.0, 0.02, 0.035], glow: [0.1, 0.42, 0.5], flowers: 0.012, flowerCols: [0xbff2ff, 0xe8c8ff, 0xfff0b0] },
+    tipMul: [1.05, 1.2, 1.2], tipAdd: [0.0, 0.02, 0.035], glow: [0.1, 0.42, 0.5], flowers: 0.012, flowerGlow: 1.25, flowerCols: [0xbff2ff, 0xe8c8ff, 0xfff0b0] },
   mountain: { density: 0.7, hMin: 0.24, hMax: 0.52, w: 0.065, lean: 0.2, windBase: 0.42, gust: 0.5, clump: 0.85, stalk: 0.05,
     tipMul: [1.55, 1.4, 0.95], tipAdd: [0.1, 0.075, 0.02], glow: null, flowers: 0.008, flowerCols: [0xfdfcf4, 0xfdfcf4, 0xffe98a] },
   ruins: { density: 0.55, hMin: 0.2, hMax: 0.42, w: 0.085, lean: 0.3, windBase: 0.1, gust: 0.35, clump: 0.6, stalk: 0.03,
@@ -180,6 +180,7 @@ varying float vBladeT;
 varying vec3 vBladeW;
 varying vec3 vBladeInfo;
 uniform vec3 uGGlow;
+uniform float uGFlowerGlow;
 uniform vec3 uGSunDir;
 uniform vec3 uGSunCol;
 `;
@@ -210,6 +211,7 @@ export function createGrass(zone, world) {
     uGFlowerC: { value: new THREE.Color(B.flowerCols[2]) },
     uGGlow: { value: new THREE.Color(...(B.glow ?? [0, 0, 0])) },
     uGFernCol: { value: new THREE.Color(B.fernCol ?? 0x6f9a4a) },
+    uGFlowerGlow: { value: B.flowerGlow ?? 0 }, // >~1.1 crosses the High-tier bloom threshold
     uGSunDir: { value: new THREE.Vector3(0, 1, 0) },
     uGSunCol: { value: new THREE.Color(0, 0, 0) },
   };
@@ -239,6 +241,7 @@ export function createGrass(zone, world) {
 #endif`)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
   totalEmissiveRadiance += uGGlow * smoothstep(0.55, 1.0, vBladeT) * (1.0 - vBladeInfo.y) * (1.0 - vBladeInfo.z);
+  totalEmissiveRadiance += vBladeCol * (uGFlowerGlow * vBladeInfo.z * smoothstep(0.62, 0.85, vBladeT)); // glade: glowing blooms
   {
     // backlit translucency: blades glow warm when you look toward the sun
     float bBack = pow(max(dot(normalize(vBladeW - cameraPosition), uGSunDir), 0.0), 4.0);

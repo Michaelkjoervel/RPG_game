@@ -95,7 +95,9 @@ export function buildProps(zone, heightAt) {
   const nightMats = [];  // {m, base}  emissive that wakes at dusk
   const nightLights = []; // {light, base}
   const liftSets = [];   // {u, base} albedo lift uniforms, scaled by daylight
-  let lightBudget = 10;   // dynamic point lights per zone, spent by set-pieces
+  let lightBudget = 6;    // dynamic point lights per zone, spent by set-pieces (every
+                          // lit fragment pays for each one, day or night)
+  const poolPts = [];     // warm ground light pools under lamps (one instanced draw)
 
   // Quality tier (read at build; a zone reload picks up a changed setting).
   const QUALITY = settings.quality ?? 'high';
@@ -1769,7 +1771,9 @@ export function buildProps(zone, heightAt) {
           P(gl, LAMP_GLASS, 0xffe2b0, [0, 0, 0], 1, [0, 0, 0], 0, false),
         ];
       },
-      effect: (x, y, z, s, rng) => {
+      effect: (x, y, z, s, rng, ctx) => {
+        const [px, , pz] = localToWorld(x, y, z, s, ctx.yaw, 0.42, 0, 0);
+        poolPts.push([px, y, pz, 4.2 * s]);
         if (lightBudget <= 0) return null;
         lightBudget--;
         const l = new THREE.PointLight(0xffd9a0, 0, 8 * s, 2);
@@ -2874,6 +2878,11 @@ export function buildProps(zone, heightAt) {
         const gl = merged(`plG${vs}`, () => [piece(sphereG(1, 10, 7), { t: [0.24, 0.98, 0], s: [0.12, 0.15, 0.12] })]);
         return [V(g, SOLID_V, [0.04, 0.02]), P(gl, LAMP_GLASS, 0xffc890, [0, 0, 0], 1, [0, 0, 0], 0, false)];
       },
+      effect: (x, y, z, s, rng, ctx) => {
+        const [px, , pz] = localToWorld(x, y, z, s, ctx.yaw, 0.24, 0, 0);
+        poolPts.push([px, y, pz, 2.6 * s]);
+        return null;
+      },
     },
     bench: {
       variants: 1, collider: 0.6,
@@ -3739,7 +3748,29 @@ export function buildProps(zone, heightAt) {
   }
   for (const [kind, list] of byKindScatter) realize(kind, list, null, null, false);
   for (const [kind, list] of byKindSingle) realize(kind, list, null, null, true);
-  group.userData.dressing = { dropped, keepOut: keepOut.length };
+  group.userData.dressing = { dropped, keepOut: keepOut.length, lights: 6 - lightBudget, pools: poolPts.length };
+
+  // Warm pools of lamplight on the ground after dusk: additive discs, one draw.
+  let pools = null;
+  if (poolPts.length) {
+    const pm = new THREE.MeshBasicMaterial({
+      map: discTex(), color: 0xffb866, transparent: true, opacity: 0, depthWrite: false,
+      blending: THREE.AdditiveBlending, polygonOffset: true, polygonOffsetFactor: -3, fog: true,
+    });
+    disposables.push({ mat: pm });
+    pools = new THREE.InstancedMesh(planeG(1, 1), pm, poolPts.length);
+    pools.name = 'lamp_pools';
+    pools.renderOrder = 2;
+    pools.castShadow = pools.receiveShadow = false;
+    poolPts.forEach(([x, y, z, r], i) => {
+      _eul.set(-Math.PI / 2, 0, 0);
+      _m4.compose(_pos.set(x, terrainY(x, z) + 0.07, z), _quat.setFromEuler(_eul), _scl.set(r, r, r));
+      pools.setMatrixAt(i, _m4);
+    });
+    pools.instanceMatrix.needsUpdate = true;
+    pools.visible = false;
+    group.add(pools);
+  }
 
   // ------------------------------------------------------------- master updater
   let T = Math.random() * 100;
@@ -3755,6 +3786,10 @@ export function buildProps(zone, heightAt) {
     for (let i = 0; i < nightMats.length; i++) {
       const nm = nightMats[i];
       nm.m.emissiveIntensity = nm.base * (nm.day + (1 - nm.day) * nightSoft);
+    }
+    if (pools) {
+      pools.visible = nightSoft > 0.02;
+      pools.material.opacity = 0.55 * nightSoft;
     }
     const liftK = 0.3 + 0.7 * day;
     for (let i = 0; i < liftSets.length; i++) liftSets[i].u.value = liftSets[i].base * liftK;

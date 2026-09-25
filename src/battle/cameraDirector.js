@@ -156,7 +156,7 @@ export function createCameraDirector({ getFocus } = {}) {
   }
 
   /** Single-subject 3/4 framing on `side`, from the camera's side of the line. */
-  function threeQuarter(side, { dist = 1, heightK = 0.72, front = 0.78, lateral = 0.62, upAim = 0.12, fov = 30, lambda = 8 } = {}) {
+  function threeQuarter(side, { dist = 1, heightK = 0.72, front = 0.78, lateral = 0.62, upAim = 0.12, fov = 30, lambda = 8, aim = 0 } = {}) {
     const { P, E, u, w } = frame();
     const S = side === 'p' ? P : E;
     const toward = side === 'p' ? u : u.clone().negate(); // the direction the subject faces
@@ -166,6 +166,10 @@ export function createCameraDirector({ getFocus } = {}) {
       .addScaledVector(w, lateral * d);
     pos.y = Math.max(0.45, S.h * heightK);
     const look = S.p.clone().add(new THREE.Vector3(0, S.h * upAim, 0));
+    if (aim) { // shift the subject off-center: aim > 0 puts it left of frame
+      const right = new THREE.Vector3().subVectors(look, pos).cross(UP).normalize();
+      look.addScaledVector(right, aim * d);
+    }
     setDesired(pos, look, fov, { lambdaPos: lambda, lambdaLook: lambda });
   }
 
@@ -247,8 +251,10 @@ export function createCameraDirector({ getFocus } = {}) {
       setDesired(pos, E.foot.clone().add(new THREE.Vector3(0, 0.45, 0)), 28, { lambdaPos: 3.4, lambdaLook: 4 });
     },
     // The winner, low and heroic against the sky.
+    // The winner, low and heroic against the sky — standing in the left
+    // third so the centered victory panel never covers it.
     victory(opts = {}) {
-      threeQuarter(opts.side ?? 'p', { dist: 1.15, heightK: 0.45, front: 0.85, lateral: 0.55, upAim: 0.25, fov: 31, lambda: 2.6 });
+      threeQuarter(opts.side ?? 'p', { dist: 1.25, heightK: 0.45, front: 0.85, lateral: 0.55, upAim: 0.2, fov: 32, lambda: 2.6, aim: 0.32 });
     },
     defeat() {
       const { P, u, w } = frame();

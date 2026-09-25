@@ -64,6 +64,7 @@
 // ============================================================================
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { settings } from '../core/settings.js';
 
 // ---------------------------------------------------------------- shader hook chaining
 // Three reuses a compiled program for any two materials whose cache keys
@@ -211,7 +212,9 @@ export function disposeGroup(group, opts = {}) {
     if (o.isSkinnedMesh && o.skeleton && !seen.has(o.skeleton)) { seen.add(o.skeleton); o.skeleton.dispose(); }
     if (!o.isMesh && !o.isPoints && !o.isLine && !o.isSprite) return;
     const g = o.geometry;
-    if (g && !skipCachedGeometries && !seen.has(g) && !g.userData?.shared && !exclude?.has(g)) {
+    // lfOwned: geometry built per instance by addOutline (merged ink shells) —
+    // freed even when the caller's own geometries live in a cache.
+    if (g && !seen.has(g) && (g.userData?.lfOwned || (!skipCachedGeometries && !g.userData?.shared && !exclude?.has(g)))) {
       seen.add(g);
       g.dispose();
     }
@@ -474,26 +477,93 @@ const _v3a = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _noShadowDesc = { get: () => false, set: () => {}, configurable: true };
 
+// ---------------------------------------------------------------- figure LOD
+// Screen-size LOD for outlined figures, evaluated in the figure's own
+// onBeforeRender (one cheap check per figure per frame, no per-frame
+// allocation, no global registry to forget to tick):
+//   - ink shells hide when the figure is smaller on screen than
+//     INK_MIN_PX[quality] (pixels on a 900 px tall frame; figures under
+//     INK_MIN_H count as INK_MIN_H tall so small creatures keep their ink as
+//     long as people do). On the overworld lens (55°) a person-sized figure
+//     (1.6 m) keeps its ink to ~25 m on High, ~12 m on Med, ~10 m on Low;
+//     the battle's long lens keeps its creatures inked at any framing;
+//   - the figure stops casting shadows beyond SHADOW_FAR metres (it would be
+//     outside the sun's tight shadow frustum or a speck in it).
+// ±10 % hysteresis so nothing flickers at the threshold. The check runs when
+// the figure's anchor mesh (its largest part) is drawn; a culled figure keeps
+// its last state, which is fine — nothing of it is on screen.
+const INK_MIN_PX = { high: 55, med: 115, low: 140 };
+const INK_MIN_H = 1.2;
+const SHADOW_FAR = 20;
+const _lodA = new THREE.Vector3(), _lodB = new THREE.Vector3();
+
+function _attachFigureLod(root, anchor, shells, casters, figHeight) {
+  let inkOn = true, castOn = true;
+  const prev = anchor.onBeforeRender;
+  anchor.onBeforeRender = function lfFigureLod(renderer, scene, camera, geometry, material, group) {
+    prev.call(this, renderer, scene, camera, geometry, material, group);
+    if (!camera || !camera.isCamera) return;
+    _lodA.setFromMatrixPosition(root.matrixWorld);
+    _lodB.setFromMatrixPosition(camera.matrixWorld);
+    const d = Math.max(0.05, _lodA.distanceTo(_lodB));
+    const p5 = camera.projectionMatrix.elements[5];
+    const persp = camera.projectionMatrix.elements[11] !== 0;
+    const px = Math.max(INK_MIN_H, figHeight) * 0.5 * p5 * 900 / (persp ? d : 1);
+    const minPx = INK_MIN_PX[settings.quality] ?? INK_MIN_PX.high;
+    const wantInk = inkOn ? px > minPx * 0.9 : px > minPx * 1.1;
+    if (wantInk !== inkOn) { inkOn = wantInk; for (let i = 0; i < shells.length; i++) shells[i].visible = wantInk; }
+    const wantCast = castOn ? d < SHADOW_FAR * 1.1 : d < SHADOW_FAR * 0.9;
+    if (wantCast !== castOn) { castOn = wantCast; for (let i = 0; i < casters.length; i++) casters[i].castShadow = wantCast; }
+  };
+}
+
+// Merge the ink shells of several meshes that share a parent (a rigid part)
+// into ONE shell under that parent: one draw instead of N. Each source's
+// position + outline normals are baked through its local matrix.
+function _mergedShellGeometry(list) {
+  const nm = new THREE.Matrix3();
+  const geos = list.map((o) => {
+    o.updateMatrix();
+    const src = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry;
+    const g = new THREE.BufferGeometry();
+    const pos = src.attributes.position.clone().applyMatrix4(o.matrix);
+    const on = src.attributes.lfOutlineNormal.clone();
+    nm.getNormalMatrix(o.matrix);
+    on.applyNormalMatrix(nm); // normalizes
+    g.setAttribute('position', pos);
+    g.setAttribute('lfOutlineNormal', on);
+    if (src !== o.geometry) src.dispose();
+    return g;
+  });
+  const merged = geos.length > 1 ? mergeGeometries(geos, false) : geos[0];
+  if (merged !== geos[0]) for (const g of geos) g.dispose();
+  merged.userData.lfOwned = true;
+  merged.computeBoundingSphere();
+  return merged;
+}
+
 /**
  * Add a soft ink outline to a creature/human (see the file header).
  *   opts: { color=0x241a26, thickness=2 (px @900p), maxWorld (default 3.5% of
  *           the figure's height), minSize=0.018 (world radius below which a
- *           part is skipped), skip(mesh)->bool extra filter }
- * Returns { material, meshes, setVisible(bool), dispose() } or null.
+ *           part is skipped), skip(mesh)->bool extra filter,
+ *           merge=false — merge the shells of meshes sharing a parent into one
+ *             (ONLY for models whose meshes never move relative to their
+ *             parent; flag exceptions `userData.ownShell = true`),
+ *           lod=true — screen-size ink LOD + shadow-distance LOD (see above),
+ *           maxShells=Infinity — ink only the N largest qualifying parts }
+ * Returns { material, materials, meshes, setVisible(bool), dispose() } or null.
  */
 export function addOutline(root, opts = {}) {
   if (!root || !root.isObject3D) return null;
-  const { color = 0x241a26, thickness = 2, minSize = 0.018, skip = null } = opts;
+  const { color = 0x241a26, thickness = 2, minSize = 0.018, skip = null, merge = false, lod = true, maxShells = Infinity } = opts;
   root.updateMatrixWorld(true);
-  let maxWorld = opts.maxWorld;
-  if (maxWorld == null) {
-    const box = new THREE.Box3();
-    root.traverse((o) => {
-      if (o.isMesh && !o.userData?.lfOutline && o.name !== 'contactShadow' && o.geometry) box.expandByObject(o, false);
-    });
-    const h = box.isEmpty() ? 1 : Math.max(0.05, box.max.y - box.min.y);
-    maxWorld = h * 0.035;
-  }
+  const box = new THREE.Box3();
+  root.traverse((o) => {
+    if (o.isMesh && !o.userData?.lfOutline && o.name !== 'contactShadow' && o.geometry) box.expandByObject(o, false);
+  });
+  const figHeight = box.isEmpty() ? 1 : Math.max(0.05, box.max.y - box.min.y);
+  const maxWorld = opts.maxWorld ?? figHeight * 0.035;
   const own = {
     uLfOutlineW: { value: thickness / OUTLINE_REF_PX },
     uLfOutlineMax: { value: maxWorld },
@@ -520,12 +590,16 @@ export function addOutline(root, opts = {}) {
   // Hosts whose material sways in the wind (NPC capes, coat tails) get an ink
   // twin that sways identically — a static shell would peel off the cloth.
   const swayInk = new Map();
-  const inkFor = (host) => {
+  const swayOf = (host) => {
     const hm = Array.isArray(host.material) ? host.material[0] : host.material;
-    const sw = hm && _swayState.get(hm);
-    if (!sw) return material;
+    return hm && _swayState.get(hm) ? hm : null;
+  };
+  const inkFor = (host) => {
+    const hm = swayOf(host);
+    if (!hm) return material;
     let m = swayInk.get(hm);
     if (!m) {
+      const sw = _swayState.get(hm);
       m = makeInk();
       windSway(m, { strength: sw.uSwayStrength.value, speed: sw.uSwaySpeed.value, heightScale: sw.uSwayHeight.value, hang: _swayHang.has(hm) });
       swayInk.set(hm, m);
@@ -535,8 +609,11 @@ export function addOutline(root, opts = {}) {
   };
 
   const targets = [];
+  let anchor = null, anchorR = -1;
+  const casters = [];
   root.traverse((o) => {
     if (!o.isMesh || o.userData?.lfOutline || !o.geometry?.attributes?.position) return;
+    if (o.castShadow) casters.push(o);
     if (o.isSkinnedMesh && !o.skeleton) return;
     if (o.name === 'contactShadow' || _flaggedNoOutline(o, root)) return;
     if (o.children.some((c) => c.userData?.lfOutline)) return; // already outlined
@@ -551,11 +628,53 @@ export function addOutline(root, opts = {}) {
     const worldR = g.boundingSphere.radius * Math.max(Math.abs(_olScale.x), Math.abs(_olScale.y), Math.abs(_olScale.z));
     if (!(worldR >= minSize)) return;
     if (skip && skip(o)) return;
+    o.userData.lfInkR = worldR;
     targets.push(o);
+    if (worldR > anchorR && !o.isSkinnedMesh) { anchorR = worldR; anchor = o; }
   });
+  // Budget: only the N largest parts get ink (the silhouette is theirs).
+  if (targets.length > maxShells) {
+    targets.sort((a, b) => b.userData.lfInkR - a.userData.lfInkR);
+    targets.length = maxShells;
+  }
+
+  const decorate = (ol, host) => {
+    ol.name = 'lfOutline';
+    ol.userData.lfOutline = true;
+    ol.userData.noOutline = true;
+    Object.defineProperty(ol, 'castShadow', _noShadowDesc);
+    Object.defineProperty(ol, 'receiveShadow', _noShadowDesc);
+    ol.raycast = () => {};
+    ol.frustumCulled = host.frustumCulled && !host.isSkinnedMesh;
+    ol.renderOrder = host.renderOrder;
+    ol.matrixAutoUpdate = false; // identity under its host/parent — never recomputed
+  };
 
   const meshes = [];
-  for (const o of targets) {
+  // Rigid-part merge: plain single-material, non-swaying meshes that share a
+  // parent become one shell under that parent.
+  const solo = [];
+  if (merge) {
+    const byParent = new Map();
+    for (const o of targets) {
+      const mergeable = !o.isSkinnedMesh && !o.isInstancedMesh && !o.userData?.ownShell && !Array.isArray(o.material) && !swayOf(o) && o.parent;
+      if (!mergeable) { solo.push(o); continue; }
+      let list = byParent.get(o.parent);
+      if (!list) byParent.set(o.parent, (list = []));
+      list.push(o);
+    }
+    for (const [parent, list] of byParent) {
+      if (list.length < 2) { solo.push(...list); continue; }
+      for (const o of list) _ensureOutlineNormals(o.geometry);
+      const ol = new THREE.Mesh(_mergedShellGeometry(list), material);
+      decorate(ol, list[0]);
+      ol.frustumCulled = false; // bounds of the parts, not of the parent — skip the (cheap) cull
+      parent.add(ol);
+      meshes.push(ol);
+    }
+  } else solo.push(...targets);
+
+  for (const o of solo) {
     _ensureOutlineNormals(o.geometry);
     const ink = inkFor(o);
     let ol;
@@ -571,28 +690,21 @@ export function addOutline(root, opts = {}) {
     } else {
       ol = new THREE.Mesh(o.geometry, ink);
     }
-    ol.name = 'lfOutline';
-    ol.userData.lfOutline = true;
-    ol.userData.noOutline = true;
-    Object.defineProperty(ol, 'castShadow', _noShadowDesc);
-    Object.defineProperty(ol, 'receiveShadow', _noShadowDesc);
-    ol.raycast = () => {};
-    ol.frustumCulled = o.frustumCulled && !o.isSkinnedMesh;
-    ol.renderOrder = o.renderOrder;
-    ol.matrixAutoUpdate = false; // identity under its host — never recomputed
+    decorate(ol, o);
     o.add(ol);
     meshes.push(ol);
   }
+  if (lod && anchor && meshes.length) _attachFigureLod(root, anchor, meshes, casters, figHeight);
   const handle = {
     material, materials, meshes,
     setVisible(v) { for (const m of meshes) m.visible = !!v; },
     dispose() {
-      for (const m of meshes) m.parent?.remove(m);
+      for (const m of meshes) { m.parent?.remove(m); if (m.geometry?.userData?.lfOwned) m.geometry.dispose(); }
       meshes.length = 0;
       for (const m of materials) { m.userData?.unregisterSway?.(); m.dispose(); }
     },
   };
-  root.userData.outline = handle.meshes.length ? { count: meshes.length } : root.userData.outline;
+  root.userData.outline = meshes.length ? { count: meshes.length } : root.userData.outline;
   return handle;
 }
 
@@ -795,19 +907,25 @@ export function sphericalNormals(geometry, { center = null, blend = 0.8 } = {}) 
 /* ============================================================================
    Soft-form geometry kit (v2) — shared by the Warden, NPCs and anyone who
    needs rounded limbs, organic lumps, straps or draped cloth. All build-time.
-     taperCapsule(r0, r1, len, seg)          closed smooth tapered limb along Y
+     taperCapsule(r0, r1, len, seg, rows)    closed smooth tapered limb along Y
      lumpify(geo, amp, seed)                 smooth low-frequency organic lumps
-     ribbonGeo(pts, width, thick, axisOf)    flat strap with thickness along a curve
+     ribbonGeo(pts, width, thick, axisOf, n) flat strap with thickness along a curve
      drapeShell({ profile, ... })            draped cloth shell (capes, cloaks,
                                              capelets, coats, aprons) with folds,
                                              soft hem, thickness, lining + trim colors
+     hairShell({ hairline, locks, fringe })  one sculpted hair volume with a tucked
+                                             hairline, scalloped locks and bangs
+     bentLimb(r0, r1, len, { bend, elbow })  sleeve/limb with a real elbow bend
+     bakeParts(parts) / solidColor(g, hex)   merge parts into one mesh / flat vc
+   Budget note: these are sized for the gameplay camera — pass low segment
+   counts (8–12 around, 2–3 cap rows) unless a part is seen up close.
    ========================================================================== */
 /** Closed, smooth, tapered limb: hemisphere r1 at the bottom, r0 at the top,
  *  straight taper of length `len` between; centered on the origin, along Y. */
-export function taperCapsule(r0, r1, len, seg = 18) {
+export function taperCapsule(r0, r1, len, seg = 12, rows = 4) {
   const pts = [];
-  for (let i = 0; i <= 6; i++) { const a = -Math.PI / 2 + (i / 6) * (Math.PI / 2); pts.push(new THREE.Vector2(Math.max(1e-4, r1 * Math.cos(a)), -len / 2 + r1 * Math.sin(a))); }
-  for (let i = 0; i <= 6; i++) { const a = (i / 6) * (Math.PI / 2); pts.push(new THREE.Vector2(Math.max(1e-4, r0 * Math.cos(a)), len / 2 + r0 * Math.sin(a))); }
+  for (let i = 0; i <= rows; i++) { const a = -Math.PI / 2 + (i / rows) * (Math.PI / 2); pts.push(new THREE.Vector2(Math.max(1e-4, r1 * Math.cos(a)), -len / 2 + r1 * Math.sin(a))); }
+  for (let i = 0; i <= rows; i++) { const a = (i / rows) * (Math.PI / 2); pts.push(new THREE.Vector2(Math.max(1e-4, r0 * Math.cos(a)), len / 2 + r0 * Math.sin(a))); }
   return new THREE.LatheGeometry(pts, seg);
 }
 
@@ -830,10 +948,11 @@ export function lumpify(geo, amp, seed) {
 }
 
 /** A flat strap/ribbon with real thickness following `pts` (Vector3[]); the
- *  width lies across the path, the thickness points away from `axisOf(p)`. */
-export function ribbonGeo(pts, width, thick, axisOf) {
+ *  width lies across the path, the thickness points away from `axisOf(p)`.
+ *  `n` = segments along the path (8 per triangle-pair ring). */
+export function ribbonGeo(pts, width, thick, axisOf, n = 28) {
   const curve = new THREE.CatmullRomCurve3(pts);
-  const n = 28, verts = [], idx = [];
+  const verts = [], idx = [];
   const p = new THREE.Vector3(), t = new THREE.Vector3(), o = new THREE.Vector3(), b = new THREE.Vector3();
   for (let i = 0; i <= n; i++) {
     const u = i / n;
@@ -963,6 +1082,115 @@ export function drapeShell({
 }
 
 
+const _ss = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+
+/**
+ * One-piece stylized HAIR shell (characters): a sphere sculpted around the
+ * head whose lower edge tucks INTO the skull along a hairline, so the visible
+ * hair ends in a clean edge — scalloped into rounded locks at the back and a
+ * fringe at the front — with crown/back/side volume and faint strand
+ * grooves. ~2·w·h triangles for everything (vs. many overlapping lobes), a
+ * readable silhouette, and radial outline normals (ink traces the hair's
+ * outer shape, not every lock). Coordinates: head-local, face toward +Z.
+ *   hairline: elevations (rad) where the hair ends at the back (nape), the
+ *             sides (over the ears), the temples and the forehead.
+ *   locks:    { count, depth, flare } scallops around the back half.
+ *   fringe:   { count, depth, side? } bangs across the forehead; side (-1..1)
+ *             sweeps them longer toward -X or +X.
+ *   bald:     elevation above which the crown is bare (0 = full head).
+ */
+export function hairShell({
+  radius = 0.17, center = [0, 0, 0], scale = [1, 1, 1], seg = [22, 14],
+  hairline = { back: -0.7, side: -0.06, temple: 0.2, front: 0.42 },
+  locks = { count: 9, depth: 0.14, flare: 0.04 },
+  fringe = { count: 5, depth: 0.08 },
+  volume = { crown: 0.06, back: 0.05, sides: 0.03 },
+  groove = 0.012, tuck = 0.62, bald = 0, seed = 1,
+} = {}) {
+  const g = new THREE.SphereGeometry(1, seg[0], seg[1]);
+  const pos = g.attributes.position;
+  const [cx, cy, cz] = center;
+  const hl0 = hairline;
+  for (let i = 0; i < pos.count; i++) {
+    let dx = pos.getX(i), dy = pos.getY(i), dz = pos.getZ(i);
+    const l = Math.hypot(dx, dy, dz) || 1; dx /= l; dy /= l; dz /= l;
+    const az = Math.atan2(dx, -dz);                   // 0 = back, ±π = front
+    const u = Math.abs(az) / Math.PI;                  // 0 back .. 1 front
+    const el = Math.asin(Math.max(-1, Math.min(1, dy)));
+    // base hairline around the head (smooth piecewise blend)
+    let hl = u < 0.5 ? hl0.back + (hl0.side - hl0.back) * _ss(0, 0.5, u)
+      : u < 0.75 ? hl0.side + (hl0.temple - hl0.side) * _ss(0.5, 0.75, u)
+        : hl0.temple + (hl0.front - hl0.temple) * _ss(0.75, 1, u);
+    const backW = 1 - _ss(0.42, 0.78, u), frontW = _ss(0.74, 0.95, u);
+    const lockW = 0.5 + 0.5 * Math.cos(az * locks.count + seed);
+    const fringeW = 0.5 + 0.5 * Math.cos(az * fringe.count * 2 + seed * 0.7);
+    const fringeSide = fringe.side ? Math.max(0, 1 + fringe.side * dx * 2.4) : 1; // side-swept bangs
+    hl -= locks.depth * lockW * lockW * backW + fringe.depth * fringeW * fringeW * frontW * fringeSide;
+    // volume
+    let r = 1
+      + volume.crown * _ss(0.05, 1.1, el) * (0.6 + 0.4 * Math.cos(az))
+      + volume.back * Math.max(0, Math.cos(az)) * _ss(-0.9, 0.3, el)
+      + volume.sides * Math.sin(az) * Math.sin(az) * (1 - Math.abs(el) / 1.6)
+      + groove * Math.sin(az * 19 + el * 5 + seed) * _ss(-0.7, 0.9, el);
+    const hemW = _ss(hl + 0.32, hl + 0.02, el);        // 1 at the hem, 0 higher up
+    r += (locks.flare ?? 0) * hemW * (0.35 + 0.65 * lockW) * backW;
+    // tuck under the hairline (and off a bald crown)
+    let t = _ss(hl - 0.05, hl + 0.12, el);
+    if (bald > 0) t *= 1 - _ss(bald - 0.1, bald + 0.06, el);
+    r = tuck + (r - tuck) * t;
+    pos.setXYZ(i, cx + dx * r * radius * scale[0], cy + dy * r * radius * scale[1], cz + dz * r * radius * scale[2]);
+  }
+  g.deleteAttribute('uv');
+  smoothGeometry(g);
+  const on = new Float32Array(pos.count * 3);
+  for (let i = 0; i < pos.count; i++) {
+    let x = pos.getX(i) - cx, y = pos.getY(i) - cy, z = pos.getZ(i) - cz;
+    const l = Math.hypot(x, y, z) || 1;
+    on[i * 3] = x / l; on[i * 3 + 1] = y / l; on[i * 3 + 2] = z / l;
+  }
+  g.setAttribute('lfOutlineNormal', new THREE.BufferAttribute(on, 3));
+  return g;
+}
+
+/**
+ * Tapered sleeve/limb with an ELBOW: a capsule-ended lathe (r0 at the top, r1
+ * at the bottom) with three rings around the joint, whose lower part bends
+ * forward (+Z) by `bend` radians, with a slight bulge at the joint. Top cap
+ * centre at y = 0, hangs down -Y. `elbow` = joint position as a fraction of
+ * `len` from the top. Returns { geometry, end: Vector3 (the bent lower end,
+ * for placing a hand/cuff), endAngle }.
+ */
+export function bentLimb(r0, r1, len, { bend = 0.3, seg = 10, rows = 3, elbow = 0.5, bulge = 0.08 } = {}) {
+  const pts = [];
+  for (let i = 0; i <= rows; i++) { const a = -Math.PI / 2 + (i / rows) * (Math.PI / 2); pts.push(new THREE.Vector2(Math.max(1e-4, r1 * Math.cos(a)), -len + r1 * Math.sin(a))); }
+  const tE = 1 - elbow;                                // joint, as a fraction from the bottom
+  for (const t of [tE - 0.17, tE, tE + 0.17]) {
+    if (t > 0.03 && t < 0.97) pts.push(new THREE.Vector2(r1 + (r0 - r1) * t, -len + t * len));
+  }
+  for (let i = 0; i <= rows; i++) { const a = (i / rows) * (Math.PI / 2); pts.push(new THREE.Vector2(Math.max(1e-4, r0 * Math.cos(a)), r0 * Math.sin(a))); }
+  const g = new THREE.LatheGeometry(pts, seg);
+  const pos = g.attributes.position;
+  const ey = -len * elbow;
+  for (let i = 0; i < pos.count; i++) {
+    let x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    const q = (y - ey) / (len * 0.18);
+    const k = Math.exp(-q * q);                          // joint bulge
+    x *= 1 + bulge * k; z *= 1 + bulge * k;
+    if (y < ey) {
+      const a = -bend * _ss(ey, ey - len * 0.25, y);   // ease the bend in below the elbow (−a about X = forward)
+      const yy = y - ey;
+      const ny = yy * Math.cos(a) - z * Math.sin(a), nz = yy * Math.sin(a) + z * Math.cos(a);
+      y = ny + ey; z = nz;
+    }
+    pos.setXYZ(i, x, y, z);
+  }
+  g.deleteAttribute('uv');
+  smoothGeometry(g);
+  const lowY = -len - r1 * 0.2 - ey;
+  const end = new THREE.Vector3(0, ey + lowY * Math.cos(bend), -lowY * Math.sin(bend));
+  return { geometry: g, end, endAngle: bend };
+}
+
 /** Bake [geometry, { p, r, s }] parts (same material) into ONE geometry in
  *  the parent's space — fewer meshes means fewer draw calls AND fewer ink
  *  outline shells. uv is dropped (nothing here is textured) so parts built
@@ -1045,7 +1273,7 @@ function softLumps(x, y, z, seed) {
  * Multi-lobed organic canopy/bush/cloud mass: several softly lumped,
  * gradient-painted icosphere lobes around a center. THE workhorse for fluffy
  * masses — one lobe reads as a placeholder, four read as art.
- * v2: smooth. Lobes are finely tessellated (detail 3 by default), displaced by
+ * v2: smooth. Lobes are tessellated (icosphere detail 2 by default), displaced by
  * a smooth lump field, smooth-normalled (crack-free) and then bent toward one
  * shared center (sphericalNormals, `soft`) so the whole mass shades like one
  * soft ball with just a hint of its lobes. Same signature/return as before
@@ -1054,7 +1282,7 @@ function softLumps(x, y, z, seed) {
  */
 export function lobedMass({
   lobes = 4, radius = 1, spread = 0.75, squash = 0.82,
-  from = 0x3e6b34, to = 0x8fce5c, seed = 1, jitter = 0.14, detail = 3, soft = 0.6,
+  from = 0x3e6b34, to = 0x8fce5c, seed = 1, jitter = 0.14, detail = 2, soft = 0.6,
 } = {}) {
   const group = new THREE.Group();
   const material = mat(0xffffff, { vertexColors: true });

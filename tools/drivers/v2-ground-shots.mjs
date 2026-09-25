@@ -11,7 +11,8 @@ const VANTAGES = {
     [-44, 12, -6, 0, 'main-path'],     // along the main path toward the meadow heart
   ],
   brighthollow: [
-    [30, 6, 0, 0, 'plaza-east'],       // east road looking back into the plaza
+    [1.5, 26, 0, 0, 'north-lane'],     // north lane looking down into the cobbled plaza
+    [-26, 4.5, 0, 0, 'west-lane'],     // west lane toward the plaza
   ],
   whisperwood: [
     [25, 46, 40, 22, 'trail'],         // on the main trail heading into the wood

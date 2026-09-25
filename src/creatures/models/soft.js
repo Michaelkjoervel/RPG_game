@@ -516,6 +516,106 @@ export function openWing(len, material, {
 }
 
 /**
+ * A soft bat / wyvern membrane wing on a 3-bone chain (shoulder, elbow,
+ * wrist) — kit.wing() contract { group, bones } with bones spaced along the
+ * span (+X; side = -1 MIRRORS THE GEOMETRY, never a negative scale, so the
+ * animator's flap about each bone's local Z stays symmetric). At rest the
+ * wing is planar (XZ, chord toward -Z) and every membrane panel boundary lies
+ * exactly on its joint's hinge axis, so flapping never opens a crack. The
+ * membrane billows gently between the bones, has a scalloped trailing edge
+ * between the finger tips, and is painted root -> tip; arm and finger spars
+ * (+ a wrist claw) ride on top in `sparMat`.
+ *   fingers : finger tips as [span fraction, chord fraction] (outer -> inner)
+ */
+export function batWing(len, material, sparMat, {
+  side = 1, chord = len * 0.55, elbow = 0.36, wrist = 0.62, rootChord = 0.78,
+  fingers = [[1.0, 0.04], [0.86, 0.52], [0.68, 0.95]], scallop = 0.16, billow = 0.05,
+  color = { root: 0x888888, tip: 0x555555 }, edge = null, spar = 0x444444, sparR = len * 0.026,
+  claw = 0xe8e2d8, cols = 5, rows = 4,
+} = {}) {
+  const c = chord;
+  const E = elbow * len, W = wrist * len;
+  const LE = [[0, 0], [E, 0.05 * c], [W, 0.12 * c], [fingers[0][0] * len, -fingers[0][1] * c]];
+  const TE = [[0, -rootChord * c], ...fingers.slice().reverse().map(([s, k]) => [s * len, -k * c])];
+  const zL = (x) => {
+    for (let i = 0; i < LE.length - 1; i++) {
+      const [x0, z0] = LE[i], [x1, z1] = LE[i + 1];
+      if (x <= x1 || i === LE.length - 2) return lerp(z0, z1, clamp01((x - x0) / Math.max(1e-6, x1 - x0)));
+    }
+    return 0;
+  };
+  const zT = (x) => {
+    for (let i = 0; i < TE.length - 1; i++) {
+      const [x0, z0] = TE[i], [x1, z1] = TE[i + 1];
+      if (x <= x1 || i === TE.length - 2) {
+        const u = clamp01((x - x0) / Math.max(1e-6, x1 - x0));
+        return lerp(z0, z1, u) + scallop * c * Math.sin(Math.PI * u);
+      }
+    }
+    return 0;
+  };
+  const tipX = fingers[0][0] * len;
+  const panel = (a, b, ox, oz) => {
+    const pos = [], col = [], idx = [];
+    const C = new THREE.Color(), Ce = new THREE.Color(edge ?? color.tip);
+    for (let i = 0; i <= cols; i++) {
+      const x = lerp(a, b, i / cols);
+      const l = zL(x), t = Math.min(zT(x), l - 1e-4);
+      for (let j = 0; j <= rows; j++) {
+        const v = j / rows;
+        const y = -billow * c * Math.sin(Math.PI * v) * Math.sin(Math.PI * (i / cols)) * (0.4 + 0.6 * v);
+        pos.push(x - ox, y, lerp(l, t, v) - oz);
+        C.setHex(lerp01hex(color.root, color.tip, clamp01(x / tipX)));
+        if (edge != null) C.lerp(Ce, sstep(0.72, 1, v) * 0.7);
+        col.push(C.r, C.g, C.b);
+      }
+    }
+    for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++) {
+      const k = i * (rows + 1) + j, k2 = k + rows + 1;
+      idx.push(k, k + 1, k2, k + 1, k2 + 1, k2);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    return g;
+  };
+  const sparGeo = (from, to, r0, r1) => {
+    const d = new THREE.Vector3(to[0] - from[0], to[1] - from[1], to[2] - from[2]);
+    const g = limb(d.length(), r0, r1, { radial: 6, capSeg: 1, shaftSeg: 2 });
+    aim(g, d.clone().negate().toArray());
+    g.translate(from[0], from[1], from[2]);
+    return paint(g, spar);
+  };
+  const lift = sparR * 0.4;
+  const e = [E, lift, zL(E)], w = [W, lift, zL(W)];
+  const rootG = [sparGeo([0, lift, 0], e, sparR * 1.25, sparR)];
+  const b1G = [sparGeo([0, lift, 0], [W - E, lift, w[2] - e[2]], sparR, sparR * 0.9)];
+  const b2G = fingers.map(([s, k], i) => sparGeo([0, lift, 0], [s * len - W, lift, -k * c - w[2]], sparR * 0.8, sparR * (0.35 + 0.1 * i)));
+  const cl = taper(len * 0.07, sparR * 0.9, { r1: sparR * 0.2, curve: 0.5, radial: 5, rings: 3, capSeg: 1 });
+  aim(cl, [0.15, 0.55, 1]);
+  b2G.push(paint(cl, claw));
+  const fix = (g) => (side < 0 ? mirrorX(g) : g);
+  const root = new THREE.Group(); root.name = 'wingRoot';
+  const b1 = new THREE.Group(); b1.name = 'wingBone1';
+  const b2 = new THREE.Group(); b2.name = 'wingBone2';
+  b1.position.set(E * side, 0, e[2]);
+  b2.position.set((W - E) * side, 0, w[2] - e[2]);
+  root.add(b1); b1.add(b2);
+  const add = (bone, memGeo, spars, name) => {
+    const m = new THREE.Mesh(fix(memGeo), material); m.name = name;
+    bone.add(m);
+    const s = new THREE.Mesh(fix(merge(spars)), sparMat); s.name = 'wingSpar';
+    bone.add(s);
+  };
+  add(root, panel(0, E, 0, 0), rootG, 'wingMembrane');
+  add(b1, panel(E, W, E, e[2]), b1G, 'wingMembrane');
+  add(b2, panel(W, tipX, W, w[2]), b2G, 'wingMembrane');
+  return { group: root, bones: [root, b1, b2] };
+}
+
+/**
  * A tapered tail as a chain of pivots — same contract as kit.tailChain():
  * `group` is the root pivot (attach to the body), the chain extends toward
  * local -Z, `pivots` is root->tip. Each segment is a ball-jointed tapered
@@ -950,13 +1050,15 @@ export function dirYP(yaw, pitch) {
 export function eye(kit, r = 0.05, opts = {}) {
   const {
     irisColor = 0x1c1c22, scleraColor = 0xffffff, pupil = true, glintSize = r * 0.32, skinColor = 0x33323a,
-    pupilColor = null, irisScale = 1, lidBias = 0, microGlint = true,
+    pupilColor = null, irisScale = 1, lidBias = 0, microGlint = true, detail = 1,
   } = opts;
+  // `detail` < 1 thins the tessellation for small secondary eyes.
+  const dk = (n, min) => Math.max(min, Math.round(n * detail));
   const group = new THREE.Group(); group.name = 'eye';
   group.userData.noOutline = true;
   const scleraM = kit.mat(scleraColor, { rough: 0.25, rim: 0.5 });
   scleraM.emissive = new THREE.Color(scleraColor).multiplyScalar(0.12);
-  const sg = new THREE.SphereGeometry(r, 18, 12); sg.deleteAttribute('uv');
+  const sg = new THREE.SphereGeometry(r, dk(18, 8), dk(12, 6)); sg.deleteAttribute('uv');
   const sclera = new THREE.Mesh(sg, scleraM);
   sclera.name = 'eyeSclera';
   group.add(sclera);
@@ -982,9 +1084,9 @@ export function eye(kit, r = 0.05, opts = {}) {
       return paint(g, color.getHex());
     };
     const iris = new THREE.Mesh(merge([
-      cap(r * 1.025, Math.min(capTheta * 1.18, 1.5), pupilC, 20),
-      cap(r * 1.05, capTheta, irisC, 20),
-      cap(r * 1.075, capTheta * 0.52, pupilC, 16),
+      cap(r * 1.025, Math.min(capTheta * 1.18, 1.5), pupilC, dk(20, 8)),
+      cap(r * 1.05, capTheta, irisC, dk(20, 8)),
+      cap(r * 1.075, capTheta * 0.52, pupilC, dk(16, 6)),
     ]), kit.mat(0xffffff, { unlit: true, vertexColors: true, glow: 1 }));
     iris.name = 'eyeIris';
     group.add(iris);
@@ -996,7 +1098,7 @@ export function eye(kit, r = 0.05, opts = {}) {
   glint.name = 'eyeGlint';
   group.add(glint);
   const lidC = new THREE.Color(skinColor).multiplyScalar(0.82);
-  const lg = new THREE.SphereGeometry(r * 1.08, 14, 10); lg.deleteAttribute('uv');
+  const lg = new THREE.SphereGeometry(r * 1.08, dk(14, 8), dk(10, 6)); lg.deleteAttribute('uv');
   const lid = new THREE.Mesh(lg, kit.mat(lidC.getHex(), { rough: 0.85 }));
   lid.name = 'eyelid';
   lid.position.z = r * 0.12;

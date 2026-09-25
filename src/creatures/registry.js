@@ -186,7 +186,14 @@ export function buildCreature(speciesId, variant = {}) {
   pruneShadowCasters(group);
 
   try {
-    addOutline(group, { color: hollowed ? 0x2a2a30 : OUTLINE_COLOR, thickness: OUTLINE_PX });
+    // Ink only where it shapes the silhouette: parts smaller than ~5.5 % of
+    // the creature's height (claws, teeth, spikes, buttons) skip their shell,
+    // and at most the 14 largest parts get one (triangle + draw budget).
+    const h = measureHeight(group) || 1;
+    addOutline(group, {
+      color: hollowed ? 0x2a2a30 : OUTLINE_COLOR, thickness: OUTLINE_PX,
+      minSize: Math.min(0.12, Math.max(0.02, h * 0.055)), maxShells: 14,
+    });
   } catch (err) {
     if (!warnedOnce.has('outline')) { warnedOnce.add('outline'); console.warn('[registry] outline pass failed', err); }
   }

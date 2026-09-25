@@ -92,10 +92,11 @@
 //   - mat() is SMOOTH by default and carries the shared soft look (wrapped
 //     terminator + rim light, gfx/materials.js applyLook). Pass { flat: true }
 //     ONLY for crystal / gem / ice / cut-stone materials.
-//   - Round parts are tessellated so silhouettes read round: orb/blob pick
-//     their segment counts from their radius (explicit wSeg/hSeg are raised to
-//     a floor), capsules/horns/snouts/ears/teardrops/bulbs got more segments,
-//     blob/horn/snout/shellPlate normals are crack-free (no UV-seam crease).
+//   - Tessellation is BUDGETED (perf pass): orb/blob pick segments from their
+//     radius (8..14 around; explicit wSeg/hSeg honoured within 8..24), capsules
+//     default 3 cap / 10 radial, cones 10, horns 8, legs/tails 10-around tapered
+//     lathes — round at gameplay/battle framing, ~8k triangles per creature
+//     including ink shells. blob/horn/snout/shellPlate normals are crack-free.
 //   - cone() with <= 5 segments stays FACETED (spikes, gem shards, ice teeth);
 //     more segments = smooth.
 //   - fluffTuft() is one merged mesh per tuft (fewer draw calls) with
@@ -221,15 +222,16 @@ export function mat(color, opts = {}) {
   return m;
 }
 
-// Segment floors for smooth shading: under the v2 soft look a 10-sided sphere
-// silhouette reads as a polygon at battle framing, so round primitives pick
-// their tessellation from their size (explicit counts are raised to a floor —
-// they were tuned for the old faceted look).
+// Tessellation budget (v2 perf pass): round primitives pick their segment
+// count from their size — enough that smooth-shaded silhouettes read round at
+// gameplay/battle framing, no more (a creature should stay near ~8k triangles
+// including its ink shells). Explicit wSeg/hSeg are honoured (floored at 8/5,
+// capped at 24/16 so one call can't blow the budget).
 function sphereSegs(r, wSeg, hSeg) {
-  const auto = Math.round(Math.min(22, Math.max(12, 12 + r * 48)));
-  const w = Math.max(wSeg ?? auto, Math.min(auto, 14));
-  const h = Math.max(hSeg ?? Math.round(auto * 0.72), Math.round(Math.min(auto, 14) * 0.72));
-  return [w, Math.max(6, h)];
+  const auto = Math.round(Math.min(13, Math.max(8, 8 + r * 36)));
+  const w = wSeg != null ? Math.min(24, Math.max(8, wSeg)) : auto;
+  const h = hSeg != null ? Math.min(16, Math.max(5, hSeg)) : Math.max(5, Math.round(w * 0.7));
+  return [w, h];
 }
 
 // -------------------------------------------------------------- Noise helper
@@ -283,12 +285,12 @@ export function orb(r, m, opts = {}) {
  * @param {number} r
  * @param {number} len - length of the straight midsection (total length = len + 2r)
  * @param {THREE.Material} m
- * @param {object} [opts] {capSeg, radSeg} (v2: floored at 5 / 14 so limbs read round)
+ * @param {object} [opts] {capSeg=3, radSeg=10} (floored at 2 / 8 so limbs read round)
  * @returns {THREE.Mesh}
  */
 export function capsule(r, len, m, opts = {}) {
-  const capSeg = Math.max(opts.capSeg ?? 6, 5);
-  const radSeg = Math.max(opts.radSeg ?? 16, r < 0.012 ? 8 : 14);
+  const capSeg = Math.min(6, Math.max(opts.capSeg ?? 3, 2));
+  const radSeg = Math.min(18, Math.max(opts.radSeg ?? 10, r < 0.012 ? 6 : 8));
   return new THREE.Mesh(new THREE.CapsuleGeometry(r, Math.max(len, 0.001), capSeg, radSeg), m);
 }
 
@@ -299,13 +301,13 @@ export function capsule(r, len, m, opts = {}) {
  * @param {number} r - base radius
  * @param {number} h - height
  * @param {THREE.Material} m
- * @param {object} [opts] {segments=14, flip=false} flip points the apex -Y instead.
+ * @param {object} [opts] {segments=10, flip=false} flip points the apex -Y instead.
  *   v2: <= 5 segments stays deliberately FACETED (gem shards, ice teeth, thorns).
  * @returns {THREE.Mesh}
  */
 export function cone(r, h, m, opts = {}) {
   const { flip = false } = opts;
-  const segments = opts.segments ?? 14;
+  const segments = opts.segments ?? 10;
   let geo = new THREE.ConeGeometry(r, h, segments);
   geo.translate(0, (flip ? -h : h) / 2, 0);
   if (flip) geo.rotateX(Math.PI);
@@ -337,13 +339,13 @@ function lathePoints(pts, segments) {
  * near the base, base sits at y=0. Great for crests (Nixling), fruit,
  * lanterns, hanging dew/berries.
  * @param {THREE.Material} m
- * @param {object} [opts] {height=0.3, width=0.18, segments=18}
+ * @param {object} [opts] {height=0.3, width=0.18, segments=12}
  * @returns {THREE.Mesh}
  */
 export function teardrop(m, opts = {}) {
   const { height = 0.3, width = 0.18 } = opts;
-  const segments = Math.max(opts.segments ?? 18, width < 0.02 ? 6 : 12);
-  const steps = 14;
+  const segments = Math.min(18, Math.max(opts.segments ?? 12, width < 0.02 ? 6 : 8));
+  const steps = 9;
   const pts = [];
   for (let i = 0; i <= steps; i++) {
     const t = i / steps; // 0 at tip, 1 at base
@@ -358,12 +360,12 @@ export function teardrop(m, opts = {}) {
  * good for oozes, gourds, jars, jelly bells (used a lot by the second batch
  * of Kindred models: oozel, sludgemaw, jellune...).
  * @param {THREE.Material} m
- * @param {object} [opts] {height=0.26, width=0.2, neck=0.35, segments=20}
+ * @param {object} [opts] {height=0.26, width=0.2, neck=0.35, segments=14}
  * @returns {THREE.Mesh}
  */
 export function bulb(m, opts = {}) {
   const { height = 0.26, width = 0.2, neck = 0.35 } = opts;
-  const segments = Math.max(opts.segments ?? 20, 14);
+  const segments = Math.min(20, Math.max(opts.segments ?? 14, 10));
   const pts = [
     [0, height], [width * 0.22, height * 0.86], [width * neck, height * 0.62],
     [width * 0.34, height * 0.5], [width, height * 0.28], [width * 0.92, height * 0.08],
@@ -467,13 +469,13 @@ export const lobedMass = _lobedMass;
  * upward tip — instantly less "capsule stuck on a sphere".
  * @param {number} len - total length
  * @param {THREE.Material} m
- * @param {object} [opts] {r=len*0.42, taper=0.45, up=0.14, segments=16}
+ * @param {object} [opts] {r=len*0.42, taper=0.45, up=0.14, segments=10}
  * @returns {THREE.Mesh}
  */
 export function snout(len, m, opts = {}) {
   const { r = len * 0.42, taper = 0.45, up = 0.14 } = opts;
-  const segments = Math.max(opts.segments ?? 16, 12);
-  const geo = new THREE.CapsuleGeometry(r, Math.max(len - 2 * r, 0.005), 5, segments);
+  const segments = Math.min(16, Math.max(opts.segments ?? 10, 8));
+  const geo = new THREE.CapsuleGeometry(r, Math.max(len - 2 * r, 0.005), 3, segments);
   geo.rotateX(Math.PI / 2); // axis onto Z
   geo.computeBoundingBox();
   const bb = geo.boundingBox;
@@ -555,7 +557,7 @@ export function eye(r = 0.05, opts = {}) {
   // of self-light on the white so eyes never go muddy gray on the shadow side.
   const scleraM = mat(scleraColor, { rough: 0.25, rim: 0.5 });
   scleraM.emissive = new THREE.Color(scleraColor).multiplyScalar(0.12);
-  const sclera = new THREE.Mesh(new THREE.SphereGeometry(r, 22, 16), scleraM);
+  const sclera = new THREE.Mesh(new THREE.SphereGeometry(r, 12, 9), scleraM);
   sclera.name = 'eyeSclera';
   group.add(sclera);
   if (pupil) {
@@ -586,14 +588,14 @@ export function eye(r = 0.05, opts = {}) {
     // baked into ONE unlit vertex-colored mesh named 'eyeIris' — one draw
     // instead of three, identical look.
     const cap = (radius, theta, color, wSeg) => {
-      const geo = new THREE.SphereGeometry(radius, wSeg, 6, 0, Math.PI * 2, 0, theta);
+      const geo = new THREE.SphereGeometry(radius, wSeg, 3, 0, Math.PI * 2, 0, theta);
       geo.rotateX(Math.PI / 2); // cap pole from +Y onto +Z
       return [solidColor(geo, color)];
     };
     const iris = new THREE.Mesh(bakeParts([
-      cap(r * 1.025, Math.min(capTheta * 1.18, 1.5), pupilC.getHex(), 28),
-      cap(r * 1.05, capTheta, irisC.getHex(), 28),
-      cap(r * 1.075, capTheta * 0.52, pupilC.getHex(), 22),
+      cap(r * 1.025, Math.min(capTheta * 1.18, 1.5), pupilC.getHex(), 14),
+      cap(r * 1.05, capTheta, irisC.getHex(), 14),
+      cap(r * 1.075, capTheta * 0.52, pupilC.getHex(), 12),
     ]), mat(0xffffff, { unlit: true, vertexColors: true, glow: 1 }));
     iris.name = 'eyeIris';
     group.add(iris);
@@ -602,15 +604,15 @@ export function eye(r = 0.05, opts = {}) {
   // floored so no model ends up with an invisible speck — the always-on
   // specular highlight is what makes an eye read as ALIVE.
   const gR = Math.max(glintSize, r * 0.26);
-  const glintParts = [[new THREE.SphereGeometry(gR, 12, 8), { p: [r * 0.3, r * 0.34, r * 0.8] }]];
-  if (microGlint) glintParts.push([new THREE.SphereGeometry(gR * 0.45, 8, 6), { p: [-r * 0.28, -r * 0.22, r * 0.92] }]);
+  const glintParts = [[new THREE.SphereGeometry(gR, 7, 5), { p: [r * 0.3, r * 0.34, r * 0.8] }]];
+  if (microGlint) glintParts.push([new THREE.SphereGeometry(gR * 0.45, 5, 3), { p: [-r * 0.28, -r * 0.22, r * 0.92] }]);
   const glint = new THREE.Mesh(bakeParts(glintParts), mat(0xffffff, { unlit: true, glow: 1 }));
   glint.name = 'eyeGlint';
   group.add(glint);
   // Eyelid: slightly darker than the skin so a blink reads as a lid, not a
   // glitch. Y-scale = openness (0.06 open sliver .. ~1 closed).
   const lidC = new THREE.Color(skinColor).multiplyScalar(0.82);
-  const lid = new THREE.Mesh(new THREE.SphereGeometry(r * 1.08, 22, 16), mat(lidC.getHex(), { rough: 0.85 }));
+  const lid = new THREE.Mesh(new THREE.SphereGeometry(r * 1.08, 12, 7), mat(lidC.getHex(), { rough: 0.85 }));
   lid.name = 'eyelid';
   lid.position.z = r * 0.12;
   lid.scale.set(1, 0.06 + 0.9 * clamp01(lidBias), 0.7);
@@ -649,9 +651,9 @@ export function fang(len, m, opts = {}) {
  */
 export function ear(len, m, opts = {}) {
   const { width = len * 0.55, floppy = false } = opts;
-  const segments = Math.max(opts.segments ?? 14, 10);
-  if (floppy) return leafBlade(len, m, { width, segments: 8 });
-  const geo = new THREE.ConeGeometry(width * 0.5, len, segments, 3);
+  const segments = Math.min(14, Math.max(opts.segments ?? 10, 8));
+  if (floppy) return leafBlade(len, m, { width, segments: 6 });
+  const geo = new THREE.ConeGeometry(width * 0.5, len, segments, 2);
   geo.translate(0, len / 2, 0);
   geo.scale(1, 1, 0.42);
   return new THREE.Mesh(geo, m);
@@ -663,13 +665,13 @@ export function ear(len, m, opts = {}) {
  * for the other side, or rotate the whole mesh via `at()`.
  * @param {number} len
  * @param {THREE.Material} m
- * @param {object} [opts] {baseR=len*0.16, tipR=len*0.02, bend=0.5, segments=12}
+ * @param {object} [opts] {baseR=len*0.16, tipR=len*0.02, bend=0.5, segments=8}
  * @returns {THREE.Mesh}
  */
 export function horn(len, m, opts = {}) {
   const { baseR = len * 0.16, tipR = len * 0.02, bend = 0.5 } = opts;
-  const segments = Math.max(opts.segments ?? 12, baseR < 0.01 ? 6 : 10);
-  const geo = new THREE.CylinderGeometry(tipR, baseR, len, segments, 8, false);
+  const segments = Math.min(14, Math.max(opts.segments ?? 8, 6));
+  const geo = new THREE.CylinderGeometry(tipR, baseR, len, segments, 5, false);
   geo.translate(0, len / 2, 0);
   const pos = geo.attributes.position;
   const v = new THREE.Vector3();
@@ -812,7 +814,7 @@ export function tailChain(segments, m, opts = {}) {
     const r1 = startR + (endR - startR) * t1;
     // v2: each segment tapers r0 -> r1 (was a constant-radius capsule), so
     // the chain reads as one smoothly narrowing tail instead of beads.
-    const seg = new THREE.Mesh(taperCapsule(r0, r1, segLen, r0 < 0.012 ? 8 : 14), m);
+    const seg = new THREE.Mesh(taperCapsule(r0, r1, segLen, r0 < 0.012 ? 6 : 10, 2), m);
     seg.rotation.x = Math.PI / 2; // lathe axis is Y (r0 end up); lay it along Z, r0 toward the root
     seg.position.z = -segLen * 0.5;
     parent.add(seg);
@@ -848,13 +850,13 @@ export function leg(len, m, opts = {}) {
   const thighLen = len * 0.5, shinLen = len * 0.42;
   // v2: tapered limbs (full at the hip, slimmer at the knee/ankle) read as
   // muscle instead of pillars. Same pivots/extent as the old capsules.
-  const thigh = new THREE.Mesh(taperCapsule(thighR * 1.1, thighR * 0.82, thighLen, 18), m);
+  const thigh = new THREE.Mesh(taperCapsule(thighR * 1.1, thighR * 0.82, thighLen, 10, 2), m);
   thigh.position.y = -thighLen / 2 - thighR * 0.25;
   hip.add(thigh);
   const knee = new THREE.Group(); knee.name = 'legKnee';
   knee.position.y = -thighLen - thighR * 0.25;
   hip.add(knee);
-  const shin = new THREE.Mesh(taperCapsule(shinR * 1.04, shinR * 0.84, shinLen, 16), m);
+  const shin = new THREE.Mesh(taperCapsule(shinR * 1.04, shinR * 0.84, shinLen, 10, 2), m);
   shin.position.y = -shinLen / 2 - shinR * 0.2;
   knee.add(shin);
   // Rounded paw instead of the old box — a squashed orb with a slight toe
@@ -906,8 +908,9 @@ export function fluffTuft(r, m, opts = {}) {
   for (let i = 0; i < count; i++) {
     const rr = r * (0.55 + rng() * 0.55);
     const sy = 1.1 + rng() * 0.2;
-    const [ws, hs] = sphereSegs(rr);
-    const g = new THREE.SphereGeometry(rr, ws, hs);
+    // low-poly puffs on purpose: the spherical "one soft ball" normals below
+    // hide the facets, and the lumpy silhouette doesn't need finer rims
+    const g = new THREE.SphereGeometry(rr, 7, 5);
     mtx.makeScale(1, sy, 1).setPosition((rng() - 0.5) * spread, (rng() - 0.5) * spread * 0.6, (rng() - 0.5) * spread);
     g.applyMatrix4(mtx);
     geos.push(g);
@@ -929,7 +932,7 @@ export function fluffTuft(r, m, opts = {}) {
  */
 export function shellPlate(w, h, d, m, opts = {}) {
   const { bulge = 0.15 } = opts;
-  const segments = Math.max(opts.segments ?? 6, 4);
+  const segments = Math.min(6, Math.max(opts.segments ?? 4, 3));
   const geo = new THREE.BoxGeometry(w, h, d, segments, segments, 1);
   const pos = geo.attributes.position;
   const v = new THREE.Vector3();
