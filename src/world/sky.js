@@ -426,6 +426,9 @@ void main() {
   float a = across * across * (3.0 - 2.0 * across);
   a *= smoothstep(0.0, 0.3, vUv.y) * (1.0 - smoothstep(0.55, 1.0, vUv.y));
   a *= vFade * (1.0 - skyward) * uIntensity * (0.55 + 0.45 * sin(uTime * 0.31 + vPhase * 6.2831));
+  // a tilted beam's upper end can lean over the camera even when its foot is
+  // far away — fade by true per-pixel distance so no beam ever smears the lens
+  a *= smoothstep(9.0, 16.0, vDist);
   float fd = uFogD * vDist;
   a *= exp(-fd * fd);
   gl_FragColor = vec4(uShaftColor, a);
