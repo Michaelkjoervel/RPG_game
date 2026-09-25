@@ -7,6 +7,8 @@
 //   tickWind(dt)                                advances the shared sway clock
 //   groundPalette(biome) -> {grass,grass2,dirt,stone,stoneDark,sand,snow,path}
 //   disposeGroup(group, opts)                   traverse + dispose geos/materials
+//   smoothGeometry(geo, {creaseAngle})          rounded shading, crack-free, in place
+//   sphericalNormals(geo, {center, blend})      soft "one ball" foliage/cloud shading
 //
 // `windSway` is consumed directly by src/world/props.js (foliage/cloth/fronds)
 // and by this module's own `mat({sway})` sugar. It self-registers into a
@@ -218,20 +220,124 @@ export function applyVertexGradient(geometry, {
  */
 export function jitterGeometry(geometry, amp = 0.06, seed = 1) {
   const pos = geometry.attributes.position;
-  geometry.computeVertexNormals();
-  const nrm = geometry.attributes.normal;
+  // Displace along a normal averaged per unique POSITION: non-indexed
+  // primitives duplicate every corner once per face, and pushing each copy
+  // along its own face normal tears visible cracks open under smooth shading.
+  const nrm = positionNormals(geometry);
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
     const n = hashNoise(x, y, z, seed);
     const n2 = hashNoise(z, x, y, seed + 7);
     pos.setXYZ(i,
-      x + nrm.getX(i) * n * amp + n2 * amp * 0.35,
-      y + nrm.getY(i) * n * amp,
-      z + nrm.getZ(i) * n * amp - n2 * amp * 0.35,
+      x + nrm[i * 3] * n * amp + n2 * amp * 0.35,
+      y + nrm[i * 3 + 1] * n * amp,
+      z + nrm[i * 3 + 2] * n * amp - n2 * amp * 0.35,
     );
   }
   pos.needsUpdate = true;
-  geometry.computeVertexNormals();
+  // Rounded normals (ignored by flat-shaded materials, used by smooth ones).
+  geometry.setAttribute('normal', new THREE.BufferAttribute(positionNormals(geometry), 3));
+  return geometry;
+}
+
+const _posKey = (x, y, z) => `${Math.round(x * 1e4)},${Math.round(y * 1e4)},${Math.round(z * 1e4)}`;
+
+/** Area-weighted normal per unique vertex position (shared by all its copies). */
+function positionNormals(geometry) {
+  const pos = geometry.attributes.position;
+  const idx = geometry.index;
+  const acc = new Map();
+  const triCount = idx ? idx.count / 3 : pos.count / 3;
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+  const ab = new THREE.Vector3(), ac = new THREE.Vector3();
+  const keys = new Array(pos.count);
+  for (let i = 0; i < pos.count; i++) keys[i] = _posKey(pos.getX(i), pos.getY(i), pos.getZ(i));
+  for (let t = 0; t < triCount; t++) {
+    const i0 = idx ? idx.getX(t * 3) : t * 3;
+    const i1 = idx ? idx.getX(t * 3 + 1) : t * 3 + 1;
+    const i2 = idx ? idx.getX(t * 3 + 2) : t * 3 + 2;
+    a.fromBufferAttribute(pos, i0); b.fromBufferAttribute(pos, i1); c.fromBufferAttribute(pos, i2);
+    ab.subVectors(b, a); ac.subVectors(c, a); ab.cross(ac); // length = 2 × area
+    for (const k of [keys[i0], keys[i1], keys[i2]]) {
+      const v = acc.get(k);
+      if (v) v.add(ab); else acc.set(k, ab.clone());
+    }
+  }
+  const out = new Float32Array(pos.count * 3);
+  for (let i = 0; i < pos.count; i++) {
+    const v = acc.get(keys[i]);
+    if (!v || v.lengthSq() < 1e-20) { out[i * 3 + 1] = 1; continue; }
+    const l = v.length();
+    out[i * 3] = v.x / l; out[i * 3 + 1] = v.y / l; out[i * 3 + 2] = v.z / l;
+  }
+  return out;
+}
+
+/**
+ * Smooth (rounded) shading for any geometry, IN PLACE: every copy of a
+ * duplicated corner gets the same averaged normal, so non-indexed primitives
+ * (icospheres, jittered masses, merged parts) stop reading as facets. Pair with
+ * a material that has flatShading off — mat(color, { flat: false }).
+ *   creaseAngle (radians): faces meeting at a sharper angle keep a hard edge
+ *   (default 0 = smooth everything). Use ~0.9 for cut stone / furniture.
+ */
+export function smoothGeometry(geometry, { creaseAngle = 0 } = {}) {
+  const pos = geometry.attributes.position;
+  if (!creaseAngle) {
+    geometry.setAttribute('normal', new THREE.BufferAttribute(positionNormals(geometry), 3));
+    return geometry;
+  }
+  // Crease-aware: average only face normals within creaseAngle of each other.
+  geometry.computeVertexNormals(); // per-face normals on non-indexed input
+  const faceN = geometry.attributes.normal;
+  const groups = new Map();
+  for (let i = 0; i < pos.count; i++) {
+    const k = _posKey(pos.getX(i), pos.getY(i), pos.getZ(i));
+    (groups.get(k) ?? groups.set(k, []).get(k)).push(i);
+  }
+  const cosLim = Math.cos(creaseAngle);
+  const out = new Float32Array(pos.count * 3);
+  const ni = new THREE.Vector3(), nj = new THREE.Vector3(), sum = new THREE.Vector3();
+  for (const list of groups.values()) {
+    for (const i of list) {
+      ni.fromBufferAttribute(faceN, i);
+      sum.set(0, 0, 0);
+      for (const j of list) {
+        nj.fromBufferAttribute(faceN, j);
+        if (ni.dot(nj) >= cosLim) sum.add(nj);
+      }
+      sum.normalize();
+      out[i * 3] = sum.x; out[i * 3 + 1] = sum.y; out[i * 3 + 2] = sum.z;
+    }
+  }
+  geometry.setAttribute('normal', new THREE.BufferAttribute(out, 3));
+  return geometry;
+}
+
+/**
+ * "Fluffy foliage" normals: bend every normal toward the direction from
+ * `center` (default: bounding-box center) so a whole lumpy canopy/bush/cloud
+ * shades like one soft ball instead of a pile of lit-and-shadowed lobes.
+ *   blend 0..1 — 1 = pure spherical, ~0.7 keeps a hint of the lumps.
+ */
+export function sphericalNormals(geometry, { center = null, blend = 0.8 } = {}) {
+  const pos = geometry.attributes.position;
+  if (!geometry.attributes.normal) smoothGeometry(geometry);
+  const nrm = geometry.attributes.normal;
+  let cx, cy, cz;
+  if (center) ({ x: cx, y: cy, z: cz } = center);
+  else {
+    geometry.computeBoundingBox();
+    const bb = geometry.boundingBox;
+    cx = (bb.min.x + bb.max.x) / 2; cy = (bb.min.y + bb.max.y) / 2; cz = (bb.min.z + bb.max.z) / 2;
+  }
+  const v = new THREE.Vector3(), n = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++) {
+    v.set(pos.getX(i) - cx, pos.getY(i) - cy, pos.getZ(i) - cz).normalize();
+    n.fromBufferAttribute(nrm, i).lerp(v, blend).normalize();
+    nrm.setXYZ(i, n.x, n.y, n.z);
+  }
+  nrm.needsUpdate = true;
   return geometry;
 }
 
