@@ -14,7 +14,9 @@ import { bus } from '../core/events.js';
 import { G } from '../core/state.js';
 import { input } from '../core/input.js';
 import { clamp, clamp01, lerp, damp, dampAngle, shortAngle, TAU } from '../core/math.js';
-import { disposeGroup, applyVertexGradient, jitterGeometry, contactShadow, applyLook, addOutline, smoothGeometry, sphericalNormals } from '../gfx/materials.js';
+import { disposeGroup, applyVertexGradient, contactShadow, applyLook, addOutline, smoothGeometry, sphericalNormals } from '../gfx/materials.js';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 /* ----------------------------- movement tuning ----------------------------- */
 const WALK_SPEED = 3.2;        // u/s — contract value
@@ -60,6 +62,15 @@ const BIOME_SURFACE = {
 };
 
 /* ============================ Warden model =============================== */
+/* v2 SOFT-STYLIZED WARDEN. The default camera looks at the Warden's BACK, so
+   the back is the hero view: a layered, draped cloak — hood cowl -> scalloped
+   shoulder capelet -> long folded cloak with a gold-trimmed, undulating hem.
+   The long cloak is ONE skinned shell whose three bones ARE the cloakSegs
+   pivots animate() already swings (same refs contract as before), so it bends
+   continuously instead of hinging like stacked boards. Everything else is
+   smooth and rounded (tapered-capsule limbs, rounded boots and hands, soft
+   merged hair volume), carries the shared soft look, and the figure gets the
+   soft ink outline. Build-time only — nothing here allocates per frame. */
 
 // v2 soft look: smooth by default + the shared wrapped-terminator/rim hook.
 function M(color, { rough = 0.82, metal = 0, emissive = 0x000000, ei = 0.0, flat = false, vc = false, side = THREE.FrontSide, rim = 1 } = {}) {
@@ -75,26 +86,169 @@ function shade(hex, dl, ds = 0) {
   _shadeCol.setHex(hex).offsetHSL(0, ds, dl);
   return _shadeCol.getHex();
 }
-const _mixA = new THREE.Color(), _mixB = new THREE.Color();
-function mixHex(a, b, t) {
-  _mixA.setHex(a); _mixB.setHex(b);
-  return _mixA.lerp(_mixB, t).getHex();
-}
 /** Vertical two-tone ramp baked into vertex colors: darker hem, lighter crown. */
 function grad(geom, base, { down = 0.10, up = 0.07, noise = 0.045, seed = 3, exp = 1 } = {}) {
   applyVertexGradient(geom, { from: shade(base, -down), to: shade(base, up), noise, seed, exp });
   return geom;
 }
-/** Trapezoid cloak panel: topW at y=0 flaring to bottomW at y=-len. */
-function panelGeometry(topW, bottomW, len, thick) {
-  const g = new THREE.BoxGeometry(1, len, thick, 4, 3, 1);
-  const pos = g.attributes.position;
+
+/** Closed, smooth, tapered limb: hemisphere r1 at the bottom, r0 at the top,
+ *  straight taper of length `len` between; centered on the origin, along Y. */
+function taperCapsule(r0, r1, len, seg = 18) {
+  const pts = [];
+  for (let i = 0; i <= 6; i++) { const a = -Math.PI / 2 + (i / 6) * (Math.PI / 2); pts.push(new THREE.Vector2(Math.max(1e-4, r1 * Math.cos(a)), -len / 2 + r1 * Math.sin(a))); }
+  for (let i = 0; i <= 6; i++) { const a = (i / 6) * (Math.PI / 2); pts.push(new THREE.Vector2(Math.max(1e-4, r0 * Math.cos(a)), len / 2 + r0 * Math.sin(a))); }
+  return new THREE.LatheGeometry(pts, seg);
+}
+
+/** Smooth low-frequency lumps (a few crossed sines on the direction from the
+ *  geometry's center) — organic volume that looks the same at any tessellation. */
+const _lv = new THREE.Vector3(), _lc = new THREE.Vector3();
+function lumpify(geo, amp, seed) {
+  geo.computeBoundingBox();
+  geo.boundingBox.getCenter(_lc);
+  const pos = geo.attributes.position;
   for (let i = 0; i < pos.count; i++) {
-    const u = 0.5 - pos.getY(i) / len; // 0 top -> 1 bottom
-    pos.setX(i, pos.getX(i) * lerp(topW, bottomW, u));
+    _lv.fromBufferAttribute(pos, i).sub(_lc);
+    const l = _lv.length() || 1;
+    const nx = _lv.x / l, ny = _lv.y / l, nz = _lv.z / l;
+    const f = 1 + amp * (Math.sin(nx * 3.1 + seed) * Math.cos(ny * 2.3 - seed * 0.7) + Math.sin(nz * 2.7 + nx * 1.3 + seed * 1.7) * 0.6) / 1.6;
+    pos.setXYZ(i, _lc.x + _lv.x * f, _lc.y + _lv.y * f, _lc.z + _lv.z * f);
   }
-  g.translate(0, -len / 2, 0);
-  g.computeVertexNormals();
+  pos.needsUpdate = true;
+  return geo;
+}
+
+/** A flat strap/ribbon with real thickness following `pts` (Vector3[]); the
+ *  width lies across the path, the thickness points away from `axisOf(p)`. */
+function ribbonGeo(pts, width, thick, axisOf) {
+  const curve = new THREE.CatmullRomCurve3(pts);
+  const n = 28, verts = [], idx = [];
+  const p = new THREE.Vector3(), t = new THREE.Vector3(), o = new THREE.Vector3(), b = new THREE.Vector3();
+  for (let i = 0; i <= n; i++) {
+    const u = i / n;
+    curve.getPointAt(u, p); curve.getTangentAt(u, t);
+    axisOf(p, o); o.normalize();
+    b.crossVectors(t, o).normalize();
+    const w = width * (i === 0 || i === n ? 0.92 : 1) / 2, h = thick / 2;
+    for (const [sb, so] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+      verts.push(p.x + b.x * w * sb + o.x * h * so, p.y + b.y * w * sb + o.y * h * so, p.z + b.z * w * sb + o.z * h * so);
+    }
+  }
+  for (let i = 0; i < n; i++) {
+    for (let k = 0; k < 4; k++) {
+      const a = i * 4 + k, c = i * 4 + ((k + 1) % 4), a2 = a + 4, c2 = c + 4;
+      idx.push(a, a2, c, c, a2, c2);
+    }
+  }
+  idx.push(0, 1, 2, 0, 2, 3); // end caps
+  const e = n * 4; idx.push(e, e + 2, e + 1, e, e + 3, e + 2);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+  g.setIndex(idx);
+  smoothGeometry(g, { creaseAngle: 1.1 });
+  return g;
+}
+
+/**
+ * A draped cloth shell around the vertical axis — capes, capelets, cloaks.
+ * Rows follow `profile` keyframes [{ y, rx, rz, cz, span }] from the top edge
+ * (s=0) to the hem (s=1); columns sweep θ ∈ [-span, span] with θ = 0 at the
+ * BACK (-Z). Vertical folds ripple the radius (deepening toward the hem), the
+ * hem hangs lower on fold crests and lifts toward the open side edges, and the
+ * cloth has real thickness (outer + lining + stitched rims) so it reads from
+ * any angle and takes the ink outline. Vertex colors: outer gradient with
+ * baked fold occlusion, a trim band along the hem, lining inside.
+ */
+function drapeShell({
+  profile, nu = 40, nv = 18, folds = 8, foldAmp = [0.01, 0.06], foldDrift = 0.8,
+  hemWave = 0.03, hemSideLift = 0.1, thick = 0.016,
+  outerTop, outerBot, liningTop, liningBot, trim = null, trimWidth = 0.05, seed = 1,
+}) {
+  const K = profile.length - 1;
+  const sample = (s, out) => { // smoothstep-interpolated keyframes (linear past the hem)
+    const f = Math.min(K - 1e-6, Math.max(0, s * K));
+    const k = Math.floor(f);
+    let tt = f - k; tt = tt * tt * (3 - 2 * tt);
+    const a = profile[k], b = profile[k + 1];
+    out.y = a.y + (b.y - a.y) * tt; out.rx = a.rx + (b.rx - a.rx) * tt; out.rz = a.rz + (b.rz - a.rz) * tt;
+    out.cz = a.cz + (b.cz - a.cz) * tt; out.span = a.span + (b.span - a.span) * tt;
+    if (s > 1) out.y = profile[K].y + (s - 1) * K * (profile[K].y - profile[K - 1].y);
+    return out;
+  };
+  const S = { y: 0, rx: 0, rz: 0, cz: 0, span: 0 };
+  const ripple = (u, s) => Math.sin(u * folds * Math.PI + s * foldDrift + seed * 0.37);
+  const cols = [], outer = [], inner = [], sArr = [], rip = [];
+  // grid of outer + inner points
+  for (let i = 0; i <= nu; i++) {
+    const u = -1 + (2 * i) / nu;
+    const hemLen = 1 - hemSideLift * u * u + hemWave * ripple(u, 1);
+    for (let j = 0; j <= nv; j++) {
+      const s = (j / nv) * hemLen;
+      sample(Math.min(1.12, s), S);
+      const th = u * S.span;
+      const amp = foldAmp[0] + (foldAmp[1] - foldAmp[0]) * Math.pow(Math.min(1, s), 1.4);
+      const rf = 1 + amp * ripple(u, s) / Math.max(0.12, S.rx);
+      const sx = Math.sin(th), cx = Math.cos(th);
+      const x = S.rx * rf * sx, z = S.cz - S.rz * rf * cx;
+      // outward normal of the ellipse at θ (horizontal)
+      let nx = S.rz * sx, nz = -S.rx * cx; const nl = Math.hypot(nx, nz) || 1; nx /= nl; nz /= nl;
+      outer.push([x, S.y, z]);
+      inner.push([x - nx * thick, S.y, z - nz * thick]);
+      sArr.push(j / nv); rip.push(ripple(u, s));
+    }
+    cols.push(u);
+  }
+  const W = nv + 1;
+  const pos = [], col = [], idx = [];
+  const cOT = new THREE.Color(outerTop), cOB = new THREE.Color(outerBot);
+  const cLT = new THREE.Color(liningTop), cLB = new THREE.Color(liningBot);
+  const cTrim = trim != null ? new THREE.Color(trim) : null;
+  const tmp = new THREE.Color();
+  const outerColor = (k) => {
+    const s = sArr[k];
+    tmp.copy(cOT).lerp(cOB, Math.pow(s, 0.9));
+    const ao = 0.84 + 0.16 * (rip[k] * 0.5 + 0.5);
+    tmp.multiplyScalar(ao);
+    if (cTrim && s > 1 - trimWidth) tmp.copy(cTrim).multiplyScalar(0.9 + 0.1 * (rip[k] * 0.5 + 0.5));
+    return tmp;
+  };
+  const innerColor = (k) => tmp.copy(cLT).lerp(cLB, sArr[k]).multiplyScalar(0.9 + 0.1 * (rip[k] * 0.5 + 0.5));
+  const push = (p, c) => { pos.push(p[0], p[1], p[2]); col.push(c.r, c.g, c.b); return pos.length / 3 - 1; };
+  // outer surface (faces outward), inner surface (faces the body)
+  const oBase = pos.length / 3;
+  for (let k = 0; k < outer.length; k++) push(outer[k], outerColor(k));
+  const iBase = pos.length / 3;
+  for (let k = 0; k < inner.length; k++) push(inner[k], innerColor(k));
+  for (let i = 0; i < nu; i++) {
+    for (let j = 0; j < nv; j++) {
+      const a = i * W + j, b = (i + 1) * W + j, c = (i + 1) * W + j + 1, d = i * W + j + 1;
+      idx.push(oBase + a, oBase + b, oBase + d, oBase + b, oBase + c, oBase + d);
+      idx.push(iBase + a, iBase + d, iBase + b, iBase + b, iBase + d, iBase + c);
+    }
+  }
+  // rims: own vertices so each strip starts with its own facing, then the
+  // position-averaged smoothing rounds them into a soft, thick-cloth edge.
+  const rim = (ks, colorOf, flip) => {
+    for (let n = 0; n < ks.length - 1; n++) {
+      const k0 = ks[n], k1 = ks[n + 1];
+      const a = push(outer[k0], colorOf(k0)), b = push(outer[k1], colorOf(k1));
+      const c = push(inner[k1], colorOf(k1)), d = push(inner[k0], colorOf(k0));
+      if (flip) idx.push(a, b, c, a, c, d); else idx.push(a, c, b, a, d, c);
+    }
+  };
+  const hemKs = [], topKs = [], leftKs = [], rightKs = [];
+  for (let i = 0; i <= nu; i++) { hemKs.push(i * W + nv); topKs.push(i * W); }
+  for (let j = 0; j <= nv; j++) { leftKs.push(j); rightKs.push(nu * W + j); }
+  rim(hemKs, outerColor, true);
+  rim(topKs, outerColor, false);
+  rim(leftKs, outerColor, true);
+  rim(rightKs, outerColor, false);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.setIndex(idx);
+  smoothGeometry(g);
   return g;
 }
 
@@ -104,29 +258,28 @@ function panelGeometry(topW, bottomW, len, thick) {
  */
 function buildWarden() {
   const P = { // palette — bible anchors: dusk purple cloak, shard-gold trim, warm skin
-    skin: 0xf6c9a0, hair: 0xb06a3c, tunic: 0xead9bd,
-    pants: 0x4c4560, boots: 0x5d4030, bootCuff: 0x6f4d3a, belt: 0x3b3347,
+    skin: 0xf6c9a0, hair: 0xb2683a, tunic: 0xead9bd,
+    pants: 0x4c4560, boots: 0x6a4632, bootCuff: 0x7d573f, belt: 0x3b3347,
     cloak: 0x5b4a8a, gold: 0xffe9b0, satchel: 0x8a6b42, scarf: 0xe08a48,
     iris: 0x6a4527,
   };
   // Shared vertex-color materials: every clothing/hair mesh bakes its own
   // two-tone ramp (grad()) so nothing reads as one flat swatch.
   const mats = {
-    skin: M(P.skin, { rough: 0.6 }),
+    skin: M(P.skin, { rough: 0.62 }),
     cloth: M(0xffffff, { rough: 0.86, vc: true }),
-    hair: M(0xffffff, { rough: 0.72, vc: true }),
-    sclera: M(0xfffaf2, { rough: 0.35 }),
-    iris: M(P.iris, { rough: 0.3, emissive: P.iris, ei: 0.18 }),
+    hair: M(0xffffff, { rough: 0.66, vc: true }),
+    sclera: M(0xfffaf2, { rough: 0.35, emissive: 0xfffaf2, ei: 0.1, rim: 0.4 }),
+    iris: M(P.iris, { rough: 0.3, emissive: P.iris, ei: 0.22 }),
     pupil: M(0x221a14, { rough: 0.25 }),
     glint: M(0xffffff, { rough: 0.2, emissive: 0xffffff, ei: 0.85 }),
-    belt: M(P.belt, { rough: 0.75 }),
-    gold: M(P.gold, { rough: 0.4, metal: 0.35, emissive: 0xffe9b0, ei: 0.12 }),
-    scarf: M(P.scarf, { rough: 0.82, emissive: 0xe08a48, ei: 0.1 }),
-    cloak: M(shade(0x5b4a8a, -0.02), { rough: 0.88 }),
+    belt: M(P.belt, { rough: 0.7 }),
+    gold: M(P.gold, { rough: 0.38, metal: 0.35, emissive: 0xffe9b0, ei: 0.14 }),
+    scarf: M(P.scarf, { rough: 0.8, emissive: 0xe08a48, ei: 0.08 }),
   };
-  const mesh = (geo, mat) => { const m = new THREE.Mesh(geo, mat); m.castShadow = true; return m; };
-  // sugar: gradient-painted cloth/hair mesh
+  const mesh = (geo, mat, shadow = true) => { const m = new THREE.Mesh(geo, mat); m.castShadow = shadow; return m; };
   const gmesh = (geo, base, opts, useHair = false) => mesh(grad(geo, base, opts), useHair ? mats.hair : mats.cloth);
+  const noInk = (o) => { o.userData.noOutline = true; return o; };
 
   const group = new THREE.Group();
   group.name = 'warden';
@@ -141,31 +294,43 @@ function buildWarden() {
   shadow.position.y = 0.02;
   group.add(shadow);
 
-  /* legs — tapered thighs, booted shins, feet with heel + toe */
+  /* legs — tapered trouser capsules, soft folded boot cuffs, rounded boots */
+  function bootGeo() {
+    const g = new THREE.CapsuleGeometry(0.056, 0.1, 6, 18);
+    g.rotateX(Math.PI / 2);          // length onto Z (toe forward)
+    g.scale(1.0, 0.7, 1.0);
+    const pos = g.attributes.position;
+    for (let i = 0; i < pos.count; i++) {  // flatten the sole, keep a soft rolled edge
+      const y = pos.getY(i);
+      if (y < -0.018) pos.setY(i, -0.018 + (y + 0.018) * 0.28);
+      const z = pos.getZ(i);            // toe a touch lower and rounder than the heel
+      if (z > 0.02) pos.setY(i, pos.getY(i) - (z - 0.02) * 0.08);
+    }
+    smoothGeometry(g);
+    return g;
+  }
   function buildLeg(sideX) {
     const thigh = new THREE.Group();
     thigh.position.set(sideX, 0, 0);
-    const thighMesh = gmesh(new THREE.CylinderGeometry(0.08, 0.06, 0.34, 7), P.pants, { seed: 4 });
+    const thighMesh = gmesh(taperCapsule(0.079, 0.061, 0.25), P.pants, { seed: 4 });
     thighMesh.position.y = -0.17;
     thigh.add(thighMesh);
-    const knee = gmesh(new THREE.SphereGeometry(0.058, 6, 4), P.pants, { seed: 5 });
-    knee.position.y = -0.355;
-    thigh.add(knee);
     const shin = new THREE.Group();
     shin.position.y = -0.38;
-    const shinMesh = gmesh(new THREE.CylinderGeometry(0.06, 0.055, 0.25, 7), P.boots, { down: 0.08, up: 0.06, seed: 6 });
-    shinMesh.position.y = -0.135;
+    const shinMesh = gmesh(taperCapsule(0.061, 0.055, 0.23), P.boots, { down: 0.08, up: 0.06, seed: 6 });
+    shinMesh.position.y = -0.19;
     shin.add(shinMesh);
-    const cuff = gmesh(new THREE.CylinderGeometry(0.079, 0.07, 0.08, 7), P.bootCuff, { seed: 7 });
-    cuff.position.y = -0.035;
+    // folded boot top: a short flared ring, soft-rolled at the lip
+    const cuffG = new THREE.LatheGeometry([
+      new THREE.Vector2(0.057, -0.032), new THREE.Vector2(0.066, -0.028), new THREE.Vector2(0.072, -0.006),
+      new THREE.Vector2(0.074, 0.014), new THREE.Vector2(0.068, 0.026), new THREE.Vector2(0.058, 0.024),
+    ], 26);
+    const cuff = gmesh(cuffG, P.bootCuff, { seed: 7 });
+    cuff.position.y = -0.05;
     shin.add(cuff);
-    const heel = gmesh(new THREE.BoxGeometry(0.115, 0.068, 0.15), P.boots, { down: 0.06, up: 0.05, seed: 8 });
-    heel.position.set(0, -0.34, 0.015);
-    shin.add(heel);
-    const toe = gmesh(new THREE.SphereGeometry(0.056, 6, 4), P.boots, { down: 0.06, up: 0.05, seed: 9 });
-    toe.scale.set(1.02, 0.66, 1.15);
-    toe.position.set(0, -0.352, 0.105);
-    shin.add(toe);
+    const boot = gmesh(bootGeo(), P.boots, { down: 0.07, up: 0.05, seed: 8 });
+    boot.position.set(0, -0.378, 0.04);
+    shin.add(boot);
     thigh.add(shin);
     hips.add(thigh);
     return { thigh, shin };
@@ -174,79 +339,101 @@ function buildWarden() {
   const legR = buildLeg(0.095);
 
   /* torso — pivots at the hips so lean reads from the waist. A-line tunic
-     skirt + lathe-tapered chest (waist pinch -> shoulders) with gradient. */
+     skirt with a soft wavy hem + lathe chest (waist pinch -> shoulders). */
   const torso = new THREE.Group();
   hips.add(torso);
-  const skirt = gmesh(new THREE.CylinderGeometry(0.145, 0.20, 0.22, 9, 3), P.tunic, { down: 0.13, up: 0.05, seed: 11 });
+  const skirtG = new THREE.LatheGeometry([
+    new THREE.Vector2(0.118, 0.085), new THREE.Vector2(0.176, -0.04), new THREE.Vector2(0.206, -0.115),
+    new THREE.Vector2(0.186, -0.125), new THREE.Vector2(0.15, -0.09), new THREE.Vector2(0.14, 0.02),
+    new THREE.Vector2(0.148, 0.12), new THREE.Vector2(0.152, 0.215),
+  ].reverse(), 28);
+  {
+    const pos = skirtG.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+      const w = Math.max(0, Math.min(1, (0.03 - y) / 0.14));   // only the lower skirt ripples
+      const f = 1 + 0.045 * w * Math.sin(Math.atan2(z, x) * 7 + 0.6);
+      pos.setXYZ(i, x * f, y, z * f);
+    }
+    smoothGeometry(skirtG);
+  }
+  const skirt = gmesh(skirtG, P.tunic, { down: 0.13, up: 0.05, seed: 11 });
   skirt.position.y = 0.09;
   torso.add(skirt);
   // chest lathe is designed for its animated base scale (1.15, 1, 0.92) — the
   // breath code in animate() overwrites scale every frame with exactly that.
   const chestPts = [
-    new THREE.Vector2(0.132, 0.185), new THREE.Vector2(0.124, 0.25),
-    new THREE.Vector2(0.140, 0.34), new THREE.Vector2(0.149, 0.42),
-    new THREE.Vector2(0.132, 0.48), new THREE.Vector2(0.085, 0.525),
-    new THREE.Vector2(0.02, 0.55),
+    new THREE.Vector2(0.128, 0.18), new THREE.Vector2(0.121, 0.235), new THREE.Vector2(0.127, 0.29),
+    new THREE.Vector2(0.139, 0.35), new THREE.Vector2(0.146, 0.41), new THREE.Vector2(0.138, 0.465),
+    new THREE.Vector2(0.112, 0.505), new THREE.Vector2(0.07, 0.535), new THREE.Vector2(0.002, 0.548),
   ];
-  const chest = gmesh(new THREE.LatheGeometry(chestPts, 10), P.tunic, { down: 0.09, up: 0.06, seed: 12 });
+  const chest = gmesh(new THREE.LatheGeometry(chestPts, 28), P.tunic, { down: 0.09, up: 0.06, seed: 12 });
   chest.scale.set(1.15, 1, 0.92);
   torso.add(chest);
-  const belt = mesh(new THREE.CylinderGeometry(0.153, 0.163, 0.06, 9), mats.belt);
+  const beltG = new THREE.TorusGeometry(0.146, 0.021, 10, 32);
+  beltG.rotateX(Math.PI / 2);
+  beltG.scale(1.05, 1.45, 0.86);
+  const belt = mesh(beltG, mats.belt);
   belt.position.y = 0.205;
   torso.add(belt);
-  const buckle = mesh(new THREE.BoxGeometry(0.055, 0.042, 0.02), mats.gold);
-  buckle.position.set(0, 0.205, 0.152);
+  const buckle = mesh(new RoundedBoxGeometry(0.058, 0.048, 0.022, 2, 0.009), mats.gold);
+  buckle.position.set(0, 0.205, 0.143);
   torso.add(buckle);
   /* charm pouch on the left hip — where the Charms live */
   const pouch = new THREE.Group();
-  pouch.position.set(-0.145, 0.135, 0.09);
+  pouch.position.set(-0.15, 0.135, 0.085);
   pouch.rotation.y = 0.35;
-  const pouchBody = gmesh(new THREE.SphereGeometry(0.055, 6, 4), P.satchel, { seed: 13 });
-  pouchBody.scale.set(1.0, 1.1, 0.75);
-  const pouchFlap = gmesh(new THREE.BoxGeometry(0.085, 0.04, 0.055), shade(P.satchel, -0.08), { seed: 14 });
-  pouchFlap.position.y = 0.055;
-  const pouchBead = mesh(new THREE.SphereGeometry(0.014, 5, 4), mats.gold);
-  pouchBead.castShadow = false;
-  pouchBead.position.set(0, 0.02, 0.045);
+  const pouchBody = gmesh(new THREE.SphereGeometry(0.056, 18, 14), P.satchel, { seed: 13 });
+  pouchBody.scale.set(1.0, 1.08, 0.74);
+  const pouchFlap = gmesh(new RoundedBoxGeometry(0.086, 0.042, 0.058, 2, 0.014), shade(P.satchel, -0.08), { seed: 14 });
+  pouchFlap.position.y = 0.052;
+  const pouchBead = noInk(mesh(new THREE.SphereGeometry(0.014, 10, 8), mats.gold, false));
+  pouchBead.position.set(0, 0.02, 0.044);
   pouch.add(pouchBody, pouchFlap, pouchBead);
   torso.add(pouch);
   /* satchel on the right hip + strap across the chest — signature silhouette bit */
   const satchel = new THREE.Group();
   satchel.position.set(0.19, 0.10, -0.03);
   satchel.rotation.z = -0.12;
-  const satchelBody = gmesh(new THREE.BoxGeometry(0.16, 0.14, 0.085), P.satchel, { down: 0.12, seed: 15 });
-  const satchelFlap = gmesh(new THREE.BoxGeometry(0.165, 0.065, 0.095), 0x76582f, { seed: 16 });
-  satchelFlap.position.y = 0.055;
-  const satchelClasp = mesh(new THREE.SphereGeometry(0.013, 5, 4), mats.gold);
-  satchelClasp.castShadow = false;
-  satchelClasp.position.set(0, 0.015, 0.05);
+  const satchelBody = gmesh(new RoundedBoxGeometry(0.16, 0.14, 0.085, 3, 0.026), P.satchel, { down: 0.12, seed: 15 });
+  const satchelFlap = gmesh(new RoundedBoxGeometry(0.166, 0.068, 0.095, 3, 0.022), 0x76582f, { seed: 16 });
+  satchelFlap.position.y = 0.052;
+  const satchelClasp = noInk(mesh(new THREE.SphereGeometry(0.014, 10, 8), mats.gold, false));
+  satchelClasp.position.set(0, 0.018, 0.05);
   satchel.add(satchelBody, satchelFlap, satchelClasp);
   torso.add(satchel);
-  const strap = gmesh(new THREE.BoxGeometry(0.05, 0.52, 0.02), P.satchel, { seed: 17 });
-  strap.position.set(0.02, 0.32, 0.138);
-  strap.rotation.z = 0.55;
+  const strapAxis = (p, o) => o.set(p.x, 0, p.z); // thickness points away from the body axis
+  const strap = gmesh(ribbonGeo([
+    new THREE.Vector3(0.2, 0.14, 0.02), new THREE.Vector3(0.15, 0.22, 0.118), new THREE.Vector3(0.04, 0.32, 0.142),
+    new THREE.Vector3(-0.07, 0.41, 0.132), new THREE.Vector3(-0.14, 0.49, 0.06), new THREE.Vector3(-0.13, 0.515, -0.05),
+  ], 0.042, 0.014, strapAxis), P.satchel, { seed: 17 });
   torso.add(strap);
 
-  /* arms — shoulder cap, tapered sleeve, cuff, mitt hand with thumb */
+  /* arms — shoulder cap, tapered sleeve, soft cuff, rounded mitt hand + thumb */
   function buildArm(sideX) {
     const sgn = Math.sign(sideX);
     const shoulder = new THREE.Group();
     shoulder.position.set(sideX, 0.45, 0);
-    const cap = gmesh(new THREE.SphereGeometry(0.068, 7, 5), P.tunic, { seed: 18 });
-    cap.scale.set(1.1, 0.88, 1.0);
+    const cap = gmesh(new THREE.SphereGeometry(0.068, 20, 14), P.tunic, { seed: 18 });
+    cap.scale.set(1.08, 0.9, 1.0);
     shoulder.add(cap);
-    const sleeve = gmesh(new THREE.CylinderGeometry(0.056, 0.047, 0.24, 7), P.tunic, { down: 0.11, seed: 19 });
+    const sleeve = gmesh(taperCapsule(0.056, 0.047, 0.16), P.tunic, { down: 0.11, seed: 19 });
     sleeve.position.y = -0.14;
     shoulder.add(sleeve);
-    const cuff = mesh(new THREE.CylinderGeometry(0.049, 0.053, 0.05, 7), mats.belt);
-    cuff.position.y = -0.27;
+    const cuffG = new THREE.TorusGeometry(0.047, 0.015, 8, 22);
+    cuffG.rotateX(Math.PI / 2);
+    cuffG.scale(1, 1.5, 1);
+    const cuff = mesh(cuffG, mats.belt);
+    cuff.position.y = -0.262;
     shoulder.add(cuff);
     const hand = new THREE.Group();
-    hand.position.y = -0.335;
-    const palm = mesh(new THREE.SphereGeometry(0.052, 7, 5), mats.skin);
-    palm.scale.set(0.88, 1.08, 0.98);
-    const thumb = mesh(new THREE.SphereGeometry(0.024, 5, 4), mats.skin);
-    thumb.position.set(-sgn * 0.038, 0.012, 0.022);
+    hand.position.y = -0.33;
+    const palm = mesh(new THREE.SphereGeometry(0.05, 18, 14), mats.skin);
+    palm.scale.set(0.9, 1.08, 0.96);
+    const thumbG = new THREE.CapsuleGeometry(0.019, 0.024, 4, 12);
+    const thumb = mesh(thumbG, mats.skin);
+    thumb.position.set(-sgn * 0.036, 0.008, 0.024);
+    thumb.rotation.set(0.35, 0, sgn * 0.55);
     hand.add(palm, thumb);
     shoulder.add(hand);
     shoulder.rotation.z = sgn * 0.16;
@@ -257,73 +444,115 @@ function buildWarden() {
   const armR = buildArm(0.205);
 
   /* head + stylized face (sclera/iris/pupil/glint eyes, nose, blush, smile) */
-  const neck = mesh(new THREE.CylinderGeometry(0.048, 0.058, 0.09, 8), mats.skin);
-  neck.position.y = 0.525;
+  const neck = mesh(taperCapsule(0.047, 0.054, 0.04, 16), mats.skin);
+  neck.position.y = 0.53;
   torso.add(neck);
   const head = new THREE.Group();
   head.position.y = 0.56;
   torso.add(head);
-  const skull = mesh(new THREE.SphereGeometry(0.16, 11, 8), mats.skin);
-  skull.scale.set(0.98, 1.05, 1.0);
+  const skull = mesh(new THREE.SphereGeometry(0.16, 32, 24), mats.skin);
+  skull.scale.set(0.98, 1.04, 1.0);
   skull.position.y = 0.10;
   head.add(skull);
   for (const sx of [-1, 1]) {
-    const ear = mesh(new THREE.SphereGeometry(0.028, 5, 4), mats.skin);
-    ear.castShadow = false;
-    ear.position.set(sx * 0.152, 0.085, 0.005);
+    const ear = mesh(new THREE.SphereGeometry(0.03, 14, 10), mats.skin, false);
+    ear.scale.set(0.62, 1, 0.82);
+    ear.position.set(sx * 0.153, 0.088, 0.004);
     head.add(ear);
   }
-  const nose = mesh(new THREE.SphereGeometry(0.015, 5, 4), mats.skin);
-  nose.castShadow = false;
-  nose.position.set(0, 0.062, 0.156);
+  const nose = noInk(mesh(new THREE.SphereGeometry(0.016, 12, 10), mats.skin, false));
+  nose.scale.set(1, 0.9, 0.85);
+  nose.position.set(0, 0.062, 0.157);
   head.add(nose);
-  /* hair with real shaped volume: jittered main mass, swept fringe lobes,
-     side tufts over the ears, nape layer, and the springy top tuft */
-  const hairShapes = [
-    // [radius, x, y, z, sx, sy, sz, jitterAmp]
-    [0.175, 0, 0.168, -0.048, 1.0, 0.92, 1.06, 0.014],
-    [0.066, -0.015, 0.205, 0.115, 1.25, 0.62, 0.9, 0.01],
-    [0.054, 0.075, 0.195, 0.10, 1.1, 0.62, 0.9, 0.01],
-    [0.05, -0.098, 0.185, 0.085, 1.05, 0.66, 0.9, 0.01],
-    [0.055, -0.152, 0.10, 0.008, 0.72, 1.15, 0.9, 0.008],
-    [0.055, 0.152, 0.10, 0.008, 0.72, 1.15, 0.9, 0.008],
-    [0.09, 0, 0.028, -0.115, 1.3, 0.95, 0.72, 0.012],
-  ];
-  hairShapes.forEach(([r, x, y, z, sx, sy, sz, ja], i) => {
-    const g = new THREE.SphereGeometry(r, 8, 6);
-    jitterGeometry(g, ja, 21 + i);
-    const m = gmesh(g, P.hair, { down: 0.16, up: 0.10, noise: 0.05, seed: 31 + i }, true);
-    m.position.set(x, y, z);
-    m.scale.set(sx, sy, sz);
-    head.add(m);
-  });
+
+  /* hair: ONE merged, softly lumped volume (cap, fuller back, swept fringe,
+     side locks, nape) shaded toward the skull center so it reads as a soft
+     mass with gentle clumps — the back of the head is what the camera sees */
+  {
+    const lobes = [
+      // [radius, x, y, z, sx, sy, sz, lump]
+      [0.176, 0, 0.168, -0.046, 1.0, 0.93, 1.06, 0.05],   // cap
+      [0.122, 0, 0.128, -0.118, 1.12, 1.0, 0.82, 0.07],   // fuller back
+      [0.068, -0.02, 0.214, 0.108, 1.3, 0.6, 0.86, 0.08], // fringe (swept)
+      [0.056, 0.074, 0.198, 0.098, 1.1, 0.62, 0.9, 0.08],
+      [0.05, -0.1, 0.186, 0.084, 1.05, 0.68, 0.9, 0.08],
+      [0.056, -0.151, 0.104, 0.006, 0.72, 1.15, 0.92, 0.06], // side locks
+      [0.056, 0.151, 0.104, 0.006, 0.72, 1.15, 0.92, 0.06],
+      [0.092, 0, 0.03, -0.112, 1.3, 0.95, 0.74, 0.06],       // nape
+    ];
+    const geos = lobes.map(([r, x, y, z, sx, sy, sz, lump], i) => {
+      const g = new THREE.SphereGeometry(r, 22, 16);
+      lumpify(g, lump, 21 + i * 3.7);
+      g.scale(sx, sy, sz);
+      g.translate(x, y, z);
+      return g;
+    });
+    // Strand clumps: soft rounded teardrops hanging from the hairline around
+    // the back and sides, flaring out a little — gives the back of the head
+    // (the camera's view) hair structure instead of a smooth ball.
+    const clumps = [
+      // [angle from back (rad), y, r, h, flare]
+      [-1.75, 0.07, 0.046, 0.1, 0.35], [-1.25, 0.05, 0.05, 0.115, 0.3], [-0.7, 0.035, 0.054, 0.125, 0.26],
+      [-0.2, 0.03, 0.056, 0.13, 0.22], [0.3, 0.03, 0.055, 0.128, 0.24], [0.8, 0.04, 0.052, 0.12, 0.28],
+      [1.3, 0.055, 0.05, 0.11, 0.32], [1.8, 0.075, 0.045, 0.095, 0.36],
+    ];
+    clumps.forEach(([a, y, r, hh, flare], i) => {
+      const prof = [[0.0005, 0.02], [r * 0.72, 0.014], [r, -0.012], [r * 0.9, -hh * 0.38], [r * 0.56, -hh * 0.72], [r * 0.16, -hh * 0.96], [0.0005, -hh]]
+        .map(([px, py]) => new THREE.Vector2(px, py));
+      const g = new THREE.LatheGeometry(prof, 16);
+      lumpify(g, 0.06, 90 + i * 2.3);
+      g.scale(1, 1, 0.72);
+      g.rotateX(flare);                  // tip kicks outward (-Z = away from the skull)...
+      g.rotateY(a);                      // ...then swung around the head (a = 0: straight back)
+      // base sits just inside the hair shell (an ellipse around the skull)
+      g.translate(-Math.sin(a) * 0.158, 0.1 + y, -0.01 - Math.cos(a) * 0.19);
+      geos.push(g);
+    });
+    const hairG = mergeGeometries(geos, false);
+    for (const g of geos) g.dispose();
+    smoothGeometry(hairG);
+    sphericalNormals(hairG, { center: new THREE.Vector3(0, 0.13, -0.02), blend: 0.42 });
+    grad(hairG, P.hair, { down: 0.17, up: 0.1, noise: 0.03, seed: 31 });
+    const hairMass = mesh(hairG, mats.hair);
+    head.add(hairMass);
+  }
+  /* springy cowlick (animated): two soft curled locks */
   const hairTuft = new THREE.Group();
-  hairTuft.position.set(-0.02, 0.295, -0.015);
-  const tuftMesh = gmesh(new THREE.ConeGeometry(0.048, 0.16, 6), P.hair, { down: 0.14, up: 0.12, seed: 41 }, true);
-  tuftMesh.position.y = 0.055;
-  tuftMesh.rotation.z = 0.35;
+  hairTuft.position.set(-0.02, 0.29, -0.015);
+  function curlGeo(len, r0, bend) {
+    const g = new THREE.CylinderGeometry(r0 * 0.12, r0, len, 14, 8, false);
+    g.translate(0, len / 2, 0);
+    const pos = g.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      const t = Math.max(0, Math.min(1, pos.getY(i) / len));
+      pos.setX(i, pos.getX(i) + bend * t * t * len);
+    }
+    smoothGeometry(g, { creaseAngle: 1.2 });
+    return g;
+  }
+  const tuftMesh = gmesh(curlGeo(0.14, 0.038, 0.75), P.hair, { down: 0.12, up: 0.14, seed: 41 }, true);
+  tuftMesh.rotation.set(-0.25, Math.PI / 2, 0.12);   // bend (+X) turned to curl backward (-Z)
   hairTuft.add(tuftMesh);
-  const tuftMesh2 = gmesh(new THREE.ConeGeometry(0.03, 0.10, 5), P.hair, { down: 0.14, up: 0.12, seed: 42 }, true);
-  tuftMesh2.position.set(0.055, 0.02, 0.01);
-  tuftMesh2.rotation.z = -0.5;
+  const tuftMesh2 = gmesh(curlGeo(0.085, 0.026, 0.6), P.hair, { down: 0.12, up: 0.14, seed: 42 }, true);
+  tuftMesh2.position.set(0.038, -0.01, 0.03);
+  tuftMesh2.rotation.set(0.35, -Math.PI / 2 + 0.5, -0.2); // small flick curling forward-right
   hairTuft.add(tuftMesh2);
   head.add(hairTuft);
+
   /* eyes: flattened sclera + iris + pupil + specular glint (blinkable groups) */
   function buildEye(sideX) {
     const g = new THREE.Group();
-    g.position.set(sideX, 0.10, 0.153);
-    const sclera = mesh(new THREE.SphereGeometry(0.027, 7, 5), mats.sclera);
-    sclera.castShadow = false;
+    g.position.set(sideX, 0.10, 0.152);
+    const sclera = mesh(new THREE.SphereGeometry(0.027, 18, 14), mats.sclera, false);
     sclera.scale.set(1, 1.15, 0.55);
-    const iris = mesh(new THREE.SphereGeometry(0.017, 5, 3), mats.iris);
-    iris.castShadow = false;
-    iris.position.z = 0.011;
-    const pupil = mesh(new THREE.SphereGeometry(0.009, 5, 3), mats.pupil);
-    pupil.castShadow = false;
-    pupil.position.z = 0.021;
-    const glint = mesh(new THREE.SphereGeometry(0.0055, 4, 3), mats.glint);
-    glint.castShadow = false;
-    glint.position.set(0.007, 0.008, 0.026);
+    const iris = mesh(new THREE.SphereGeometry(0.0175, 14, 10), mats.iris, false);
+    iris.scale.set(1, 1.08, 0.7);
+    iris.position.z = 0.0105;
+    const pupil = mesh(new THREE.SphereGeometry(0.0092, 12, 8), mats.pupil, false);
+    pupil.scale.set(1, 1.08, 0.7);
+    pupil.position.z = 0.0205;
+    const glint = mesh(new THREE.SphereGeometry(0.0058, 10, 8), mats.glint, false);
+    glint.position.set(0.007, 0.0085, 0.025);
     g.add(sclera, iris, pupil, glint);
     g.userData.noOutline = true;
     head.add(g);
@@ -331,80 +560,140 @@ function buildWarden() {
   }
   const eyeL = buildEye(-0.06);
   const eyeR = buildEye(0.06);
-  for (const [sx, tilt] of [[-0.06, 0.10], [0.06, -0.10]]) {
-    const brow = mesh(new THREE.BoxGeometry(0.056, 0.015, 0.013), M(shade(P.hair, -0.12)));
-    brow.castShadow = false;
-    brow.position.set(sx, 0.152, 0.151);
-    brow.rotation.z = tilt;
+  const browM = M(shade(P.hair, -0.14), { rough: 0.7 });
+  for (const [sx, tilt] of [[-0.06, 0.12], [0.06, -0.12]]) {
+    const brow = noInk(mesh(new THREE.CapsuleGeometry(0.0075, 0.036, 4, 10), browM, false));
+    brow.rotation.z = Math.PI / 2 + tilt;
+    brow.position.set(sx, 0.153, 0.149);
     head.add(brow);
   }
+  const blushM = M(0xf0a688, { rough: 0.85 });
   for (const sx of [-1, 1]) {
-    const blush = mesh(new THREE.SphereGeometry(0.017, 5, 3), M(0xf0a688, { rough: 0.85 }));
-    blush.castShadow = false;
-    blush.scale.set(1.1, 0.7, 0.3);
-    blush.position.set(sx * 0.098, 0.048, 0.118);
+    const blush = noInk(mesh(new THREE.SphereGeometry(0.018, 14, 10), blushM, false));
+    blush.scale.set(1.1, 0.68, 0.3);
+    blush.position.set(sx * 0.098, 0.048, 0.119);
     blush.rotation.y = sx * 0.55;
     head.add(blush);
   }
-  const smile = mesh(new THREE.TorusGeometry(0.02, 0.006, 4, 7, Math.PI * 0.8), M(0xb5765a, { rough: 0.6 }));
-  smile.castShadow = false;
+  const smile = noInk(mesh(new THREE.TorusGeometry(0.02, 0.0055, 8, 16, Math.PI * 0.8), M(0xb5765a, { rough: 0.6 }), false));
   smile.position.set(0, 0.042, 0.153);
   smile.rotation.z = -Math.PI * 0.9;
   head.add(smile);
 
   /* amber scarf — warm pop against the dusk-purple cloak */
-  const scarfRoll = mesh(new THREE.TorusGeometry(0.102, 0.034, 6, 10), mats.scarf);
-  scarfRoll.position.set(0, 0.49, 0.01);
-  scarfRoll.rotation.x = Math.PI / 2 - 0.12;
+  const scarfRollG = new THREE.TorusGeometry(0.1, 0.037, 14, 32);
+  const scarfRoll = mesh(scarfRollG, mats.scarf);
+  scarfRoll.position.set(0, 0.492, 0.012);
+  scarfRoll.rotation.x = Math.PI / 2 - 0.14;
   torso.add(scarfRoll);
-  const scarfTail = gmesh(panelGeometry(0.07, 0.055, 0.16, 0.024), P.scarf, { down: 0.12, seed: 45 });
-  scarfTail.position.set(0.09, 0.478, 0.112);
-  scarfTail.rotation.set(0.18, 0, -0.12);
+  const scarfTail = gmesh(ribbonGeo([
+    new THREE.Vector3(0.07, 0.49, 0.112), new THREE.Vector3(0.088, 0.44, 0.146), new THREE.Vector3(0.1, 0.38, 0.158),
+    new THREE.Vector3(0.108, 0.33, 0.16),
+  ], 0.058, 0.02, (p, o) => o.set(0, 0, 1)), P.scarf, { down: 0.12, seed: 45 });
   torso.add(scarfTail);
-
-  /* travel cloak: hood roll + back bump + 3 chained trapezoid panels that
-     flare toward a gold-trimmed hem, gradient running light->deep down the chain */
-  const hood = mesh(new THREE.TorusGeometry(0.122, 0.05, 6, 10), mats.cloak);
-  hood.position.set(0, 0.47, -0.095);
-  hood.rotation.x = 1.35;
-  torso.add(hood);
-  const hoodBack = mesh(new THREE.SphereGeometry(0.10, 7, 5), mats.cloak);
-  hoodBack.scale.set(1.15, 0.9, 0.8);
-  hoodBack.position.set(0, 0.44, -0.155);
-  torso.add(hoodBack);
-  const cloakTopC = shade(P.cloak, 0.17, 0.04), cloakBotC = shade(0x43356b, -0.09);
-  const cloakSegs = [];
-  let cloakParent = torso;
-  const anchorY = 0.46, anchorZ = -0.15;
-  const segLens = [0.3, 0.3, 0.27];
-  const segTopW = [0.42, 0.50, 0.58];
-  const segBotW = [0.50, 0.58, 0.63];
-  for (let i = 0; i < 3; i++) {
-    const pivot = new THREE.Group();
-    if (i === 0) pivot.position.set(0, anchorY, anchorZ);
-    else pivot.position.set(0, -segLens[i - 1], 0);
-    const geo = panelGeometry(segTopW[i], segBotW[i], segLens[i], 0.028);
-    applyVertexGradient(geo, {
-      from: mixHex(cloakTopC, cloakBotC, (i + 1) / 3),
-      to: mixHex(cloakTopC, cloakBotC, i / 3),
-      noise: 0.055, seed: 47 + i,
-    });
-    const panel = mesh(geo, mats.cloth);
-    pivot.add(panel);
-    if (i === 2) {
-      const trim = mesh(new THREE.BoxGeometry(segBotW[i] + 0.01, 0.034, 0.035), mats.gold);
-      trim.position.y = -segLens[i] + 0.017;
-      pivot.add(trim);
-    }
-    pivot.rotation.x = 0.14; // drapes slightly away from the back at rest
-    cloakParent.add(pivot);
-    cloakParent = pivot;
-    cloakSegs.push(pivot);
-  }
-  /* gold clasp where the cloak meets the collar */
-  const clasp = mesh(new THREE.SphereGeometry(0.028, 6, 4), mats.gold);
-  clasp.position.set(0, 0.475, 0.128);
+  /* gold clasp where the capelet meets the scarf */
+  const clasp = noInk(mesh(new THREE.SphereGeometry(0.026, 14, 10), mats.gold));
+  clasp.position.set(0, 0.47, 0.13);
   torso.add(clasp);
+
+  /* ---------------------------------------------------------------- cloak
+     Layered from the neck down: hood cowl -> scalloped capelet -> long cloak. */
+  const cloakTop = 0x6d5ba8, cloakBot = 0x3c2f6b;
+  const liningTop = 0x7c3c5e, liningBot = 0x5a2747;
+  const trimGold = 0xe2bd6a;
+
+  // Capelet: rigid with the torso, drapes over the shoulders (profile rolls
+  // outward from the collar, then falls), open at the chest behind the scarf.
+  const capeletG = drapeShell({
+    profile: [
+      { y: 0.528, rx: 0.1, rz: 0.098, cz: -0.004, span: 2.62 },
+      { y: 0.495, rx: 0.225, rz: 0.19, cz: -0.012, span: 2.6 },
+      { y: 0.43, rx: 0.3, rz: 0.228, cz: -0.02, span: 2.55 },
+      { y: 0.315, rx: 0.312, rz: 0.24, cz: -0.024, span: 2.5 },
+    ],
+    nu: 88, nv: 10, folds: 9, foldAmp: [0.004, 0.02], foldDrift: 0.5,
+    hemWave: 0.035, hemSideLift: 0.08, thick: 0.014,
+    outerTop: 0x7866b4, outerBot: 0x5c4b92, liningTop, liningBot,
+    trim: trimGold, trimWidth: 0.1, seed: 3,
+  });
+  const capelet = mesh(capeletG, mats.cloth);
+  torso.add(capelet);
+
+  // Hood cowl: soft rolled collar around the back of the neck + the gathered
+  // hood resting on the upper back.
+  const hoodRollG = new THREE.TorusGeometry(0.112, 0.043, 12, 30, Math.PI * 1.25);
+  hoodRollG.rotateZ(-Math.PI * 1.125); // arc centered on -Y ...
+  hoodRollG.rotateX(Math.PI / 2);       // ... which becomes the back (-Z): open at the front
+  const hoodRoll = gmesh(hoodRollG, P.cloak, { down: 0.05, up: 0.1, seed: 46 });
+  hoodRoll.position.set(0, 0.522, -0.012);
+  hoodRoll.rotation.x = -0.12;
+  torso.add(hoodRoll);
+  const hoodG = new THREE.SphereGeometry(0.1, 22, 16);
+  lumpify(hoodG, 0.08, 5.5);
+  hoodG.scale(1.18, 0.78, 0.66);
+  smoothGeometry(hoodG);
+  const hood = gmesh(hoodG, P.cloak, { down: 0.12, up: 0.1, seed: 47 });
+  hood.position.set(0, 0.458, -0.19);
+  hood.rotation.x = 0.25;
+  torso.add(hood);
+
+  // Long cloak: ONE skinned shell. Bones: a static root at the collar, then
+  // the three swinging pivots animate() drives as cloakSegs (rest rotation.x
+  // 0.14 each — the skeleton is bound AT that rest pose, so the authored
+  // drape is exactly what shows when the Warden stands still).
+  const PIVOT_Y = 0.46, PIVOT_Z = -0.15, SEG = 0.3, REST = 0.14;
+  const cloakG = drapeShell({
+    profile: [
+      { y: 0.44, rx: 0.2, rz: 0.14, cz: -0.02, span: 1.9 },     // tucked under the capelet
+      { y: 0.3, rx: 0.285, rz: 0.19, cz: -0.045, span: 1.82 },  // falls OVER the arms
+      { y: 0.1, rx: 0.3, rz: 0.2, cz: -0.065, span: 1.74 },
+      { y: -0.08, rx: 0.315, rz: 0.215, cz: -0.085, span: 1.68 },
+      { y: -0.42, rx: 0.335, rz: 0.24, cz: -0.11, span: 1.6 },
+    ],
+    nu: 96, nv: 22, folds: 8, foldAmp: [0.008, 0.066], foldDrift: 1.1,
+    hemWave: 0.018, hemSideLift: 0.12, thick: 0.018,
+    outerTop: cloakTop, outerBot: cloakBot, liningTop, liningBot,
+    trim: trimGold, trimWidth: 0.045, seed: 7,
+  });
+  {
+    // skin weights by vertical drop below the collar pivot
+    const pos = cloakG.attributes.position, n = pos.count;
+    const si = new Uint16Array(n * 4), sw = new Float32Array(n * 4);
+    const ss = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+    for (let i = 0; i < n; i++) {
+      const d = PIVOT_Y - pos.getY(i);
+      let a = 0, b = 1, w = 0;                       // bones: 0 root, 1..3 pivots
+      if (d < 0.2) { a = 0; b = 1; w = ss(0.05, 0.17, d); }
+      else if (d < SEG + 0.12) { a = 1; b = 2; w = ss(SEG - 0.07, SEG + 0.07, d); }
+      else { a = 2; b = 3; w = ss(2 * SEG - 0.08, 2 * SEG + 0.08, d); }
+      si[i * 4] = a; si[i * 4 + 1] = b;
+      sw[i * 4] = 1 - w; sw[i * 4 + 1] = w;
+    }
+    cloakG.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(si, 4));
+    cloakG.setAttribute('skinWeight', new THREE.Float32BufferAttribute(sw, 4));
+  }
+  const cloakRoot = new THREE.Bone();
+  cloakRoot.name = 'cloakRoot';
+  cloakRoot.position.set(0, PIVOT_Y, PIVOT_Z);
+  torso.add(cloakRoot);
+  const cloakSegs = [];
+  let parentBone = cloakRoot;
+  for (let i = 0; i < 3; i++) {
+    const b = new THREE.Bone();
+    b.name = `cloakSeg${i}`;
+    if (i > 0) b.position.set(0, -SEG, 0);
+    b.rotation.x = REST;
+    parentBone.add(b);
+    parentBone = b;
+    cloakSegs.push(b);
+  }
+  const cloak = new THREE.SkinnedMesh(cloakG, mats.cloth);
+  cloak.name = 'wardenCloak';
+  cloak.castShadow = true;
+  cloak.frustumCulled = false; // bounds move with the bones; it is always near the lens anyway
+  torso.add(cloak);
+  group.updateMatrixWorld(true);
+  cloak.bind(new THREE.Skeleton([cloakRoot, ...cloakSegs]));
 
   addOutline(group, { color: 0x2a1d2b, thickness: 2.0 });
 

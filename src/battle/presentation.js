@@ -14,8 +14,10 @@ import * as THREE from 'three';
 import { bus } from '../core/events.js';
 import { tween, delay, shake, setTimeScale } from '../core/tween.js';
 import { clamp01, lerp, easeOutCubic, easeOutBack } from '../core/math.js';
+import { G } from '../core/state.js';
 import { aspectColor } from '../data/aspects.js';
 import { Particles } from '../gfx/particles.js';
+import * as MAT from '../gfx/materials.js';
 import { buildArena } from './arenas.js';
 import { createCameraDirector } from './cameraDirector.js';
 import * as vfx from './vfx.js';
@@ -36,17 +38,21 @@ export async function createPresentation(game, config = {}) {
   const camera = camDir.camera;
   scene.add(camera); // camera must be in the graph so children (vignette) render
 
-  const arena = buildArena(config.arena ?? 'meadow', particles);
+  // The battle happens in the zone the player is standing in: its sky, mood
+  // and time of day carry straight into the arena (see arenas.js).
+  const arena = await buildArena(config.arena ?? 'meadow', particles, {
+    zone: game?.overworld?.zone ?? null, dayTime: G.calendar?.dayTime,
+  });
   scene.add(arena.group);
-  scene.fog = new THREE.FogExp2(arena.fogColor ?? 0x232633, arena.fogDensity ?? 0.01);
-  scene.background = new THREE.Color(arena.sky?.bottom ?? 0x232633);
-  const baseLight = { key: arena.lights.key.intensity, fill: arena.lights.fill.intensity, rim: arena.lights.rim?.intensity ?? 0 };
+  scene.fog = arena.fog ?? new THREE.FogExp2(arena.fogColor ?? 0x232633, arena.fogDensity ?? 0.01);
+  scene.background = arena.background ?? new THREE.Color(arena.fogColor ?? 0x232633);
+  let lightMult = 1;
 
   // Creatures are the stars (§8): a presentation-owned neutral fill from the
   // camera side, aimed at both stand marks, in EVERY arena — dark stages
   // (cave, spire) can no longer render the combatants as silhouettes. Kept
   // outside arena.lights so setLightMult dims the stage, not the actors.
-  const creatureFill = new THREE.DirectionalLight(0xffffff, 0.6);
+  const creatureFill = new THREE.DirectionalLight(0xfff6ea, 0.55);
   const fillMid = {
     x: (arena.marks.p.x + arena.marks.e.x) / 2,
     z: (arena.marks.p.z + arena.marks.e.z) / 2,
@@ -54,6 +60,11 @@ export async function createPresentation(game, config = {}) {
   creatureFill.position.set(fillMid.x, 5.5, fillMid.z - 9); // seeded camera-side; tracks camera each frame
   creatureFill.target.position.set(fillMid.x, 1, fillMid.z);
   scene.add(creatureFill, creatureFill.target);
+  // One persistent send-in flash light (intensity 0 at rest): adding/removing
+  // lights per send-in would recompile every material mid-battle.
+  const sendLight = new THREE.PointLight(0xffffff, 0, 8, 2);
+  scene.add(sendLight);
+  const WHITE = new THREE.Color(0xffffff);
 
   // -- reusable one-shot props (avoid per-move allocation/disposal churn) --
   const boltGeo = new THREE.IcosahedronGeometry(0.16, 1);
@@ -69,6 +80,15 @@ export async function createPresentation(game, config = {}) {
   const charm = new THREE.Mesh(charmGeo, charmMat); charm.visible = false; charm.castShadow = true; scene.add(charm);
 
   const vignette = buildVignette(camera);
+
+  // Same screen grade as the overworld (postfx.js; plain render on Low or if
+  // the composer cannot be built) so a battle never looks flatter than the
+  // field it started in.
+  let fx = null;
+  try {
+    const { applyAtmosphere } = await import('../gfx/postfx.js');
+    if (game?.renderer) fx = applyAtmosphere(game.renderer, scene, camera);
+  } catch (e) { fx = null; }
 
   // -- state --
   const mons = { p: null, e: null };
@@ -90,9 +110,18 @@ export async function createPresentation(game, config = {}) {
   // ---------------------------------------------------------------- helpers
   function focusOf(side) {
     const entry = mons[side];
-    if (entry) return { x: entry.group.position.x, y: entry.focusY, z: entry.group.position.z, radius: entry.radius };
+    if (entry) return { x: entry.group.position.x, y: entry.focusY, z: entry.group.position.z, radius: entry.radius, height: entry.height };
     const mark = arena.marks[side];
-    return { x: mark.x, y: 1.1, z: mark.z, radius: 0.8 };
+    return { x: mark.x, y: 0.6, z: mark.z, radius: 0.6, height: 1.1 };
+  }
+
+  /** Where a Kindred of this size stands: small ones meet close, legends
+   *  keep their distance (the arena's worn patch follows). */
+  function standFor(side, radius) {
+    const mark = arena.marks[side];
+    const sgn = Math.sign(mark.x) || (side === 'p' ? -1 : 1);
+    const x = sgn * Math.min(5.2, Math.max(2.5, 2.1 + 1.35 * radius));
+    return { x, z: mark.z, face: mark.face };
   }
 
   const _proj = new THREE.Vector3();
@@ -135,9 +164,7 @@ export async function createPresentation(game, config = {}) {
   }
 
   function setLightMult(mult, dur = 0.3) {
-    tween({ from: arena.lights.key.intensity, to: baseLight.key * mult, dur, ease: easeOutCubic, onUpdate: (v) => { arena.lights.key.intensity = v; } });
-    tween({ from: arena.lights.fill.intensity, to: baseLight.fill * mult, dur, ease: easeOutCubic, onUpdate: (v) => { arena.lights.fill.intensity = v; } });
-    if (arena.lights.rim) tween({ from: arena.lights.rim.intensity, to: baseLight.rim * mult, dur, ease: easeOutCubic, onUpdate: (v) => { arena.lights.rim.intensity = v; } });
+    tween({ from: lightMult, to: mult, dur, ease: easeOutCubic, onUpdate: (v) => { lightMult = v; arena.setLightMult?.(v); } });
   }
 
   // Real hitstop: freeze the tween clock at HITSTOP_DEPTH for freezeMs, then
@@ -211,11 +238,13 @@ export async function createPresentation(game, config = {}) {
     const otherEntry = mons[other];
     const home = { x: attacker.group.position.x, z: attacker.group.position.z };
     const target = otherEntry ? { x: otherEntry.group.position.x, z: otherEntry.group.position.z } : { x: arena.marks[other].x, z: arena.marks[other].z };
-    // Dash to actual CONTACT: stop 0.8u short of the defender's center so the
-    // models visually touch instead of whiffing at mid-arena.
+    // Dash to actual CONTACT: stop where the two bodies meet (defender's
+    // radius + a bit of the attacker's) so the models touch instead of
+    // whiffing at mid-arena — or clipping into a big defender's ribcage.
     const dx = target.x - home.x, dz = target.z - home.z;
     const dist = Math.hypot(dx, dz) || 1;
-    const t = Math.max(0, (dist - 0.8) / dist);
+    const stop = Math.max(0.6, (otherEntry?.radius ?? 0.5) * 0.85 + attacker.radius * 0.45);
+    const t = Math.max(0, (dist - stop) / dist);
     const dash = { x: home.x + dx * t, z: home.z + dz * t };
     const bs = attacker.baseScale;
     await tween({
@@ -234,7 +263,7 @@ export async function createPresentation(game, config = {}) {
     });
     attacker.group.position.y = 0;
     attacker.group.scale.copy(bs);
-    camDir.shot('closeUp', { side: other, ms: 0 });
+    camDir.shot('closeUp', { side: other, ms: 0, melee: true });
     await delay(0.017); // hold one frame at contact — the hit lands here
     // Return home only after the hit's hitstop releases (onHit/onMiss await this).
     meleeReturn = async () => {
@@ -341,9 +370,8 @@ export async function createPresentation(game, config = {}) {
       group = fallbackWisp(); animator = { play() {}, update() {} };
     }
 
-    const mark = arena.marks[side];
-    group.position.set(mark.x, 0, mark.z);
-    group.rotation.y = mark.face;
+    group.position.set(0, 0, 0);
+    group.rotation.y = arena.marks[side].face;
     group.traverse((o) => { if (o.isMesh) o.castShadow = true; });
 
     const bbox = new THREE.Box3().setFromObject(group);
@@ -357,28 +385,32 @@ export async function createPresentation(game, config = {}) {
       height = species.size;
       spanXZ *= k;
     }
-    const baseScale = group.scale.clone();
-    scene.add(group);
-    group.scale.setScalar(0.02);
     // `radius`: the model's true bounding radius (quadrupeds are far LONGER
     // than they are tall) — the camera director needs it to keep close-ups
     // outside the creature instead of inside its ribcage.
+    const radius = Math.max(spanXZ, height) * 0.5;
+    const mark = standFor(side, radius);
+    group.position.set(mark.x, 0, mark.z);
+    group.rotation.y = mark.face;
+    arena.setStand?.(side, mark.x, mark.z, radius);
+    const baseScale = group.scale.clone();
+    scene.add(group);
+    group.scale.setScalar(0.02);
     mons[side] = {
       group, animator, speciesId, mon: inst, baseScale,
-      focusY: height * 0.55, radius: Math.max(spanXZ, height) * 0.5,
+      focusY: height * 0.55, radius, height,
     };
 
     const aColor = aspectColor(species?.aspects?.[0] ?? 'neutral');
     vfx.materialize(particles, { at: { x: mark.x, y: 0.05, z: mark.z }, color: aColor, height });
-    const flashLight = new THREE.PointLight(0xffffff, 0, 8, 2);
-    flashLight.position.set(mark.x, height * 0.5, mark.z);
-    scene.add(flashLight);
+    sendLight.color.set(aColor).lerp(WHITE, 0.5);
+    sendLight.position.set(mark.x, height * 0.5 + 0.3, mark.z);
     camDir.shot('sendIn', { side, ms: 0 });
     await delay(0.2);
     await tween({
       from: 0, to: 1, dur: 0.36, ease: easeOutBack,
-      onUpdate: (v) => { group.scale.copy(baseScale).multiplyScalar(Math.max(0.02, v)); flashLight.intensity = Math.sin(clamp01(v) * Math.PI) * 2.6; },
-      onDone: () => { scene.remove(flashLight); },
+      onUpdate: (v) => { group.scale.copy(baseScale).multiplyScalar(Math.max(0.02, v)); sendLight.intensity = Math.sin(clamp01(v) * Math.PI) * 2.6; },
+      onDone: () => { sendLight.intensity = 0; },
     });
     group.scale.copy(baseScale);
     animator?.play?.('idle');
@@ -715,7 +747,8 @@ export async function createPresentation(game, config = {}) {
       else setTimeScale(hs.scale);
     }
     const sdt = dt * hs.scale;
-    arena.update(sdt, clock);
+    try { MAT.tickWind?.(sdt); } catch (e) { /* static grass is fine */ }
+    arena.update(sdt, clock, camera);
     particles.update(sdt);
     for (const side of SIDES) mons[side]?.animator?.update?.(sdt);
     camDir.update(dt); // camera (incl. shake) stays unscaled — impacts read through the freeze
@@ -732,8 +765,10 @@ export async function createPresentation(game, config = {}) {
     particles.dispose();
     camDir.dispose();
     vignette.dispose();
-    scene.remove(creatureFill, creatureFill.target);
+    scene.remove(creatureFill, creatureFill.target, sendLight);
     creatureFill.dispose();
+    sendLight.dispose();
+    try { fx?.dispose(); } catch (e) { /* ignore */ }
     boltGeo.dispose(); boltMat.dispose();
     beamGeo.dispose(); beamMat.dispose();
     charmGeo.dispose(); charmMat.dispose();
@@ -742,6 +777,7 @@ export async function createPresentation(game, config = {}) {
 
   return {
     scene, camera, update,
+    render(renderer) { if (fx) fx.render(); else renderer.render(scene, camera); },
     handle,
     setUI(u) { ui = u; },
     project,

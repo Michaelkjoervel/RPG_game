@@ -128,7 +128,7 @@ const VERT_BODY = /* glsl */ `
   float bFade = 1.0 - smoothstep(uGField.z, uGField.w, distance(bRoot.xz, uGField.xy));
   float bGrass;
   vec3 bBump;
-  vec3 bGround = lfGround(bRoot, iShape.w, 0.02, lfMask(bRoot.xz), bGrass, bBump);
+  vec3 bGround = lfGround(bRoot, vec3(0.0, iShape.w, sqrt(max(0.0, 1.0 - iShape.w * iShape.w))), 0.02, lfMask(bRoot.xz), bGrass, bBump);
   float bVis = bFade * smoothstep(0.12, 0.6, bGrass);
   bH *= bVis;
   bW *= min(1.0, bVis * 3.0);
@@ -317,7 +317,7 @@ export function createGrass(zone, world) {
   const mS = { edge: 0, cobble: 0, bare: 0, apron: 0 };
   const localCol = new Float32Array(64 * 3); // colliders overlapping the chunk being filled
   const localRect = [];                      // building floors overlapping it (reused)
-  const rockNy = 1 - (ground.rockSlope - 0.025);
+  const rockNy = 1 - (ground.rockSlope + 0.03); // past the earth-bank band: bare bank / rock
 
   function fillChunk(slot, ci) {
     const cx = (ci % nC) + cMin, cz = Math.floor(ci / nC) + cMin;

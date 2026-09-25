@@ -15,9 +15,11 @@ const VANTAGES = {
   ],
   whisperwood: [
     [25, 46, 40, 22, 'trail'],         // on the main trail heading into the wood
+    [49, 2, 52, -32, 'glade-trail'],   // side trail toward Liora's glade
   ],
   skyreach: [
     [0, 65, 20, 50, 'switchback'],     // on the switchback path, looking up-slope
+    [-44, 62, -84, 44, 'valley'],      // over the low western valley (below the snowline)
   ],
 };
 const DAYTIME = { dawnmeadow: 0.5, brighthollow: 0.5, whisperwood: 0.45, skyreach: 0.5 };

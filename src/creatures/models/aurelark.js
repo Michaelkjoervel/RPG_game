@@ -15,7 +15,7 @@ import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
 import * as S from './soft.js';
 
-const DUSK = 0x5a4482, ROSE = 0xd67aa0, PEACH = 0xffb896, GOLD = 0xffd27a, GOLD_HI = 0xffe6ad, BEAK = 0xff9a3c;
+const DUSK = 0x5a4482, ROSE = 0xd67aa0, PEACH = 0xffb08a, GOLD = 0xffc24f, GOLD_HI = 0xffdc8a, BEAK = 0xff9a3c;
 const dawn = (t) => (t < 0.35 ? S.mixHex(DUSK, ROSE, t / 0.35) : t < 0.7 ? S.mixHex(ROSE, PEACH, (t - 0.35) / 0.35) : S.mixHex(PEACH, GOLD, (t - 0.7) / 0.3));
 
 export function build_aurelark(kit = kitDefault) {
@@ -42,24 +42,24 @@ export function build_aurelark(kit = kitDefault) {
   S.overlay(bodyGeo, 0xffe0c4, (x, y, z) => S.sstep(0.02, 0.14, z) * S.sstep(0.02, -0.07, y) * 0.8);
   bodyGeo.rotateX(-0.32); // chest up
   // short proud neck, merged into the body
-  const neckGeo = S.spindle({ len: 0.11, r: 0.058, sx: 0.95, sy: 1.0, radial: 12, rings: 8 });
-  S.pose(neckGeo, [0, 0.07, 0.13], [-1.0, 0, 0]);
+  const neckGeo = S.spindle({ len: 0.1, r: 0.052, sx: 0.95, sy: 1.0, radial: 12, rings: 8 });
+  S.pose(neckGeo, [0, 0.065, 0.13], [-1.0, 0, 0]);
   S.paint(neckGeo, { from: PEACH, to: GOLD, axis: 'y', noise: 0.01 });
   const body = S.bake([bodyGeo, neckGeo], plume, 'body');
   root.add(body);
   body.position.y = 0.19;
 
   // --- Head: round, gold, beak lifted. -------------------------------------
-  const headGeo = S.spindle({ len: 0.15, r: 0.07, sx: 0.95, sy: 0.95, p: 1, radial: 18, rings: 12, profile: (t) => 0.9 + 0.12 * S.bump(t, 0.45, 0.4) });
-  S.paint(headGeo, { from: 0xffc27a, to: GOLD_HI, axis: 'y', noise: 0.01, seed: 74 });
+  const headGeo = S.spindle({ len: 0.136, r: 0.062, sx: 0.95, sy: 0.95, p: 1, radial: 18, rings: 12, profile: (t) => 0.9 + 0.12 * S.bump(t, 0.45, 0.4) });
+  S.paint(headGeo, { from: 0xf5a24a, to: GOLD_HI, axis: 'y', noise: 0.01, seed: 74 });
   // a dusk eye-stripe sweeping back from the eye — a lark's mark
   S.overlay(headGeo, 0x6a4c86, (x, y, z) => S.sstep(0.022, 0.034, Math.abs(x)) * S.bump(y - (-z * 0.18), 0.012, 0.018) * S.sstep(0.03, -0.02, z) * 0.85);
   const head = S.bake([headGeo], plume, 'head');
-  kit.at(body, head, 0, 0.14, 0.18, { rx: -0.14 });
+  kit.at(body, head, 0, 0.13, 0.175, { rx: -0.14 });
 
   const eyeOpts = { irisColor: 0x241810, skinColor: 0xe8b870, glintSize: 0.011 };
-  const eyeL = S.seatEye(kit, head, headGeo, 0.029, 0.58, 0.12, eyeOpts, { sink: 0.42, front: 0.5 });
-  const eyeR = S.seatEye(kit, head, headGeo, 0.029, -0.58, 0.12, eyeOpts, { sink: 0.42, front: 0.5 });
+  const eyeL = S.seatEye(kit, head, headGeo, 0.027, 0.58, 0.12, eyeOpts, { sink: 0.42, front: 0.5 });
+  const eyeR = S.seatEye(kit, head, headGeo, 0.027, -0.58, 0.12, eyeOpts, { sink: 0.42, front: 0.5 });
 
   const beakGeo = S.taper(0.062, 0.018, { r1: 0.003, radial: 9, rings: 6, sx: 1.1, sz: 0.85 });
   beakGeo.rotateX(Math.PI / 2 - 0.08);
@@ -72,7 +72,7 @@ export function build_aurelark(kit = kitDefault) {
   const crestG = [];
   for (let i = 0; i < 3; i++) {
     const u = i - 1;
-    const g = S.taper(0.12 - Math.abs(u) * 0.03, 0.016, { r1: 0.004, curve: -0.85, radial: 7, rings: 7, sx: 1.8, sz: 0.65 });
+    const g = S.taper(0.12 - Math.abs(u) * 0.035, 0.02, { r1: 0.005, curve: -0.8, radial: 7, rings: 7, sx: 1.9, sz: 0.7 });
     S.paint(g, { from: 0xffb64a, to: GOLD_HI, axis: 'y', noise: 0.01 });
     S.pose(g, [u * 0.01, 0, 0], [-0.55, 0, -u * 0.28]);
     crestG.push(g);

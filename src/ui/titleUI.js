@@ -20,230 +20,266 @@ const sfx = (name) => bus.emit('ui:sfx', { name });
 const STARTERS = ['kindlet', 'nixling', 'thistlit'];
 
 // ---------------------------------------------------------------------------
-// 3D vignette scene — self-contained, disposed on teardown.
+// 3D hero shot — dusk over a flowering hill: the starter trio in the warm
+// last light (each trailing motes of its own aspect), swaying grass and
+// flowers in the foreground, a soft framing tree, layered hazy ridges and a
+// glowing horizon under a deep indigo sky that keeps the gold logo crisp.
+// Built from the shared stage kit (battle/arenas.js); disposed on teardown.
 // ---------------------------------------------------------------------------
-function buildFireflies(count, radius) {
-  const geo = new THREE.BufferGeometry();
-  const pos = new Float32Array(count * 3);
-  const seed = new Float32Array(count);
-  const rng = seededRandom(hashStr('title-fireflies'));
-  for (let i = 0; i < count; i++) {
-    const a = rng() * TAU, r = Math.sqrt(rng()) * radius;
-    pos[i * 3 + 0] = Math.cos(a) * r;
-    pos[i * 3 + 1] = 0.3 + rng() * 2.6;
-    pos[i * 3 + 2] = Math.sin(a) * r;
-    seed[i] = rng() * TAU;
-  }
-  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  geo.setAttribute('aSeed', new THREE.BufferAttribute(seed, 1));
-  const mat = new THREE.ShaderMaterial({
-    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-    uniforms: { uTime: { value: 0 }, uColor: { value: new THREE.Color(0xffe9b0) } },
-    vertexShader: `
-      attribute float aSeed;
-      uniform float uTime;
-      varying float vFlicker;
-      void main() {
-        vec3 p = position;
-        p.x += sin(uTime * 0.35 + aSeed) * 0.5;
-        p.z += cos(uTime * 0.28 + aSeed * 1.7) * 0.5;
-        p.y += sin(uTime * 0.6 + aSeed * 2.3) * 0.25;
-        vFlicker = 0.35 + 0.65 * (0.5 + 0.5 * sin(uTime * 2.2 + aSeed * 6.0));
-        vec4 mv = modelViewMatrix * vec4(p, 1.0);
-        gl_PointSize = (140.0 / -mv.z) * (0.6 + vFlicker * 0.5);
-        gl_Position = projectionMatrix * mv;
-      }`,
-    fragmentShader: `
-      uniform vec3 uColor;
-      varying float vFlicker;
-      void main() {
-        vec2 uv = gl_PointCoord - 0.5;
-        float d = length(uv) * 2.0;
-        float a = smoothstep(1.0, 0.0, d) * vFlicker;
-        gl_FragColor = vec4(uColor, a);
-      }`,
-  });
-  return new THREE.Points(geo, mat);
-}
+const SUN_DIR = new THREE.Vector3(-0.72, 0.05, -1).normalize();
 
-// Soft radial-gradient texture for glow sprites. A mapless SpriteMaterial
-// renders as a hard-edged square — this gives the shard's halo a proper
-// falloff so it reads as light, not a bright slab over the menu.
-function makeGlowTexture(size = 128) {
+// Soft cumulus puff texture (canvas) for billboard clouds.
+function makeCloudTexture(seed = 11) {
   const c = document.createElement('canvas');
-  c.width = c.height = size;
+  c.width = 256; c.height = 128;
   const ctx = c.getContext('2d');
-  const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-  g.addColorStop(0.0, 'rgba(255, 236, 190, 0.9)');
-  g.addColorStop(0.25, 'rgba(255, 220, 150, 0.42)');
-  g.addColorStop(0.55, 'rgba(255, 205, 130, 0.14)');
-  g.addColorStop(1.0, 'rgba(255, 200, 120, 0)');
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, size, size);
+  const rng = seededRandom(seed);
+  for (let i = 0; i < 16; i++) {
+    const x = 40 + rng() * 176, y = 70 + (rng() - 0.5) * 28 - Math.sin((x / 256) * Math.PI) * 26;
+    const r = 18 + rng() * 30;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, 'rgba(255,255,255,0.55)');
+    g.addColorStop(0.6, 'rgba(255,255,255,0.25)');
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
+  }
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
 }
 
-function buildGlowTree(rng) {
-  const g = new THREE.Group();
-  const trunkMat = new THREE.MeshStandardMaterial({ color: 0x3a2c22, roughness: 0.9, flatShading: true });
-  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.14, 1.1, 6), trunkMat);
-  trunk.position.y = 0.55;
-  g.add(trunk);
-  const canopy = new THREE.Group();
-  canopy.position.y = 1.15;
-  const leafMat = new THREE.MeshStandardMaterial({
-    color: 0x3f6b52, emissive: 0x5b4a8a, emissiveIntensity: 0.22, roughness: 0.75, flatShading: true,
-  });
-  const fruitMat = new THREE.MeshStandardMaterial({
-    color: 0xffe9b0, emissive: 0xffb85c, emissiveIntensity: 1.4, roughness: 0.4, flatShading: true,
-  });
-  for (let i = 0; i < 3; i++) {
-    const s = 0.62 - i * 0.13;
-    const blob = new THREE.Mesh(new THREE.IcosahedronGeometry(s, 0), leafMat);
-    blob.position.set((rng() - 0.5) * 0.25, i * 0.42, (rng() - 0.5) * 0.25);
-    blob.rotation.set(rng() * TAU, rng() * TAU, rng() * TAU);
-    canopy.add(blob);
+function buildStars(count, rng) {
+  const geo = new THREE.BufferGeometry();
+  const pos = new Float32Array(count * 3), seed = new Float32Array(count);
+  for (let i = 0; i < count; i++) {
+    const a = -Math.PI * 0.95 + rng() * Math.PI * 0.9; // the sky ahead of the camera
+    const el = 0.16 + Math.pow(rng(), 0.7) * 0.9;
+    const r = 300;
+    pos[i * 3] = Math.cos(el) * Math.sin(a) * r;
+    pos[i * 3 + 1] = Math.sin(el) * r;
+    pos[i * 3 + 2] = -Math.cos(el) * Math.cos(a) * r;
+    seed[i] = rng() * TAU;
   }
-  for (let i = 0; i < 4; i++) {
-    const fruit = new THREE.Mesh(new THREE.SphereGeometry(0.045, 6, 6), fruitMat);
-    const a = rng() * TAU, r = 0.4 + rng() * 0.2;
-    fruit.position.set(Math.cos(a) * r, rng() * 0.7, Math.sin(a) * r);
-    canopy.add(fruit);
-  }
-  g.add(canopy);
-  g.userData.canopy = canopy;
-  g.userData.sway = rng() * TAU;
-  return g;
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('aSeed', new THREE.BufferAttribute(seed, 1));
+  const mat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
+    uniforms: { uTime: { value: 0 } },
+    vertexShader: `
+      attribute float aSeed; uniform float uTime; varying float vA;
+      void main() {
+        vA = (0.45 + 0.55 * sin(uTime * 1.3 + aSeed * 7.0)) * smoothstep(40.0, 160.0, position.y);
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        gl_PointSize = 2.2 + fract(aSeed * 3.7) * 2.0;
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: `
+      varying float vA;
+      void main() { float d = length(gl_PointCoord - 0.5) * 2.0; gl_FragColor = vec4(vec3(1.0, 0.96, 0.88), smoothstep(1.0, 0.0, d) * vA); }`,
+  });
+  const pts = new THREE.Points(geo, mat);
+  pts.frustumCulled = false;
+  pts.renderOrder = -900;
+  return pts;
 }
 
-async function buildScene() {
+async function buildScene(game) {
+  const K = await import('../battle/arenas.js');
+  const MAT = await import('../gfx/materials.js');
+  const { Particles } = await import('../gfx/particles.js');
   const scene = new THREE.Scene();
-  scene.fog = new THREE.FogExp2(0x241f38, 0.045);
+  const disposables = [];
+  const track = (o) => { o.traverse?.((m) => { if (m.geometry) disposables.push(m.geometry); if (m.material) disposables.push(m.material); }); return o; };
+  const q = K.stageQuality();
 
-  const camera = new THREE.PerspectiveCamera(42, 16 / 9, 0.1, 200);
+  // ---- sky: indigo zenith -> rose -> gold horizon, sun just setting left
+  const dome = K.stageSkyDome({
+    top: 0x1c2358, mid: 0x7a4f86, horizon: 0xffb477, bottom: 0x3a3048,
+    sun: 0xffc27a, sunDir: SUN_DIR.toArray(), sunAmt: 1.35, glow: 1.25, radius: 420,
+  });
+  scene.add(track(dome));
+  const fogColor = new THREE.Color(0xc98a78);
+  scene.fog = new THREE.FogExp2(fogColor, 0.0105);
+  scene.background = new THREE.Color(0x2a2a52);
+  const stars = buildStars(q === 0 ? 70 : 150, seededRandom(hashStr('title-stars')));
+  scene.add(track(stars));
 
-  // Ground: soft dusk gradient disc, vertex-colored.
-  const groundGeo = new THREE.CircleGeometry(16, 48);
-  const colorA = new THREE.Color(0x362a52), colorB = new THREE.Color(0x1a1730);
-  const posAttr = groundGeo.attributes.position;
-  const colors = new Float32Array(posAttr.count * 3);
-  for (let i = 0; i < posAttr.count; i++) {
-    const x = posAttr.getX(i), y = posAttr.getY(i);
-    const d = Math.min(1, Math.hypot(x, y) / 16);
-    const c = colorA.clone().lerp(colorB, d);
-    colors[i * 3] = c.r; colors[i * 3 + 1] = c.g; colors[i * 3 + 2] = c.b;
+  // Clouds: warm-bellied puffs catching the last light.
+  const cloudTex = makeCloudTexture();
+  disposables.push(cloudTex);
+  const clouds = [];
+  const crng = seededRandom(hashStr('title-clouds'));
+  for (let i = 0; i < 7; i++) {
+    const m = new THREE.SpriteMaterial({ map: cloudTex, color: i < 3 ? 0xffc9a8 : 0xd8a6b8, transparent: true, opacity: 0.55 + crng() * 0.25, depthWrite: false, fog: false });
+    const s = new THREE.Sprite(m);
+    const x = (crng() - 0.45) * 420, y = 42 + crng() * 70, z = -230 - crng() * 90;
+    s.position.set(x, y, z);
+    s.scale.set(150 + crng() * 120, 50 + crng() * 34, 1);
+    s.renderOrder = -800;
+    scene.add(s);
+    disposables.push(m);
+    clouds.push({ s, speed: 0.6 + crng() * 0.8, x0: x });
   }
-  groundGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  groundGeo.rotateX(-Math.PI / 2);
-  const groundMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, flatShading: true });
+
+  // ---- ground: a flowering hilltop that falls away into the valley
+  const heightAt = (x, z) => {
+    const r = Math.hypot(x * 0.8, z + 2);
+    const knoll = 0.55 * Math.exp(-((x * x) / 60 + ((z - 1) * (z - 1)) / 30));
+    const fall = -K.fbm2(x * 0.02, z * 0.02, 5) * 4 * Math.min(1, Math.max(0, (r - 12) / 30));
+    const hills = Math.max(0, (-z - 40) / 90) * (4 + 16 * K.fbm2(x * 0.012 + 3, z * 0.012, 8));
+    return knoll + fall + hills;
+  };
+  const groundMat = K.stageGroundMaterial({
+    a: 0x6a9a3a, b: 0x9cbf4f, c: 0xd8c064, dirt: 0x8a7050, far: 0x9a7a8a, hill: 0x6f8a58,
+    marks: [99, 99, 99, 99], worn: [0.1, 0.1, 0, 0], farR: [20, 120, 0.72], hillR: [12, 45, 0.45],
+  });
+  const groundGeo = K.buildStageGround(heightAt, { radius: 200, inner: 14, step: q === 0 ? 1 : 0.6, segs: 128 });
   const ground = new THREE.Mesh(groundGeo, groundMat);
   ground.receiveShadow = true;
-  scene.add(ground);
+  scene.add(track(ground));
 
-  // Trees ringing the clearing.
-  const rng = seededRandom(hashStr('title-trees'));
-  const trees = [];
-  const treeCount = 7;
-  for (let i = 0; i < treeCount; i++) {
-    const t = buildGlowTree(rng);
-    const a = (i / treeCount) * TAU + rng() * 0.3;
-    const r = 8.5 + rng() * 3.5;
-    t.position.set(Math.cos(a) * r, 0, Math.sin(a) * r);
-    t.rotation.y = rng() * TAU;
-    const sc = 0.85 + rng() * 0.5;
-    t.scale.setScalar(sc);
-    t.castShadow = true;
-    scene.add(t);
-    trees.push(t);
-  }
-
-  // Shard crystal centerpiece — floated high above the glade so its bright
-  // mass and halo sit with the title's star badge, clear of the menu text.
-  const crystalGroup = new THREE.Group();
-  crystalGroup.position.y = 1.85;
-  const crystalMat = new THREE.MeshStandardMaterial({
-    color: 0xffe9b0, emissive: 0xffd166, emissiveIntensity: 1.1, metalness: 0.15, roughness: 0.2, flatShading: true,
+  // foreground + midground grass and flowers (denser toward the camera)
+  const grass = K.buildGrass({
+    count: 5200, base: 0x3f5a22, tipA: 0xd8c86a, tipB: 0xa8cc5a, h: 0.5, seed: 21, r0: 0, r1: 22,
+    center: [0, 4], heightAt, accept: (x, z) => (z > -8 ? 1 : 0.35), scaleAt: (x, z) => (z > 5 ? 1.35 : 1),
   });
-  const crystal = new THREE.Mesh(new THREE.IcosahedronGeometry(0.42, 0), crystalMat);
-  crystal.position.y = 1.0;
-  crystal.castShadow = true;
-  crystalGroup.add(crystal);
-  const glowSprite = new THREE.Sprite(new THREE.SpriteMaterial({
-    map: makeGlowTexture(), color: 0xffe9b0, transparent: true, opacity: 0.5,
-    depthWrite: false, blending: THREE.AdditiveBlending,
-  }));
-  glowSprite.scale.setScalar(2.2);
-  glowSprite.position.y = 1.0;
-  crystalGroup.add(glowSprite);
-  scene.add(crystalGroup);
+  scene.add(track(grass));
+  const flowers = K.buildFlowers({
+    count: 220, colors: [0xfff4f8, 0xffd94f, 0xff9fb0, 0xc9b0ff, 0xffffff], seed: 5, r0: 0.5, r1: 16, heightAt,
+    accept: (x, z) => (z > -10 ? 1 : 0),
+  });
+  scene.add(track(flowers));
 
-  // Fireflies.
-  const fireflies = buildFireflies(46, 11);
-  scene.add(fireflies);
+  // soft framing trees (left, near) + a stand on the ridge (right, far)
+  const treeGeo = K.softTreeGeometry({ seed: 3, h: 4.6, crown: 2.4, lobes: 7, leafLo: 0x2d4a2a, leafHi: 0xc8b85a, trunk: 0x4a3424, trunkTop: 0x7a5a3c });
+  const treeMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 });
+  try { MAT.windSway(treeMat, { strength: 0.22, speed: 0.9, heightScale: 8 }); } catch (e) { /* static */ }
+  MAT.applyLook?.(treeMat, { rim: 0.8 });
+  const trees = new THREE.InstancedMesh(treeGeo, treeMat, 4);
+  const tm = new THREE.Matrix4(), tq = new THREE.Quaternion(), ts = new THREE.Vector3(), tp = new THREE.Vector3(), te = new THREE.Euler();
+  [[-6.8, -1.5, 1.35, 0.4], [9.5, -14, 1.1, 1.9], [13.5, -18, 0.9, 3.1], [-15, -22, 1.2, 2.2]].forEach(([x, z, s, ry], i) => {
+    tm.compose(tp.set(x, heightAt(x, z) - 0.1, z), tq.setFromEuler(te.set(0, ry, 0)), ts.set(s, s, s));
+    trees.setMatrixAt(i, tm);
+  });
+  trees.castShadow = true; trees.receiveShadow = true;
+  scene.add(track(trees));
 
-  // Lighting: dusk key + cool hemisphere + crystal point light.
-  const hemi = new THREE.HemisphereLight(0x6a6fae, 0x141020, 0.65);
+  // tree line + two ridges of hazy hills beyond the valley
+  const tlRng = seededRandom(hashStr('title-treeline'));
+  const tlItems = [];
+  for (let i = 0; i < 90; i++) {
+    const x = (tlRng() - 0.5) * 220, z = -48 - tlRng() * 40;
+    const s = 2.2 + tlRng() * 2.8;
+    tlItems.push({ x, y: heightAt(x, z) + s * 0.8, z, sx: s, sy: s * 1.2, sz: s, ry: tlRng() * TAU });
+  }
+  scene.add(track(K.buildBlobField(tlItems, { lo: 0x2c3a38, hi: 0x6a7a52, detail: 1, seed: 6 })));
+  scene.add(track(K.buildRidges({ r: 150, hMin: 6, hMax: 24, base: -8, cLo: 0x7a5a78, cHi: 0x9a6a84, seed: 7, freq: 6 })));
+  scene.add(track(K.buildRidges({ r: 240, hMin: 18, hMax: 58, base: -10, cLo: 0x8a6a8e, cHi: 0xa8809a, seed: 15, freq: 8, sharp: 0.7 })));
+
+  // a lumen shard glowing on the far hill — the world's dreaming light
+  const glowTex = K.glowTexture();
+  const shard = new THREE.Mesh(new THREE.OctahedronGeometry(1.1, 0), new THREE.MeshStandardMaterial({ color: 0xfff0c8, emissive: 0xffd88a, emissiveIntensity: 2.2, roughness: 0.3, flatShading: true }));
+  shard.scale.set(0.8, 1.6, 0.8);
+  const shardPos = new THREE.Vector3(24, heightAt(24, -70) + 3.5, -70);
+  shard.position.copy(shardPos);
+  scene.add(track(shard));
+  const shardGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xffd9a0, transparent: true, opacity: 0.8, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
+  shardGlow.position.copy(shardPos);
+  shardGlow.scale.setScalar(16);
+  scene.add(shardGlow);
+  disposables.push(shardGlow.material);
+
+  // ---- lights: warm low sun behind-left, cool sky, soft front fill
+  const hemi = new THREE.HemisphereLight(0x8a86d8, 0x6a5a38, 1.05);
   scene.add(hemi);
-  const key = new THREE.DirectionalLight(0xb69cff, 0.55);
-  key.position.set(-6, 8, 4);
-  scene.add(key);
-  const crystalLight = new THREE.PointLight(0xffd166, 2.2, 11, 2);
-  crystalLight.position.set(0, 2.9, 0);
-  scene.add(crystalLight);
+  const sun = new THREE.DirectionalLight(0xffb070, 2.6);
+  sun.position.copy(SUN_DIR).multiplyScalar(30).setY(9);
+  sun.target.position.set(0, 0.4, 3);
+  if (q > 0) {
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(1024, 1024);
+    Object.assign(sun.shadow.camera, { left: -7, right: 7, top: 7, bottom: -7, near: 5, far: 70 });
+    sun.shadow.camera.updateProjectionMatrix();
+    sun.shadow.bias = -0.0015; sun.shadow.normalBias = 0.03;
+  }
+  scene.add(sun, sun.target);
+  const front = new THREE.DirectionalLight(0xffe2cc, 0.85);
+  front.position.set(4, 5, 12);
+  front.target.position.set(0, 0.5, 3);
+  scene.add(front, front.target);
 
-  // Starters idling around the crystal.
+  // ---- camera: low on the hill, looking out over the valley
+  const camera = new THREE.PerspectiveCamera(36, 16 / 9, 0.1, 900);
+  const camBase = new THREE.Vector3(0, 1.05, 8.4);
+  const camLook = new THREE.Vector3(0, 1.75, -12);
+
+  // ---- the starter trio, just below the menu, each with its own motes
+  const particles = new Particles(scene, { capacity: 900 });
+  const AURA = {
+    kindlet: { color: 0xff8a3c, color2: 0xffd27a, vel: { x: 0, y: 0.5, z: 0 }, size: 0.05, flicker: true },
+    nixling: { color: 0x7fc8ff, color2: 0xe0f4ff, vel: { x: 0, y: 0.32, z: 0 }, size: 0.05, flicker: false },
+    thistlit: { color: 0xa8e07a, color2: 0xfff6b0, vel: { x: 0.08, y: 0.18, z: 0 }, size: 0.05, flicker: true },
+  };
+  const SPOTS = { kindlet: [-1.55, 3.55, 0.55], nixling: [0.05, 4.7, -0.05], thistlit: [1.6, 3.45, -0.55] };
   const starterRigs = [];
   try {
     const { buildCreature } = await import('../creatures/registry.js');
-    STARTERS.forEach((id, i) => {
-      const a = (i / STARTERS.length) * TAU - Math.PI / 2;
-      const r = 2.3;
+    for (const id of STARTERS) {
+      const [x, z, turn] = SPOTS[id];
       const { group, animator } = buildCreature(id);
-      group.position.set(Math.cos(a) * r, 0, Math.sin(a) * r);
-      group.lookAt(0, 0, 0);
-      group.castShadow = true;
+      group.position.set(x, heightAt(x, z), z);
+      // face the camera, turned slightly toward each other
+      group.rotation.y = Math.atan2(camBase.x - x, camBase.z - z) + turn;
       group.traverse((o) => { if (o.isMesh) o.castShadow = true; });
       animator.play?.('idle');
       scene.add(group);
-      starterRigs.push({ group, animator });
-    });
+      const a = AURA[id];
+      const h = particles.ambient({ center: { x, y: 0, z }, radius: 0.55, y0: 0.15, y1: 0.8, rate: 5, color: a.color, color2: a.color2, size: a.size, life: 1.8, vel: a.vel, sway: 0.5, flicker: a.flicker });
+      starterRigs.push({ group, animator, h });
+    }
   } catch (e) {
     console.warn('[titleUI] starter models unavailable yet', e);
   }
+  // valley motes: fireflies waking in the dusk
+  const motes = particles.ambient({ center: { x: 0, y: 0, z: 1 }, radius: 9, y0: 0.3, y1: 3.2, rate: q === 0 ? 3 : 6, color: 0xffe9b0, color2: 0xffc97a, size: 0.07, life: 5, vel: { x: 0.06, y: 0.12, z: 0 }, sway: 0.9, flicker: true });
 
-  let time = 0, camAngle = 0.4;
-  const camR = 6.4, camH = 3.0;
+  // Same screen grade as the rest of the game (plain render on Low).
+  let fx = null;
+  try {
+    const { applyAtmosphere } = await import('../gfx/postfx.js');
+    if (game?.renderer) fx = applyAtmosphere(game.renderer, scene, camera);
+  } catch (e) { fx = null; }
+
+  let time = 0;
   function update(dt) {
     time += dt;
-    camAngle += dt * 0.032;
-    camera.position.set(Math.sin(camAngle) * camR, camH + Math.sin(time * 0.15) * 0.18, Math.cos(camAngle) * camR);
-    camera.lookAt(0, 1.05, 0);
-    crystalGroup.rotation.y += dt * 0.22;
-    const pulse = 1 + Math.sin(time * 1.6) * 0.05;
-    crystal.scale.setScalar(pulse);
-    crystalLight.intensity = 2.0 + Math.sin(time * 1.6) * 0.35;
-    glowSprite.material.opacity = 0.5 + Math.sin(time * 1.6) * 0.1;
-    fireflies.material.uniforms.uTime.value = time;
-    for (const t of trees) t.userData.canopy.rotation.z = Math.sin(time * 0.6 + t.userData.sway) * 0.05;
+    try { MAT.tickWind?.(dt); } catch (e) { /* static */ }
+    // slow breathing drift: the view floats a hand's width side to side
+    camera.position.set(camBase.x + Math.sin(time * 0.11) * 0.35, camBase.y + Math.sin(time * 0.17) * 0.06, camBase.z + Math.sin(time * 0.07) * 0.2);
+    camera.lookAt(camLook.x + Math.sin(time * 0.09) * 0.4, camLook.y, camLook.z);
+    for (const c of clouds) c.s.position.x = c.x0 + Math.sin(time * 0.01 * c.speed) * 30 + time * c.speed * 0.4;
+    stars.material.uniforms.uTime.value = time;
+    shardGlow.material.opacity = 0.7 + Math.sin(time * 1.3) * 0.12;
+    shard.rotation.y = time * 0.3;
+    particles.update(dt);
     for (const s of starterRigs) s.animator.update?.(dt);
   }
 
   function dispose() {
-    groundGeo.dispose(); groundMat.dispose();
-    for (const t of trees) {
-      t.traverse((o) => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
-    }
-    crystal.geometry.dispose(); crystalMat.dispose();
-    glowSprite.material.map?.dispose(); glowSprite.material.dispose();
-    fireflies.geometry.dispose(); fireflies.material.dispose();
+    try { fx?.dispose(); } catch (e) { /* ignore */ }
+    particles.dispose();
+    for (const d of disposables) { d.userData?.unregisterSway?.(); d.dispose?.(); }
+    trees.dispose?.();
     for (const s of starterRigs) {
       s.group.traverse((o) => { if (o.isMesh) { o.geometry?.dispose(); (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => m?.dispose()); } });
     }
   }
 
-  return { scene, camera, update, dispose };
+  return {
+    scene, camera, update, dispose,
+    render(renderer) { if (fx) fx.render(); else renderer.render(scene, camera); },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -275,6 +311,14 @@ export function showTitle(game) {
       <div class="title-version">v1.0</div>
     `;
     document.getElementById('ui-root').appendChild(root);
+    // A lighter frame than the stylesheet's: the hero shot must read to the
+    // corners, with just enough dusk behind the logo and menu for the gold.
+    const vig = root.querySelector('.title-vignette');
+    if (vig) vig.style.background = [
+      'radial-gradient(ellipse 46% 30% at 50% 35%, rgba(10,10,28,0.32) 0%, rgba(10,10,28,0) 100%)',
+      'radial-gradient(ellipse 22% 18% at 50% 64%, rgba(10,10,24,0.28) 0%, rgba(10,10,24,0) 100%)',
+      'radial-gradient(ellipse at 50% 45%, rgba(11,12,20,0) 58%, rgba(11,12,20,0.38) 100%)',
+    ].join(',');
     const menuEl = root.querySelector('.title-menu');
 
     const disabled = (id) => id === 'continue' && !hasAnySave();
@@ -418,7 +462,9 @@ export function showTitle(game) {
     let sceneHandle = null;
     let torndown = false;
     (async () => {
-      const handle = await buildScene();
+      let handle;
+      try { handle = await buildScene(game); }
+      catch (e) { console.error('[titleUI] title scene failed to build', e); return; }
       if (torndown) { handle.dispose(); return; }
       sceneHandle = handle;
       game.mode = 'title';

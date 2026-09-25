@@ -268,14 +268,14 @@ vec3 lfVoronoi(vec2 p, out vec2 toSite) {
 }
 vec4 lfMask(vec2 xz) { return texture2D(uGMask, (xz - uGMaskXf.xy) * uGMaskXf.zw); }
 
-// wp: world position, ny: surface normal y, fw: pixel footprint (m),
+// wp: world position, nrm: surface normal (world), fw: pixel footprint (m),
 // m: lfMask(wp.xz). Outputs grassAmt (0..1, how much grass may grow here) and
 // bump (world-space normal offset for stones/pebbles; xz only).
-vec3 lfGround(vec3 wp, float ny, float fw, vec4 m, out float grassAmt, out vec3 bump) {
+vec3 lfGround(vec3 wp, vec3 nrm, float fw, vec4 m, out float grassAmt, out vec3 bump) {
   vec2 xz = wp.xz;
   float h = wp.y;
   float hills = uGP.x;
-  float slope = clamp(1.0 - ny, 0.0, 1.0);
+  float slope = clamp(1.0 - nrm.y, 0.0, 1.0);
   float flatK = 1.0 - smoothstep(0.03, 0.14, slope);
   float fineK = 1.0 - smoothstep(0.16, 0.6, fw);
   float midK = 1.0 - smoothstep(0.7, 2.6, fw);
@@ -336,13 +336,26 @@ vec3 lfGround(vec3 wp, float ny, float fw, vec4 m, out float grassAmt, out vec3 
   float bare = m.b;
   col = mix(col, mix(uGDirt, col, 0.5) * (0.96 + (n4 - 0.5) * 0.1), bare * 0.5);
   grassAmt *= 1.0 - 0.6 * smoothstep(0.25, 0.7, bare);
-  // steep faces: rock with strata
-  float rockT = smoothstep(uGP2.y - 0.03, uGP2.y + 0.03, slope + (n3 - 0.5) * 0.09 + (n4 - 0.5) * 0.035);
-  float strata = 0.5 + 0.5 * sin(h * 2.3 + n2 * 5.0 + n3 * 2.0);
-  vec3 rock = mix(uGStoneDark, uGStone, clamp(0.2 + strata * 0.55 + (n4 - 0.5) * 0.3, 0.0, 1.0));
-  rock *= 0.92 + (n1 - 0.5) * 0.16;
-  col = mix(col, rock, rockT);
-  grassAmt *= 1.0 - rockT;
+  // moderate slopes (hill flanks, path cuts): earth banks with moss; rock
+  // only where it is really steep — pseudo-triplanar noise (no streaks on
+  // walls), strata ledges that catch the light, dark crevices
+  float bankT = smoothstep(uGP2.y - 0.04, uGP2.y + 0.02, slope + (n3 - 0.5) * 0.08 + (n4 - 0.5) * 0.03);
+  vec3 bank = mix(uGDirt * 0.78, uGGrassB * 0.72, 0.4 + (n3 - 0.5) * 0.6) * (0.92 + (n4 - 0.5) * 0.14);
+  col = mix(col, bank, bankT * 0.8);
+  grassAmt *= 1.0 - bankT * 0.7;
+  float rockT = smoothstep(uGP2.y + 0.1, uGP2.y + 0.16, slope + (n3 - 0.5) * 0.1 + (n4 - 0.5) * 0.04);
+  if (rockT > 0.0) {
+    float wx = smoothstep(0.3, 0.7, abs(nrm.x) / (abs(nrm.x) + abs(nrm.z) + 1e-4));
+    float rn = mix(lfNoise(vec2(wp.x, h) * 0.9), lfNoise(vec2(wp.z, h) * 0.9 + 7.1), wx);
+    float rn2 = mix(lfNoise(vec2(wp.x, h) * 2.7 + 5.0), lfNoise(vec2(wp.z, h) * 2.7 + 2.3), wx);
+    float sphase = h * 2.3 + n2 * 5.0 + rn * 1.6;
+    float strata = 0.5 + 0.5 * sin(sphase);
+    vec3 rock = mix(uGStoneDark * 0.85, uGStone, clamp(0.12 + strata * 0.5 + (rn2 - 0.5) * 0.5, 0.0, 1.0));
+    rock *= (0.9 + (rn - 0.5) * 0.25) * (1.0 - smoothstep(0.64, 0.82, rn2) * 0.28);
+    col = mix(col, rock, rockT);
+    bump.y += cos(sphase) * 0.4 * rockT;
+    grassAmt *= 1.0 - rockT;
+  }
   // mountain snow above a noisy line, cool on steep/hollow parts
   if (uGP.w > 0.5) {
     float scree = smoothstep(0.55, 0.8, n1 + (n3 - 0.5) * 0.3) * (1.0 - rockT);
@@ -403,11 +416,11 @@ vec3 lfGround(vec3 wp, float ny, float fw, vec4 m, out float grassAmt, out vec3 
     // sparse pebbles of mixed size, each with a soft contact shade (fade with distance)
     if (fineK > 0.0) {
       vec3 vp = lfVoronoi(xz * 3.2 + vec2(3.1, 9.7), ts);
-      float has = step(0.8, vp.z) * smoothstep(0.1, 0.5, depth);
-      float r = 0.16 + fract(vp.z * 7.31) * 0.2;
+      float has = step(0.86, vp.z) * smoothstep(0.1, 0.5, depth);
+      float r = 0.12 + fract(vp.z * 7.31) * 0.18;
       float peb = has * (1.0 - smoothstep(r - aa * 3.2, r + aa * 3.2, vp.x)) * fineK;
       float ring = has * (1.0 - smoothstep(r, r + 0.18, vp.x)) * (1.0 - peb) * fineK;
-      vec3 pebC = mix(uGStone, pc, 0.6) * (0.88 + fract(vp.z * 17.3) * 0.24);
+      vec3 pebC = mix(uGStone, pc * 1.1, 0.7) * (0.9 + fract(vp.z * 17.3) * 0.2);
       pc *= 1.0 - ring * 0.16;
       pc = mix(pc, pebC, peb * 0.6);
       pbump.xz += -ts / max(r, 0.05) * 0.55 * peb;
@@ -622,7 +635,7 @@ export function buildTerrain(zone) {
     uGSnow: U(C.snow), uGSnowShade: U(C.snowShade),
     uGPath: U(C.path), uGPathWorn: U(C.pathWorn), uGPathLight: U(C.pathLight), uGRim: U(C.rim), uGMoss: U(C.moss),
     uGP: U(new THREE.Vector4(hills, water?.level ?? 0, water ? 1 : 0, kind === 'mountain' ? 1 : 0)),
-    uGP2: U(new THREE.Vector4(SNOW_LOW + 1.2, kind === 'mountain' ? 0.1 : 0.13, 0.07, style === 2 ? 0.62 : 2.3)),
+    uGP2: U(new THREE.Vector4(SNOW_LOW + 1.2, kind === 'mountain' ? 0.07 : 0.13, 0.07, style === 2 ? 0.62 : 2.3)),
     uGWater: U(new THREE.Vector4(wx, wz, wHalf, 0)),
     uGField: U(new THREE.Vector4(0, 0, 10, 20)), // driven by grass.js each frame
     uGFieldK: U(new THREE.Vector4(0, 0, 0, 0)),
@@ -647,7 +660,7 @@ export function buildTerrain(zone) {
   {
     float gFw = length(fwidth(vGWorldPos.xz));
     float gGrass;
-    vec3 gCol = lfGround(vGWorldPos, normalize(vGWorldNormal).y, gFw, lfMask(vGWorldPos.xz), gGrass, gBump);
+    vec3 gCol = lfGround(vGWorldPos, normalize(vGWorldNormal), gFw, lfMask(vGWorldPos.xz), gGrass, gBump);
     diffuseColor.rgb *= gCol;
   }`)
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>

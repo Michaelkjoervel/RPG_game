@@ -42,10 +42,19 @@ export function build_charvane(kit = kitDefault) {
   S.pose(neckGeo, [0, 0.13, 0.3], [-0.85, 0, 0]);
   S.paint(neckGeo, { from: COAL_LO, to: COAL_HI, axis: 'y', noise: 0.012, seed: 22 });
   // Warm ash chest ruff: Kindlet's ember belly, grown into fur.
-  const ruffGeo = S.puff(0.1, { count: 6, spread: 0.65, seed: 23, sy: 1.05, blend: 0.72 });
-  S.pose(ruffGeo, [0, 0.01, 0.33], [0.45, 0, 0], [0.95, 1.1, 0.62]);
-  S.paint(ruffGeo, { from: ASH, to: ASH_HI, axis: 'y', noise: 0.02, seed: 24 });
-  const body = S.bake([torsoGeo, neckGeo, ruffGeo], fur, 'body');
+  const ruffGeo = S.puff(0.095, { count: 6, spread: 0.7, seed: 23, sy: 1.1, blend: 0.72 });
+  S.pose(ruffGeo, [0, 0.0, 0.3], [0.5, 0, 0], [1.0, 1.15, 0.5]);
+  S.paint(ruffGeo, { from: 0x6e5a4e, to: ASH, axis: 'y', noise: 0.02, seed: 24 });
+  // Wolfish mane: coal tufts ringing the neck, ash-tipped.
+  const maneGeos = [];
+  for (let i = 0; i < 7; i++) {
+    const a = (i / 6 - 0.5) * 2.6;
+    const g = S.puff(0.06, { count: 3, spread: 0.6, seed: 40 + i, sy: 1.2, radial: 8, rings: 5 });
+    S.pose(g, [Math.sin(a) * 0.1, 0.2 + Math.cos(a) * 0.05, 0.3 - Math.abs(a) * 0.03], [0.6, a * 0.3, -a * 0.4], [0.9, 1.25, 0.8]);
+    S.paint(g, { from: COAL_HI, to: 0x8a7264, axis: 'y', noise: 0.02, seed: 50 + i });
+    maneGeos.push(g);
+  }
+  const body = S.bake([torsoGeo, neckGeo, ruffGeo, ...maneGeos], fur, 'body');
   root.add(body);
   body.position.y = 0.47;
 
@@ -71,14 +80,14 @@ export function build_charvane(kit = kitDefault) {
   const skullGeo = S.spindle({ len: 0.23, r: 0.118, sx: 1.0, sy: 0.88, p: 0.95, radial: 18, rings: 14, profile: (t) => 0.92 + 0.1 * S.bump(t, 0.4, 0.4) });
   S.paint(skullGeo, { from: COAL_LO, to: COAL_HI, axis: 'y', noise: 0.01, seed: 25 });
   const muzzleGeo = S.spindle({
-    len: 0.2, r: 0.066, sx: 1.0, sy: 0.8, p: 0.85, pNose: 1.1, radial: 14, rings: 10, belly: 0.15,
-    profile: (t) => 1.0 - 0.3 * t,
+    len: 0.25, r: 0.064, sx: 0.98, sy: 0.8, p: 0.85, pNose: 1.1, radial: 14, rings: 10, belly: 0.15,
+    profile: (t) => 1.0 - 0.34 * t,
   });
-  S.pose(muzzleGeo, [0, -0.04, 0.12], [0.1, 0, 0]);
+  S.pose(muzzleGeo, [0, -0.045, 0.15], [0.08, 0, 0]);
   S.paint(muzzleGeo, { from: 0x3a2d28, to: 0x735e53, axis: 'y', noise: 0.01, seed: 26 });
   S.overlay(muzzleGeo, ASH, (x, y, z) => S.sstep(-0.035, -0.075, y));
   const noseGeo = S.ball(0.026, { sx: 1.35, sy: 0.85, radial: 8, rings: 6 });
-  S.pose(noseGeo, S.surface(muzzleGeo, [0, 0.35, 1], { from: [0, -0.035, 0.12], inset: 0.013 }));
+  S.pose(noseGeo, S.surface(muzzleGeo, [0, 0.3, 1], { from: [0, -0.04, 0.16], inset: 0.013 }));
   S.paint(noseGeo, 0x141010);
   // Cheek ruffs flaring back from the jaw.
   const cheekGeos = [1, -1].map((s) => {
@@ -97,24 +106,24 @@ export function build_charvane(kit = kitDefault) {
   // Fangs peeking under the muzzle — a proud hound bares them, a little.
   const fangMat = S.smoothMat(kit, 0xefe8dc, { rough: 0.4 });
   for (const s of [1, -1]) {
-    const f = new THREE.Mesh(S.taper(0.032, 0.01, { r1: 0.002, radial: 6, rings: 5 }), fangMat);
-    f.rotation.x = Math.PI;
-    const p = S.surface(muzzleGeo, [s * 0.35, -0.9, 0.2], { from: [0, -0.035, 0.14], inset: 0.004 });
-    f.position.set(p[0], p[1] + 0.004, p[2]);
+    const f = new THREE.Mesh(S.taper(0.026, 0.008, { r1: 0.0018, radial: 6, rings: 5 }), fangMat);
+    f.rotation.set(Math.PI - 0.15, 0, -s * 0.12);
+    const p = S.surface(muzzleGeo, [s * 0.8, -0.6, 0.1], { from: [0, -0.045, 0.2], inset: 0.004 });
+    f.position.set(p[0], p[1] + 0.006, p[2]);
     head.add(f);
   }
 
   // Tall, alert ears (accents — they twitch).
-  const mkEar = () => new THREE.Mesh(S.ear(0.12, 0.08, { color: COAL_HI, inner: 0x86665a, tip: 1.3, cup: 0.5 }), fur);
+  const mkEar = () => new THREE.Mesh(S.ear(0.155, 0.095, { color: COAL_HI, inner: 0x8a6a5c, tip: 1.35, cup: 0.55 }), fur);
   const earL = mkEar(), earR = mkEar();
   earL.name = earR.name = 'ear';
-  const ea = S.surface(skullGeo, S.dirYP(0.5, 0.95), { inset: 0.014 });
-  kit.at(head, earL, ea[0], ea[1], ea[2] - 0.012, { rz: -0.3, ry: 0.35, rx: -0.14 });
-  kit.at(head, earR, -ea[0], ea[1], ea[2] - 0.012, { rz: 0.3, ry: -0.35, rx: -0.14 });
+  const ea = S.surface(skullGeo, S.dirYP(0.45, 1.0), { inset: 0.016 });
+  kit.at(head, earL, ea[0], ea[1], ea[2] - 0.015, { rz: -0.22, ry: 0.3, rx: -0.1 });
+  kit.at(head, earR, -ea[0], ea[1], ea[2] - 0.015, { rz: 0.22, ry: -0.3, rx: -0.1 });
 
   // Smoke wisps from the nostrils when it huffs.
   const smoke = kit.mote(4, { color: 0x8a8478, size: 0.014, radius: 0.035, height: 0.1, speed: 0.6, seed: 7 });
-  kit.at(head, smoke, 0, -0.03, 0.26);
+  kit.at(head, smoke, 0, -0.03, 0.3);
 
   // --- Legs: heavy shoulders/thighs tapering through real joints. ----------
   const foreDef = { thighR: 0.078, shinR: 0.036, kneeR: 0.045, ankleR: 0.03, pawR: 0.048, pawLen: 1.3, bend: -0.12, split: 0.52, bulge: 0.28 };
@@ -131,11 +140,11 @@ export function build_charvane(kit = kitDefault) {
 
   // --- Tail: proud, curling up into a live flame tuft. ---------------------
   const tail = S.softTail(5, fur, {
-    segLen: 0.09, startR: 0.05, endR: 0.03, curl: 0.13, rootPitch: 0.55,
+    segLen: 0.09, startR: 0.062, endR: 0.036, curl: 0.13, rootPitch: 0.55,
     color: (t) => S.mixHex(COAL_HI, 0x9a5a3c, Math.pow(t, 2.5)),
   });
   kit.at(body, tail, 0, 0.08, -0.3);
-  const tailFlame = S.flame3d(kit, 0.13, { seed: 12, width: 0.075, colors: [0xd23a0e, 0xff8a2e, 0xffe08a], halo: 0.45 });
+  const tailFlame = S.flame3d(kit, 0.17, { seed: 12, width: 0.095, colors: [0xd23a0e, 0xff8a2e, 0xffe08a], halo: 0.45 });
   kit.at(tail.tipAnchor, tailFlame, 0, 0.0, 0.0, { rx: -tail.tipPitch });
 
   // Heartspark riding on the chest ruff.

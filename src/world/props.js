@@ -10,10 +10,19 @@
 // player.js footsteps can resolve step_wood on them —
 //   [{x, z, hx, hz, cos, sin, r2, surface:'wood'}] (cos/sin of the prop yaw,
 //   r2 = squared broad-phase radius).
+//
+// Visual pass v2 (soft stylized): every material is smooth-shaded; facets
+// survive only where a piece's own normals say so (crystals, cut stone,
+// planks — see piece()'s `sh` shading modes). Foliage lobes share one
+// spherical normal field per canopy so a tree shades like one soft ball, and
+// an albedo-proportional "lift" keeps shaded undersides from ever going black.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { windSway, jitterGeometry } from '../gfx/materials.js';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { mat, windSway, jitterGeometry, smoothGeometry, sphericalNormals } from '../gfx/materials.js';
 import { G } from '../core/state.js';
+import { ZONES } from '../data/worldmap.js';
+import { settings } from '../core/settings.js';
 import { seededRandom, hashStr } from '../core/rng.js';
 import { clamp, lerp, TAU } from '../core/math.js';
 
@@ -84,7 +93,15 @@ export function buildProps(zone, heightAt) {
   const pulseMats = [];  // {m, base, amp, speed, phase}
   const nightMats = [];  // {m, base}  emissive that wakes at dusk
   const nightLights = []; // {light, base}
+  const liftSets = [];   // {u, base} albedo lift uniforms, scaled by daylight
   let lightBudget = 10;   // dynamic point lights per zone, spent by set-pieces
+
+  // Quality tier (read at build; a zone reload picks up a changed setting).
+  const QUALITY = settings.quality ?? 'high';
+  const HI = QUALITY === 'high';
+  const LOD = HI ? 2 : 1;                                  // canopy/rock icosphere detail
+  const SMALL_MUL = QUALITY === 'low' ? 0.55 : QUALITY === 'med' ? 0.8 : 1; // tiny-scatter density
+  const INDOOR = biome === 'cave' || biome === 'spire';
 
   const geo = (key, make) => {
     let g = geoCache.get(key);
@@ -95,11 +112,14 @@ export function buildProps(zone, heightAt) {
   // ------------------------------------------------------------- geometry lib
   const sphereG = (r, w = 7, h = 5) => geo(`sp${r}_${w}_${h}`, () => new THREE.SphereGeometry(r, w, h));
   const coneG = (r, h, s = 7) => geo(`co${r}_${h}_${s}`, () => new THREE.ConeGeometry(r, h, s));
-  const cylG = (rt, rb, h, s = 7) => geo(`cy${rt}_${rb}_${h}_${s}`, () => new THREE.CylinderGeometry(rt, rb, h, s));
+  const cylG = (rt, rb, h, s = 7, hs = 1) => geo(`cy${rt}_${rb}_${h}_${s}_${hs}`, () => new THREE.CylinderGeometry(rt, rb, h, s, hs));
   const boxG = (w, h, d) => geo(`bx${w}_${h}_${d}`, () => new THREE.BoxGeometry(w, h, d));
   const icoG = (r, d = 0) => geo(`ic${r}_${d}`, () => new THREE.IcosahedronGeometry(r, d));
   const planeG = (w, h, sw = 1, sh = 1) => geo(`pl${w}_${h}_${sw}_${sh}`, () => new THREE.PlaneGeometry(w, h, sw, sh));
   const octaG = (r) => geo(`oc${r}`, () => new THREE.OctahedronGeometry(r, 0));
+  // Rounded box: crisp silhouettes with soft bevelled edges — cut stone,
+  // furniture, roof slabs (v2 "crisp but friendly" architecture).
+  const rboxG = (w, h, d, r = 0.05, seg = 1) => geo(`rb${w}_${h}_${d}_${r}_${seg}`, () => new RoundedBoxGeometry(w, h, d, seg, Math.min(r, w / 2, h / 2, d / 2) * 0.999));
   // Organic blob — icosahedron displaced by a deterministic per-vertex hash.
   const blobG = (r, bseed, amp = 0.28) => geo(`bl${r}_${bseed}_${amp}`, () => {
     const g = new THREE.IcosahedronGeometry(r, 1);
@@ -118,19 +138,42 @@ export function buildProps(zone, heightAt) {
   });
 
   // ------------------------------------------------------------- material lib
+  // Albedo-proportional ambient lift: adds `albedo * uLift` as emissive, so a
+  // canopy underside or a shaded wall keeps its own hue at a readable floor
+  // instead of sinking to black under the single dominant key. The master
+  // updater scales it with daylight (night stays night). Chains any earlier
+  // onBeforeCompile (wind sway, mat() hooks) and keys the program cache on
+  // that earlier hook's identity so different shader variants never share.
+  function addLift(m, base) {
+    const u = { value: base };
+    const prev = m.onBeforeCompile;
+    const prevKey = m.customProgramCacheKey();
+    m.onBeforeCompile = (shader, r) => {
+      prev.call(m, shader, r);
+      shader.uniforms.uLift = u;
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', '#include <common>\nuniform float uLift;')
+        .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n\ttotalEmissiveRadiance += diffuseColor.rgb * uLift;');
+    };
+    m.customProgramCacheKey = () => `lf-lift|${prevKey}`;
+    m.needsUpdate = true;
+    liftSets.push({ u, base });
+  }
+
+  // Smooth-shaded by default (v2): pieces carry their own normals, so crisp
+  // edges survive exactly where a piece was built with flat/creased normals.
   function std(key, opts = {}) {
     let m = matCache.get(key);
     if (m) return m;
-    m = new THREE.MeshStandardMaterial({
-      color: 0xffffff, // instances carry the tint
-      flatShading: opts.flat !== false,
-      roughness: opts.rough ?? 0.92,
-      metalness: opts.metal ?? 0.0,
+    m = mat(0xffffff, { // instances carry the tint
+      flat: opts.flat === true,
+      rough: opts.rough ?? 0.92,
+      metal: opts.metal ?? 0.0,
       vertexColors: !!opts.vcolor,
       transparent: !!opts.transparent,
       opacity: opts.opacity ?? 1,
       side: opts.side ?? THREE.FrontSide,
-      emissive: new THREE.Color(opts.emissive ?? 0x000000),
+      emissive: opts.emissive ?? 0x000000,
       emissiveIntensity: opts.emissiveIntensity ?? 1,
       depthWrite: opts.depthWrite ?? true,
     });
@@ -138,37 +181,43 @@ export function buildProps(zone, heightAt) {
       try { disposables.push({ fn: windSway(m, { strength: opts.sway }) }); } // fn = sway unregister
       catch (e) { warnOnce('windSway unavailable: ' + e.message); }
     }
+    if (opts.lift) addLift(m, opts.lift * (INDOOR ? 0.6 : 1));
     if (opts.pulse) pulseMats.push({ m, base: opts.emissiveIntensity ?? 1, amp: opts.pulse.amp ?? 0.4, speed: opts.pulse.speed ?? 1.2, phase: opts.pulse.phase ?? 0 });
-    if (opts.night) nightMats.push({ m, base: opts.emissiveIntensity ?? 1 });
+    if (opts.night) nightMats.push({ m, base: opts.emissiveIntensity ?? 1, day: opts.night.day ?? 0.06 });
     matCache.set(key, m);
     disposables.push({ mat: m });
     return m;
   }
 
-  const FOLIAGE  = std('foliage', { sway: 0.55, rough: 0.95 });
-  const FOLIAGE2 = std('foliage2', { sway: 0.3, rough: 0.95 });         // subtle sway
-  const SOLID    = std('solid', {});                                     // rock/wood/stone
-  const SOLID_S  = std('solid_smooth', { flat: true, rough: 0.85 });
-  const CLOTH    = std('cloth', { sway: 0.65, side: THREE.DoubleSide, rough: 1 });
-  const FROND    = std('frond', { sway: 0.8, side: THREE.DoubleSide, rough: 0.95 });
+  const FOLIAGE  = std('foliage', { sway: 0.55, rough: 0.95, lift: 0.14 });
+  const FOLIAGE2 = std('foliage2', { sway: 0.3, rough: 0.95, lift: 0.14 });         // subtle sway
+  const SOLID    = std('solid', { lift: 0.06 });                                   // rock/wood/stone
+  const SOLID_S  = std('solid_smooth', { rough: 0.8, lift: 0.06 });
+  const CLOTH    = std('cloth', { sway: 0.65, side: THREE.DoubleSide, rough: 1, lift: 0.1 });
+  const FROND    = std('frond', { sway: 0.8, side: THREE.DoubleSide, rough: 0.95, lift: 0.14 });
   const ICE      = std('ice', { rough: 0.35, transparent: true, opacity: 0.85, emissive: 0x9fd4ff, emissiveIntensity: 0.12 });
   const GLOW_CRYSTAL = std('glow_crystal', { emissive: 0x9fe8ff, emissiveIntensity: 0.9, rough: 0.4, pulse: { amp: 0.45, speed: 1.1 } });
   const GLOW_FRUIT  = std('glow_fruit', { emissive: 0xffe9b0, emissiveIntensity: 1.1, rough: 0.5, pulse: { amp: 0.35, speed: 0.8, phase: 1.7 } });
   const GLOW_FERN   = std('glow_fern', { sway: 0.6, side: THREE.DoubleSide, emissive: 0x59e8c2, emissiveIntensity: 0.85, pulse: { amp: 0.4, speed: 1.4 } });
   const GLOW_RUNE   = std('glow_rune', { emissive: 0xffe9b0, emissiveIntensity: 0.8, rough: 0.6, pulse: { amp: 0.25, speed: 0.55 } });
   const GLOW_LAVA   = std('glow_lava', { emissive: 0xff5a1f, emissiveIntensity: 1.3, rough: 0.7, pulse: { amp: 0.5, speed: 0.9 } });
-  const WINDOW      = std('window', { emissive: 0xffc97a, emissiveIntensity: 0.9, rough: 0.4, night: true });
-  const LAMP_GLASS  = std('lamp_glass', { emissive: 0xffd9a0, emissiveIntensity: 1.2, rough: 0.3, night: true });
-  const BERRY       = std('berry', { emissive: 0xd83a4a, emissiveIntensity: 0.25, rough: 0.6 });
+  // Windows: a warm pane by day (so glass never reads as a black hole), a
+  // bright hearth-lit glow after dusk (blooms on High).
+  const WINDOW      = std('window', { emissive: 0xffb45c, emissiveIntensity: 1.9, rough: 0.35, night: { day: 0.1 } });
+  const LAMP_GLASS  = std('lamp_glass', { emissive: 0xffd9a0, emissiveIntensity: 1.6, rough: 0.3, night: { day: 0.12 } });
+  const BERRY       = std('berry', { emissive: 0xd83a4a, emissiveIntensity: 0.25, rough: 0.5 });
   const SPIRE_SEAM  = std('spire_seam', { emissive: 0xcfd4e8, emissiveIntensity: 0.55, rough: 0.6, pulse: { amp: 0.2, speed: 0.4 } });
 
   // Vertex-colored variants — merged prop geometries bake their palette +
   // gradients into geometry colors; instance color then only carries a subtle
   // per-instance brightness / warm-cool jitter (part.vjit).
-  const FOLIAGE_V  = std('foliage_v', { sway: 0.55, rough: 0.95, vcolor: true });
-  const FOLIAGE2_V = std('foliage2_v', { sway: 0.28, rough: 0.95, vcolor: true });
-  const SOLID_V    = std('solid_v', { vcolor: true });
-  const FROND_V    = std('frond_v', { sway: 0.8, side: THREE.DoubleSide, rough: 0.95, vcolor: true });
+  const FOLIAGE_V  = std('foliage_v', { sway: 0.55, rough: 0.95, vcolor: true, lift: 0.13 });
+  const FOLIAGE2_V = std('foliage2_v', { sway: 0.28, rough: 0.95, vcolor: true, lift: 0.13 });
+  const SOLID_V    = std('solid_v', { vcolor: true, lift: 0.07 });
+  const FROND_V    = std('frond_v', { sway: 0.8, side: THREE.DoubleSide, rough: 0.95, vcolor: true, lift: 0.16 });
+  const CLOTH_V    = std('cloth_v', { sway: 0.25, side: THREE.DoubleSide, rough: 0.95, vcolor: true, lift: 0.12 });
+  const FLAG_V     = std('flag_v', { sway: 0.12, side: THREE.DoubleSide, rough: 0.9, vcolor: true, lift: 0.14 });
+  const WINDOW_V   = std('window_v', { vcolor: true, emissive: 0xffb45c, emissiveIntensity: 1.9, rough: 0.35, night: { day: 0.1 } });
 
   // Soft contact-shadow disc (instanced under large props) + warm glow pool.
   const SHADOW = (() => {
@@ -184,7 +233,16 @@ export function buildProps(zone, heightAt) {
   // ------------------------------------------------------- merged-geo assembly
   // piece(src, o): clone a primitive, optionally jitter, transform, and return a
   // non-indexed geometry ready for color baking + merging. Never mutates `src`.
-  //   o: { t:[x,y,z], r:[x,y,z], s:number|[x,y,z], jit, jseed }
+  //   o: { t:[x,y,z], r:[x,y,z], s:number|[x,y,z], jit, jseed, sh }
+  // Shading (`sh`, v2): the materials are smooth, so each piece's normals
+  // decide how it reads —
+  //   'smooth' fully rounded (foliage, caps, moss, snow, cloth)
+  //   'soft'   rounded with a few crease edges kept (boulders, trunks' feet)
+  //   'crease' hard edges at ~50°+ kept, curved faces smooth (cut stone, planks,
+  //            furniture, architecture) — the default for jittered pieces
+  //   'flat'   one normal per face (crystals, ice, gems)
+  //   (unset, not jittered: the primitive's own normals — boxes stay crisp,
+  //    spheres/cylinders stay round)
   const _tmpE = new THREE.Euler();
   function piece(src, o = {}) {
     const g = src.index ? src.toNonIndexed() : src.clone();
@@ -198,6 +256,15 @@ export function buildProps(zone, heightAt) {
     );
     g.applyMatrix4(_m4);
     if (o.jit) jitterGeometry(g, o.jit, o.jseed ?? 1);
+    shade(g, o.sh ?? (o.jit ? 'crease' : null));
+    return g;
+  }
+  function shade(g, sh) {
+    if (!sh) return g;
+    if (sh === 'smooth') smoothGeometry(g);
+    else if (sh === 'soft') smoothGeometry(g, { creaseAngle: 0.72 });
+    else if (sh === 'crease') smoothGeometry(g, { creaseAngle: 0.9 });
+    else if (sh === 'flat') g.computeVertexNormals(); // non-indexed -> per-face normals
     return g;
   }
 
@@ -314,6 +381,7 @@ export function buildProps(zone, heightAt) {
     g.scale(1, roofH / 1.5, halfW / 0.8660254);
     g.translate(0, y + roofH / 3, 0);          // base plane sits at `y`
     jitterGeometry(g, 0.02, seed);
+    shade(g, 'flat');                          // planar gable/slope faces stay crisp
     paintFaces(g, (cx, cy, cz, nx) => {
       if (Math.abs(nx) > 0.85) return wall;    // gable triangles
       const t = clamp((cy - y) / roofH, 0, 1);
@@ -322,11 +390,80 @@ export function buildProps(zone, heightAt) {
     return g;
   }
 
-  // Multi-lobed canopy: k jittered icosphere lobes clustered around (0, cy, 0).
+  // Smooth low-frequency 3D wobble in ~[-1,1] (lumps, not per-vertex noise:
+  // white-noise jitter reads as crumpled paper under smooth shading).
+  function wob(x, y, z, s) {
+    return (Math.sin(x * 1.9 + s * 3.1) * Math.sin(y * 2.3 + s * 1.3 + x * 0.7)
+      + Math.sin(z * 2.1 + s * 2.2 + y * 0.9) * Math.sin(x * 1.3 - z * 1.6 + s)) * 0.5;
+  }
+  // Unit lobe: icosphere pushed radially by the wobble. Position-deterministic,
+  // so duplicated corners move together (no cracks). Cached per shape seed.
+  const lobeG = (detail, ls, amp = 0.16) => geo(`lobe${detail}_${ls}_${amp}`, () => {
+    const g = new THREE.IcosahedronGeometry(1, detail);
+    const p = g.attributes.position;
+    for (let i = 0; i < p.count; i++) {
+      const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+      const f = 1 + amp * wob(x, y, z, ls);
+      p.setXYZ(i, x * f, y * f, z * f);
+    }
+    return g;
+  });
+
+  // Unit petal disc: P rounded petals (4 ring points each), cupped upward,
+  // top + underside faces (non-indexed, uv-compatible with the primitives).
+  const petalDiscG = (P) => geo(`petal${P}`, () => {
+    const M = P * 4, prof = [0.36, 0.86, 1.0, 0.86];
+    const ring = [];
+    for (let i = 0; i < M; i++) {
+      const a = (i / M) * TAU, r = prof[i % 4];
+      ring.push([Math.cos(a) * r, 0.28 * r * r, Math.sin(a) * r]);
+    }
+    const pos = [];
+    for (let i = 0; i < M; i++) {
+      const a = ring[i], b = ring[(i + 1) % M];
+      pos.push(0, 0.02, 0, ...b, ...a);                                         // top (+Y)
+      pos.push(0, -0.04, 0, a[0], a[1] - 0.05, a[2], b[0], b[1] - 0.05, b[2]); // underside
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array((pos.length / 3) * 2), 2));
+    g.computeVertexNormals();
+    return g;
+  });
+  // Unit fern frond: tapered, serrated blade arched along its length.
+  const frondG = () => geo('frond', () => {
+    const g = new THREE.PlaneGeometry(0.2, 1, 2, 6);
+    const p = g.attributes.position;
+    for (let i = 0; i < p.count; i++) {
+      const v = p.getY(i) + 0.5;                  // 0 base .. 1 tip
+      const x = p.getX(i);
+      const w = Math.sin(Math.min(1, v * 1.15) * Math.PI) * (0.75 + 0.25 * Math.cos(v * 38)); // serrated taper
+      p.setX(i, x * Math.max(0.05, w));
+      p.setZ(i, -0.18 * v * v + (x === 0 ? 0.012 : 0)); // arch + midrib ridge
+    }
+    return g;
+  });
+  // Unit tulip bud: closed lathe cup with a scalloped shoulder.
+  const tulipG = () => geo('tulip', () => {
+    const pts = [[0.001, 0], [0.55, 0.12], [0.82, 0.42], [0.8, 0.8], [0.52, 1.0], [0.001, 0.9]].map(([x, y]) => new THREE.Vector2(x, y));
+    const g = new THREE.LatheGeometry(pts, 10);
+    const p = g.attributes.position;
+    for (let i = 0; i < p.count; i++) {
+      const y = p.getY(i);
+      if (y < 0.7) continue;
+      const a = Math.atan2(p.getZ(i), p.getX(i));
+      p.setY(i, y + 0.12 * Math.max(0, Math.cos(a * 3)) * (y - 0.7) / 0.3);
+    }
+    return g;
+  });
+
+  // Multi-lobed canopy: k lumpy lobes clustered around (0, cy, 0), smooth
+  // shaded, then one shared spherical normal field (center dropped below the
+  // mass) so the crown shades as one soft ball with just a hint of its lumps.
   // Returns pieces[] (uncolored) + the [lo,hi] y-range for a shared ramp.
-  function canopyPieces(rng, { k = 5, cy = 2.6, R = 1.25, spread = 0.75, squash = 0.8, seed = 1, detail = 1, jit = 0.16 }) {
+  function canopyPieces(rng, { k = 5, cy = 2.6, R = 1.25, spread = 0.75, squash = 0.8, seed = 1, detail = LOD, amp = 0.16, blend = 0.62, drop = 0.45 }) {
     const pieces = [];
-    let lo = Infinity, hi = -Infinity;
+    let lo = Infinity, hi = -Infinity, sx = 0, sz = 0;
     for (let i = 0; i < k; i++) {
       const top = i === 0;
       const a = (i / Math.max(1, k - 1)) * TAU + rng() * 0.9;
@@ -334,32 +471,109 @@ export function buildProps(zone, heightAt) {
       const r = R * (top ? 0.85 : 0.5 + rng() * 0.42);
       const px = Math.cos(a) * rad, pz = Math.sin(a) * rad;
       const py = cy + (top ? R * 0.42 : (rng() - 0.35) * R * 0.55);
-      const g = piece(icoG(1, detail), {
-        t: [px, py, pz], s: [r, r * squash, r],
-        r: [0, rng() * TAU, 0], jit, jseed: seed * 13 + i,
+      const g = piece(lobeG(detail, (seed * 13 + i) % 97, amp), {
+        t: [px, py, pz], s: [r, r * squash, r], r: [0, rng() * TAU, 0], sh: 'smooth',
       });
       pieces.push(g);
+      sx += px; sz += pz;
       lo = Math.min(lo, py - r * squash); hi = Math.max(hi, py + r * squash);
     }
-    return { pieces, lo, hi };
+    const center = new THREE.Vector3(sx / k, lerp(lo, hi, 0.5) - R * drop, sz / k);
+    for (const g of pieces) sphericalNormals(g, { center, blend });
+    return { pieces, lo, hi, center };
   }
 
-  // Clustered jittered stones (shared by rock kinds); colors baked top-lit.
-  function stonePieces(rng, { k = 3, R = 0.55, seed = 1, dark = 0x6e6b64, light = 0xa4a198 }) {
+  // Canopy color: vertical ramp + a sun-kissed crown (up-facing normals warm
+  // toward `sun`) + per-lobe tone shifts so the mass reads painterly.
+  function paintCanopy(cn, from, to, { seed = 1, sun = null, lobeVar = 0.07, exp = 1.1 } = {}) {
+    const sunC = sun != null ? new THREE.Color(sun) : null;
+    cn.pieces.forEach((g, li) => {
+      ramp(g, from, to, cn.lo, cn.hi, { noise: 0.03, seed, exp, lift: 0.12 });
+      const col = g.attributes.color, nrm = g.attributes.normal;
+      const lv = 1 + hashN(li, seed, 3, 7) * lobeVar;
+      for (let i = 0; i < col.count; i++) {
+        let r = col.getX(i) * lv, gg = col.getY(i) * lv, b = col.getZ(i) * lv;
+        if (sunC) {
+          const up = clamp(nrm.getY(i), 0, 1);
+          const k = up * up * 0.35;
+          r += (sunC.r - r) * k; gg += (sunC.g - gg) * k; b += (sunC.b - b) * k;
+        }
+        col.setXYZ(i, r, gg, b);
+      }
+    });
+  }
+
+  // Unit boulder: lumpy icosphere + 2-4 planar cuts (the few crisp edges a
+  // weathered stone keeps) + a flattened seat. Cached per shape seed.
+  const rockG = (detail, rs) => geo(`rock${detail}_${rs}`, () => {
+    const g = new THREE.IcosahedronGeometry(1, detail);
+    const p = g.attributes.position;
+    const rr = seededRandom(rs * 7 + 3);
+    const cuts = [];
+    const nc = 1 + Math.floor(rr() * 3);
+    for (let c = 0; c < nc; c++) {
+      const th = rr() * TAU, ph = Math.acos(clamp(rr() * 1.3 - 0.3, -1, 1)); // mostly top/sides
+      cuts.push([Math.sin(ph) * Math.cos(th), Math.cos(ph), Math.sin(ph) * Math.sin(th), 0.7 + rr() * 0.22]);
+    }
+    for (let i = 0; i < p.count; i++) {
+      let x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+      const f = 1 + 0.14 * wob(x * 1.3, y * 1.3, z * 1.3, rs);
+      x *= f; y *= f; z *= f;
+      for (const [nx, ny, nz, d] of cuts) {
+        const k = x * nx + y * ny + z * nz - d;
+        if (k > 0) { x -= nx * k; y -= ny * k; z -= nz * k; }
+      }
+      if (y < -0.3) y = -0.3 + (y + 0.3) * 0.22; // flattened seat
+      p.setXYZ(i, x, y, z);
+    }
+    return g;
+  });
+
+  // Top-lit stone paint: vertical ramp + dusty sunlit tops (up-facing normals
+  // lighten) so boulders read round and warm, never navy-bottomed.
+  function paintStone(g, dark, light, lo, hi, seed, topHex = null) {
+    ramp(g, dark, light, lo, hi, { noise: 0.035, seed, exp: 1.1, lift: 0.2 });
+    const col = g.attributes.color, nrm = g.attributes.normal;
+    _c1.set(topHex ?? lerpColorHex(light, 0xfff4e0, 0.25));
+    for (let i = 0; i < col.count; i++) {
+      const up = clamp(nrm.getY(i), 0, 1), k = up * up * 0.3;
+      col.setXYZ(i, col.getX(i) + (_c1.r - col.getX(i)) * k, col.getY(i) + (_c1.g - col.getY(i)) * k, col.getZ(i) + (_c1.b - col.getZ(i)) * k);
+    }
+    return g;
+  }
+
+  // Moss that grows ON the surface: up-facing vertices tint toward moss
+  // greens through a soft noisy threshold (replaces floating moss lenses).
+  const _mossA = new THREE.Color(0x4f7f3a), _mossB = new THREE.Color(0x86b85a);
+  function mossify(g, { amount = 0.5, seed = 1, minY = -Infinity } = {}) {
+    const col = g.attributes.color, nrm = g.attributes.normal, pos = g.attributes.position;
+    for (let i = 0; i < col.count; i++) {
+      const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+      if (y < minY) continue;
+      const n = wob(x * 2.2, y * 2.2, z * 2.2, seed) * 0.5 + hashN(x, y, z, seed) * 0.12;
+      const t = clamp((nrm.getY(i) - (1 - amount)) * 3.2 + n, 0, 1);
+      if (t <= 0) continue;
+      const m = _mossA.clone().lerp(_mossB, clamp(nrm.getY(i), 0, 1));
+      col.setXYZ(i, lerp(col.getX(i), m.r, t), lerp(col.getY(i), m.g, t), lerp(col.getZ(i), m.b, t));
+    }
+    return g;
+  }
+
+  // Clustered rounded stones (shared by rock kinds); colors baked top-lit.
+  function stonePieces(rng, { k = 3, R = 0.55, seed = 1, dark = 0x6e6b64, light = 0xa4a198, detail = LOD }) {
     const pieces = [];
     for (let i = 0; i < k; i++) {
       const main = i === 0;
       const a = rng() * TAU;
       const rad = main ? 0 : R * (0.85 + rng() * 0.6);
       const r = R * (main ? 1 : 0.3 + rng() * 0.4);
-      const sy = 0.62 + rng() * 0.3;
-      const g = piece(icoG(1, 1), {
-        t: [Math.cos(a) * rad, r * sy * 0.72, Math.sin(a) * rad],
-        s: [r * (0.9 + rng() * 0.35), r * sy, r * (0.9 + rng() * 0.35)],
-        r: [(rng() - 0.5) * 0.3, rng() * TAU, (rng() - 0.5) * 0.3],
-        jit: r * 0.24, jseed: seed * 7 + i,
+      const sy = 0.66 + rng() * 0.3;
+      const g = piece(rockG(main ? detail : 1, (seed * 7 + i) % 61), {
+        t: [Math.cos(a) * rad, r * sy * 0.3, Math.sin(a) * rad],
+        s: [r * (0.95 + rng() * 0.35), r * sy, r * (0.95 + rng() * 0.35)],
+        r: [(rng() - 0.5) * 0.2, rng() * TAU, (rng() - 0.5) * 0.2], sh: 'soft',
       });
-      ramp(g, dark, light, -R * 0.2, r * sy * 1.55, { noise: 0.05, seed: seed + i, exp: 1.25 });
+      paintStone(g, dark, light, -R * 0.1, r * sy * 1.35, seed + i);
       pieces.push(g);
     }
     return pieces;
@@ -374,13 +588,285 @@ export function buildProps(zone, heightAt) {
       const g = piece(coneG(0.035, 1, 4), {
         t: [Math.cos(a) * rad, bh * 0.5, Math.sin(a) * rad],
         s: [1, bh, 1],
-        r: [(rng() - 0.5) * 0.5, rng() * TAU, (rng() - 0.5) * 0.5],
+        r: [(rng() - 0.5) * 0.5, rng() * TAU, (rng() - 0.5) * 0.5], sh: 'smooth',
       });
       ramp(g, lerpColorHex(c1, c2, rng()), c2, 0, bh, { noise: 0.03, seed: seed + i });
       pieces.push(g);
     }
     return pieces;
   }
+
+  // ---------------------------------------------------- v2 cottage architecture
+  // Crisp silhouettes, friendly details: rounded stone footings, pastel
+  // plaster, thick rounded roof slabs with shingle courses and a ridge cap,
+  // windows with mullions / shutters / flower boxes, a hooded door with a
+  // lantern, and a smoking chimney. Everything lit or glowing (panes,
+  // lanterns) goes into a separate `glow` list drawn with the WINDOW material.
+  const ROOFS = [
+    { dark: 0x8e3d2f, light: 0xcf6c52, ridge: 0x5e2a22 },   // terracotta
+    { dark: 0x3d5470, light: 0x7390ad, ridge: 0x2b3a50 },   // slate blue
+    { dark: 0x4c6b3a, light: 0x86ab60, ridge: 0x364d2b },   // moss shingle
+    { dark: 0x94642f, light: 0xd9a75c, ridge: 0x6a4524 },   // thatch gold
+  ];
+  const WALLS = [
+    { lo: 0xdcc9a2, hi: 0xfbf1dc },  // cream
+    { lo: 0xe2b99c, hi: 0xfce4d0 },  // peach
+    { lo: 0xc4d0d4, hi: 0xf0f6f4 },  // pale blue-grey
+    { lo: 0xcbd3b0, hi: 0xf2f4de },  // sage
+  ];
+  const SHUTTERS = [0x4f7fa8, 0x6a9a58, 0xb85a4a, 0x7a6aa8, 0x3f7a78, 0xd0a040];
+  const BLOOMS = [0xff8aa0, 0xffd24a, 0xfff4f8, 0xe8604e, 0xc8a0ff, 0xff9f5a];
+  const WOOD = 0x6f5138, WOOD_L = 0x8f6c48, WOOD_D = 0x4f3a27;
+
+  // Local (lx along the wall, ly up, lz outward) -> placement on a wall whose
+  // outward normal is yaw `ry` (0 = +Z), anchored at (x, y, z).
+  function onWall(src, x, y, z, ry, lx, ly, lz, o = {}) {
+    const c = Math.cos(ry), sn = Math.sin(ry);
+    return piece(src, { ...o, t: [x + lx * c + lz * sn, y + ly, z - lx * sn + lz * c], r: [o.rx ?? 0, ry, o.rz ?? 0] });
+  }
+
+  // A window: frame, pane (-> glow), mullion cross, open shutters, flower box.
+  function windowPieces(out, glow, { x, y, z, ry = 0, w = 0.62, h = 0.62, shutter = null, box = true, bloom = [0xff8aa0, 0xfff4f8], seed = 1 }) {
+    const fr = onWall(rboxG(w + 0.14, h + 0.14, 0.08, 0.03, 1), x, y, z, ry, 0, 0, 0.01);
+    tintG(fr, WOOD_L, 0.03, seed, 0.2);
+    out.push(fr);
+    glow.push(onWall(boxG(w, h, 0.04), x, y, z, ry, 0, 0, 0.035));
+    const mv = onWall(boxG(0.045, h, 0.04), x, y, z, ry, 0, 0, 0.065);
+    const mh = onWall(boxG(w, 0.045, 0.04), x, y, z, ry, 0, 0.02, 0.065);
+    tintG(mv, WOOD, 0.02, seed + 1, 0.2); tintG(mh, WOOD, 0.02, seed + 2, 0.2);
+    out.push(mv, mh);
+    if (shutter != null) {
+      for (const sd of [-1, 1]) {
+        const sh = onWall(rboxG(w * 0.52, h + 0.1, 0.045, 0.018, 1), x, y, z, ry, sd * (w / 2 + 0.07 + w * 0.26), 0, 0.03);
+        ramp(sh, lerpColorHex(shutter, 0x1a1a24, 0.25), shutter, y - h / 2, y + h / 2, { noise: 0.02, seed: seed + sd, lift: 0.2 });
+        out.push(sh);
+        const slat = onWall(boxG(w * 0.4, 0.035, 0.02), x, y, z, ry, sd * (w / 2 + 0.07 + w * 0.26), 0.02, 0.058);
+        tintG(slat, lerpColorHex(shutter, 0xffffff, 0.25), 0.02, seed + sd * 3, 0.2);
+        out.push(slat);
+      }
+    }
+    if (box) {
+      const by = -h / 2 - 0.16;
+      const bx = onWall(rboxG(w + 0.24, 0.2, 0.24, 0.035, 1), x, y, z, ry, 0, by, 0.13);
+      ramp(bx, WOOD_D, WOOD, y + by - 0.1, y + by + 0.1, { noise: 0.03, seed: seed + 5, lift: 0.3 });
+      out.push(bx);
+      const r3 = seededRandom(seed * 7 + 11);
+      const n = 7;
+      for (let i = 0; i < n; i++) { // leafy cushion + blooms spilling over the box
+        const lx = (i / (n - 1) - 0.5) * (w + 0.1);
+        const leaf = onWall(sphereG(1, 7, 5), x, y, z, ry, lx, by + 0.12, 0.14 + (r3() - 0.5) * 0.06, { s: [0.09, 0.07, 0.08] });
+        tintG(leaf, lerpColorHex(0x4c8c40, 0x6aa850, r3()), 0.02, seed + i, 0.15);
+        out.push(leaf);
+        const bl = onWall(sphereG(1, 7, 5), x, y, z, ry, lx + (r3() - 0.5) * 0.06, by + 0.17 + r3() * 0.04, 0.16 + (r3() - 0.5) * 0.08, { s: 0.052 });
+        tintG(bl, bloom[i % bloom.length], 0.02, seed + i + 9, 0.1);
+        out.push(bl);
+      }
+    }
+  }
+
+  // Door: dark recess, plank leaf, frame, stone step, little hooded canopy on
+  // brackets, and a lantern beside it (-> glow).
+  function doorPieces(out, glow, { x, y0, z, ry = 0, w = 0.8, h = 1.45, seed = 1, lantern = 1, hood = true }) {
+    const rec = onWall(boxG(w + 0.12, h + 0.08, 0.06), x, y0 + h / 2, z, ry, 0, 0, 0.0);
+    tintG(rec, 0x3a2c1e, 0.02, seed, 0);
+    out.push(rec);
+    const leaf = onWall(rboxG(w, h, 0.07, 0.03, 1), x, y0 + h / 2 - 0.02, z, ry, 0, 0, 0.03);
+    ramp(leaf, 0x6a4a2e, 0x96704a, y0, y0 + h, { noise: 0.04, seed: seed + 1, lift: 0.2 });
+    out.push(leaf);
+    for (const px of [-0.2, 0.2]) { // plank seams
+      const sm = onWall(boxG(0.025, h - 0.1, 0.02), x, y0 + h / 2, z, ry, px * w, 0, 0.07);
+      tintG(sm, 0x4a3522, 0.02, seed + px * 9, 0);
+      out.push(sm);
+    }
+    const knob = onWall(sphereG(1, 6, 4), x, y0 + h * 0.48, z, ry, w * 0.34, 0, 0.09, { s: 0.045 });
+    tintG(knob, 0xd8b460, 0.02, seed, 0.1);
+    out.push(knob);
+    for (const sd of [-1, 1]) {
+      const jamb = onWall(boxG(0.1, h + 0.08, 0.1), x, y0 + h / 2, z, ry, sd * (w / 2 + 0.05), 0, 0.03);
+      tintG(jamb, WOOD, 0.03, seed + sd, 0.2);
+      out.push(jamb);
+    }
+    const lin = onWall(rboxG(w + 0.34, 0.12, 0.12, 0.03, 1), x, y0 + h + 0.06, z, ry, 0, 0, 0.04);
+    tintG(lin, WOOD, 0.03, seed + 4, 0.2);
+    out.push(lin);
+    const step = onWall(rboxG(w + 0.4, 0.16, 0.5, 0.05, 1), x, y0 - 0.02, z, ry, 0, -0.06, 0.26);
+    ramp(step, 0x8a867c, 0xb0ada2, y0 - 0.2, y0 + 0.1, { noise: 0.03, seed: seed + 5, lift: 0.3 });
+    out.push(step);
+    if (hood) { // tiny sloped canopy over the door
+      const hd = onWall(rboxG(w + 0.5, 0.08, 0.62, 0.035, 1), x, y0 + h + 0.3, z, ry, 0, 0, 0.3, { rx: 0.42 });
+      ramp(hd, 0x7e3a2e, 0xb65a44, y0 + h + 0.1, y0 + h + 0.5, { noise: 0.03, seed: seed + 6, lift: 0.2 });
+      out.push(hd);
+      for (const sd of [-1, 1]) {
+        const br = onWall(boxG(0.06, 0.06, 0.5), x, y0 + h + 0.12, z, ry, sd * (w / 2 + 0.16), 0, 0.22, { rx: -0.55 });
+        tintG(br, WOOD_D, 0.02, seed + sd * 2, 0.2);
+        out.push(br);
+      }
+    }
+    for (const side of (Array.isArray(lantern) ? lantern : lantern ? [lantern] : [])) {
+      const lx = (w / 2 + 0.34) * side;
+      const arm = onWall(boxG(0.05, 0.05, 0.28), x, y0 + h + 0.02, z, ry, lx, 0, 0.14);
+      tintG(arm, 0x2e2a28, 0.02, seed, 0);
+      out.push(arm);
+      const cap = onWall(coneG(0.12, 0.1, 4), x, y0 + h - 0.04, z, ry, lx, 0, 0.28, { rz: 0 });
+      tintG(cap, 0x2e2a28, 0.02, seed + 1, 0.1);
+      out.push(cap);
+      glow.push(onWall(rboxG(0.13, 0.18, 0.13, 0.03, 1), x, y0 + h - 0.18, z, ry, lx, 0, 0.28));
+    }
+  }
+
+  // Roof: gable-end wall triangles, two thick rounded slabs carrying shingle
+  // courses (each course's lower edge kicks up — a stepped, handmade eave
+  // line), and a rounded ridge cap. Ridge along local X; wall half-depth hd;
+  // slab undersides meet the wall tops at yTop.
+  function roofPieces(out, { L, hd, yTop, pitch = 0.72, over = 0.34, gover = 0.28, t = 0.16, courses = 5, pal, wallHex, seed = 1 }) {
+    const tan = Math.tan(pitch), cos = Math.cos(pitch);
+    const rise = hd * tan;
+    out.push(gableG({ L: L - 0.02, halfW: hd + 0.02, roofH: rise, y: yTop, dark: wallHex, light: wallHex, wall: wallHex, seed }));
+    const S = (hd + over) / cos;
+    const mid = yTop + rise + (t / 2) / cos;
+    const lo = yTop - over * tan - 0.25, hi = mid + t;
+    for (const side of [1, -1]) {
+      const slab = piece(rboxG(L + gover * 2, t, S, Math.min(0.06, t * 0.45), 1), {});
+      slab.translate(0, 0, side * S / 2);
+      slab.rotateX(side * pitch);
+      slab.translate(0, mid, 0);
+      ramp(slab, lerpColorHex(pal.dark, 0x000000, 0.2), pal.dark, lo, hi, { noise: 0.02, seed: seed + side, lift: 0.1 });
+      out.push(slab);
+      const cw = S / courses;
+      for (let i = 0; i < courses; i++) {
+        const c = piece(rboxG(L + gover * 2 + 0.03, t * 0.4, cw + 0.08, 0.028, 1), {});
+        c.rotateX(-side * 0.075);
+        c.translate(0, t * 0.5 + t * 0.2 + 0.012, side * (i + 0.5) * cw);
+        c.rotateX(side * pitch);
+        c.translate(0, mid, 0);
+        const k = (i % 2 ? 0.93 : 1.04) * (1 + hashN(i, side, seed, 3) * 0.03);
+        ramp(c, lerpColorHex(pal.dark, 0x000000, 0.06), pal.light, lo, hi, { noise: 0.025, seed: seed + i * 3 + side, exp: 0.9, lift: 0.12 });
+        const col = c.attributes.color;
+        for (let j = 0; j < col.count; j++) col.setXYZ(j, col.getX(j) * k, col.getY(j) * k, col.getZ(j) * k);
+        out.push(c);
+      }
+    }
+    const rc = piece(cylG(t * 0.62, t * 0.62, L + gover * 2 + 0.06, 12), { t: [0, mid + t * 0.62 / cos, 0], r: [0, 0, Math.PI / 2], sh: 'smooth' });
+    tintG(rc, pal.ridge, 0.02, seed + 9, 0.15);
+    out.push(rc);
+    return { mid, rise, S, top: mid + t / 2 / cos };
+  }
+
+  // Stone chimney with a cap (poke it through a roof slab); returns top y.
+  function chimneyPieces(out, { x, z, y0, h, w = 0.46, seed = 1 }) {
+    const ch = piece(rboxG(w, h, w, 0.04, 1), { t: [x, y0 + h / 2, z] });
+    ramp(ch, 0x857a70, 0xb3a69a, y0, y0 + h, { noise: 0.04, seed, lift: 0.3 });
+    out.push(ch);
+    for (let i = 0; i < 3; i++) { // stone courses
+      const b = piece(boxG(w + 0.02, 0.04, w + 0.02), { t: [x, y0 + h * (0.35 + i * 0.22), z] });
+      tintG(b, 0x76695f, 0.03, seed + i, 0.25);
+      out.push(b);
+    }
+    const cap = piece(rboxG(w + 0.14, 0.12, w + 0.14, 0.035, 1), { t: [x, y0 + h + 0.04, z] });
+    tintG(cap, 0x5e544c, 0.03, seed + 5, 0.2);
+    out.push(cap);
+    const pot = piece(cylG(0.09, 0.11, 0.2, 8), { t: [x + 0.06, y0 + h + 0.2, z - 0.04], sh: 'smooth' });
+    tintG(pot, 0xb0643e, 0.03, seed + 6, 0.2);
+    out.push(pot);
+    return y0 + h + 0.3;
+  }
+
+  // ------------------------------------------------ chimney smoke (one draw)
+  // Soft grey puffs rising, swelling and fading from every chimney in the
+  // zone — a single Points object, positions updated in place per frame.
+  let smoke = null;
+  function addChimneySmoke(x, y, z, s) {
+    if (!smoke) smoke = makeSmoke();
+    smoke.add(x, y, z, s);
+  }
+  function makeSmoke() {
+    const CAP = 32, PER = 7, N = CAP * PER;
+    const posA = new Float32Array(N * 3), lifeA = new Float32Array(N), seedA = new Float32Array(N);
+    const src = []; // chimney tops
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(posA, 3));
+    g.setAttribute('aLife', new THREE.BufferAttribute(lifeA, 1));
+    g.setAttribute('aSeed', new THREE.BufferAttribute(seedA, 1));
+    g.setDrawRange(0, 0);
+    const m = new THREE.ShaderMaterial({
+      transparent: true, depthWrite: false, fog: true,
+      uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, {
+        uColor: { value: new THREE.Color(0xeeeae4) }, uAlpha: { value: 0.34 }, uSize: { value: 780 },
+      }]),
+      vertexShader: `
+        attribute float aLife; attribute float aSeed;
+        varying float vLife; varying float vSeed;
+        uniform float uSize;
+        #include <fog_pars_vertex>
+        void main(){
+          vLife = aLife; vSeed = aSeed;
+          vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+          gl_PointSize = uSize * (0.55 + aLife * 1.25) * (0.8 + 0.4 * fract(aSeed * 7.13)) / max(1.0, -mvPosition.z);
+          gl_Position = projectionMatrix * mvPosition;
+          #include <fog_vertex>
+        }`,
+      fragmentShader: `
+        uniform vec3 uColor; uniform float uAlpha;
+        varying float vLife; varying float vSeed;
+        #include <fog_pars_fragment>
+        void main(){
+          vec2 q = gl_PointCoord - 0.5;
+          float d = length(q + 0.08 * vec2(sin(vSeed * 9.0), cos(vSeed * 7.0)) * (1.0 - length(q) * 2.0));
+          float a = smoothstep(0.5, 0.12, d) * uAlpha * smoothstep(0.0, 0.12, vLife) * (1.0 - smoothstep(0.55, 1.0, vLife));
+          vec3 col = uColor * (0.9 + 0.1 * (1.0 - vLife));
+          gl_FragColor = vec4(col, a);
+          #include <fog_fragment>
+        }`,
+    });
+    disposables.push({ mat: m }, { geo: g });
+    const pts = new THREE.Points(g, m);
+    pts.frustumCulled = false;
+    pts.renderOrder = 2;
+    group.add(pts);
+    const r = seededRandom(seed * 3 + 17);
+    let t = 0;
+    updaters.push((dt) => {
+      t += dt;
+      const day = daylight(G.calendar?.dayTime ?? 0.5);
+      m.uniforms.uColor.value.setRGB(0.36 + 0.57 * day, 0.37 + 0.55 * day, 0.42 + 0.47 * day);
+      m.uniforms.uAlpha.value = 0.2 + 0.16 * day;
+      for (let c = 0; c < src.length; c++) {
+        const s0 = src[c];
+        for (let k = 0; k < PER; k++) {
+          const i = c * PER + k;
+          let l = lifeA[i] + dt * 0.16 * (0.85 + 0.3 * seedA[i]);
+          if (l > 1) l -= 1;
+          lifeA[i] = l;
+          const sway = Math.sin(t * 0.7 + seedA[i] * 6.0) * 0.25;
+          posA[i * 3] = s0.x + (0.9 * l * l + sway * l) * s0.s;
+          posA[i * 3 + 1] = s0.y + l * 3.2 * s0.s;
+          posA[i * 3 + 2] = s0.z + (0.35 * l + Math.cos(t * 0.5 + seedA[i] * 4.0) * 0.12 * l) * s0.s;
+        }
+      }
+      g.attributes.position.needsUpdate = true;
+      g.attributes.aLife.needsUpdate = true;
+    });
+    return {
+      add(x, y, z, s) {
+        if (src.length >= CAP) return;
+        const c = src.length;
+        src.push({ x, y, z, s });
+        for (let k = 0; k < PER; k++) {
+          const i = c * PER + k;
+          lifeA[i] = k / PER + r() * 0.08;
+          seedA[i] = r();
+          posA[i * 3] = x; posA[i * 3 + 1] = y; posA[i * 3 + 2] = z;
+        }
+        g.setDrawRange(0, src.length * PER);
+        g.attributes.aSeed.needsUpdate = true;
+      },
+    };
+  }
+  // world position of a local offset on a placed prop (yaw about +Y, uniform s)
+  const localToWorld = (x, y, z, s, yaw, lx, ly, lz) => {
+    const c = Math.cos(yaw), sn = Math.sin(yaw);
+    return [x + (lx * c + lz * sn) * s, y + ly * s, z + (-lx * sn + lz * c) * s];
+  };
 
   // ------------------------------------------------------------- placement utils
   const terrainY = (x, z) => { try { return heightAt(x, z); } catch (e) { return 0; } };
@@ -426,32 +912,33 @@ export function buildProps(zone, heightAt) {
         const g = merged(`oakM${vs}`, () => {
           const r2 = seededRandom(vs + 1);
           const pieces = [];
-          const tr = trunkG({ h: 2.0, r0: 0.3, r1: 0.13, lean, flare: 0.7, seed: vs });
-          ramp(tr, 0x5f452c, 0x8f6f4e, 0, 2.0, { noise: 0.05, seed: vs });
+          const tr = trunkG({ h: 2.0, r0: 0.3, r1: 0.13, lean, flare: 0.7, seed: vs, segs: 8 });
+          ramp(tr, 0x684a2f, 0x9a7852, 0, 2.0, { noise: 0.04, seed: vs });
           pieces.push(tr);
           for (let i = 0; i < 3; i++) { // root nubs
             const a = (i / 3) * TAU + r2() * 1.2;
-            const rn = piece(coneG(0.12, 0.4, 5), {
+            const rn = piece(coneG(0.12, 0.4, 6), {
               t: [Math.cos(a) * 0.3, 0.1, Math.sin(a) * 0.3],
-              r: [Math.sin(a) * 1.15, r2() * TAU, -Math.cos(a) * 1.15], jit: 0.03, jseed: vs + i,
+              r: [Math.sin(a) * 1.15, r2() * TAU, -Math.cos(a) * 1.15], sh: 'smooth',
             });
-            ramp(rn, 0x554029, 0x6f5138, 0, 0.4, { seed: vs + i });
+            ramp(rn, 0x5c432b, 0x77583b, 0, 0.4, { seed: vs + i });
             pieces.push(rn);
           }
-          const br = piece(cylG(0.05, 0.1, 1.0, 5), { // branch into canopy
-            t: [lean * 2 + 0.35, 2.25, 0.1], r: [0.2, 0, -0.85], jit: 0.02, jseed: vs + 9,
-          });
-          ramp(br, 0x6a4c33, 0x82603f, 1.8, 2.8, { seed: vs });
-          pieces.push(br);
-          const cn = canopyPieces(r2, { k: 6, cy: 2.75, R: 1.3, spread: 0.8, squash: 0.78, seed: vs });
-          for (const c of cn.pieces) {
-            c.translate(lean * 1.7, 0, 0);
-            ramp(c, 0x3c7030, 0x9ad35e, cn.lo, cn.hi, { noise: 0.05, seed: vs, exp: 1.15, lift: 0.2 });
+          for (let i = 0; i < 2; i++) { // limbs reaching into the crown
+            const s = i ? -1 : 1;
+            const br = piece(cylG(0.05, 0.1, 1.05, 6), {
+              t: [lean * 2 + s * 0.34, 2.2, (i ? -0.12 : 0.1)], r: [0.2 * s, 0, -0.85 * s], sh: 'smooth',
+            });
+            ramp(br, 0x6f5236, 0x8c6a47, 1.8, 2.8, { seed: vs + i });
+            pieces.push(br);
           }
+          const cn = canopyPieces(r2, { k: 6, cy: 2.8, R: 1.32, spread: 0.8, squash: 0.8, seed: vs });
+          for (const c of cn.pieces) c.translate(lean * 1.7, 0, 0);
+          paintCanopy(cn, 0x3f7c38, 0xaadd66, { seed: vs, sun: 0xe2f48e });
           pieces.push(...cn.pieces);
           return pieces;
         });
-        return [V(g, FOLIAGE_V, [0.09, 0.09]), shadowP(1.7)];
+        return [V(g, FOLIAGE_V, [0.09, 0.09]), shadowP(1.8)];
       },
     },
     tree_pine: {
@@ -462,25 +949,46 @@ export function buildProps(zone, heightAt) {
           const r2 = seededRandom(vs + 1);
           const pieces = [];
           const tr = trunkG({ h: 1.7, r0: 0.22, r1: 0.09, lean: (r2() - 0.5) * 0.08, flare: 0.55, seed: vs });
-          ramp(tr, 0x52381f, 0x7a5738, 0, 1.7, { noise: 0.05, seed: vs });
+          ramp(tr, 0x5a3f24, 0x85613f, 0, 1.7, { noise: 0.04, seed: vs });
           pieces.push(tr);
-          let y = 1.25, r = 1.32;
-          const cones = [];
+          // Soft tiers: each is a drooping skirt (lathe profile) — rounded
+          // shoulder, scalloped hem, smooth shading; the hem edge stays crisp
+          // so the tiers still read.
+          let y = 1.2, r = 1.36;
+          const tiers = [];
+          const segs = HI ? 14 : 10;
           for (let i = 0; i < 4; i++) {
-            const h = 1.55 - i * 0.18;
-            const cone = piece(coneG(1, 1, 8), {
-              t: [(r2() - 0.5) * 0.14, y + h / 2, (r2() - 0.5) * 0.14],
-              s: [r * (0.94 + r2() * 0.12), h, r * (0.94 + r2() * 0.12)],
-              r: [(r2() - 0.5) * 0.07, r2() * TAU, (r2() - 0.5) * 0.07],
-              jit: 0.09, jseed: vs * 3 + i,
+            const h = 1.5 - i * 0.17;
+            const pts = [];
+            for (let j = 0; j <= 6; j++) {
+              const t = j / 6;
+              // radius: wide soft hem -> tip; slight belly for fullness
+              const rr = r * Math.pow(1 - t, 0.85) * (1 + 0.1 * Math.sin(t * Math.PI));
+              pts.push(new THREE.Vector2(Math.max(0.001, rr), -h * 0.12 * Math.sin((1 - t) * Math.PI * 0.5) * (j === 0 ? 1 : 0.4) + t * h));
+            }
+            pts.unshift(new THREE.Vector2(0.001, 0)); // close the underside
+            const lg = new THREE.LatheGeometry(pts, segs);
+            const pp = lg.attributes.position;
+            const tw = r2() * TAU;
+            for (let k2 = 0; k2 < pp.count; k2++) { // scallop the hem, gentle twist
+              const px = pp.getX(k2), py = pp.getY(k2), pz = pp.getZ(k2);
+              const ang = Math.atan2(pz, px);
+              const hem = clamp(1 - py / (h * 0.45), 0, 1);
+              const f = 1 + 0.09 * Math.sin(ang * 7 + tw) * hem;
+              pp.setXYZ(k2, px * f, py - 0.06 * hem * (0.5 + 0.5 * Math.sin(ang * 7 + tw)), pz * f);
+            }
+            const tier = piece(lg, {
+              t: [(r2() - 0.5) * 0.12, y, (r2() - 0.5) * 0.12],
+              r: [(r2() - 0.5) * 0.06, r2() * TAU, (r2() - 0.5) * 0.06], sh: 'soft',
             });
-            cones.push(cone);
-            y += h * 0.58;
-            r *= 0.7;
+            lg.dispose();
+            tiers.push(tier);
+            y += h * 0.6;
+            r *= 0.72;
           }
-          const hi = y + 1.0;
-          for (const c of cones) ramp(c, 0x275a3c, 0x67b169, 1.0, hi, { noise: 0.05, seed: vs, exp: 1.2, lift: 0.2 });
-          pieces.push(...cones);
+          const hi = y + 0.9;
+          for (const c of tiers) ramp(c, 0x2f6a45, 0x79c276, 1.0, hi, { noise: 0.03, seed: vs, exp: 1.15, lift: 0.18 });
+          pieces.push(...tiers);
           return pieces;
         });
         return [V(g, FOLIAGE2_V, [0.08, 0.05]), shadowP(1.45)];
@@ -495,24 +1003,22 @@ export function buildProps(zone, heightAt) {
           const r2 = seededRandom(vs + 1);
           const pieces = [];
           const h = 2.6;
-          const tr = trunkG({ h, r0: 0.13, r1: 0.06, lean, flare: 0.5, seed: vs, segs: 6 });
-          ramp(tr, 0xb9b2a2, 0xe8e2d2, 0, h, { noise: 0.04, seed: vs });
+          const tr = trunkG({ h, r0: 0.13, r1: 0.06, lean, flare: 0.5, seed: vs, segs: 7 });
+          ramp(tr, 0xc4bdad, 0xf0ebdc, 0, h, { noise: 0.03, seed: vs });
           pieces.push(tr);
           for (let i = 0; i < 4; i++) { // bark scars hug the leaning trunk
             const t = 0.18 + i * 0.2 + r2() * 0.06;
             const ry = t * h;
-            const rr = lerp(0.125, 0.062, t) * 1.12;
-            const band = piece(cylG(rr, rr * 1.06, 0.07 + r2() * 0.05, 6), {
-              t: [lean * t * t * h, ry, 0], r: [0, r2() * TAU, (r2() - 0.5) * 0.2],
+            const rr = lerp(0.125, 0.062, t) * 1.1;
+            const band = piece(cylG(rr, rr * 1.06, 0.06 + r2() * 0.04, 7), {
+              t: [lean * t * t * h, ry, 0], r: [0, r2() * TAU, (r2() - 0.5) * 0.2], s: [1, 1, 0.8],
             });
-            tintG(band, i % 2 ? 0x3f3c36 : 0x55504a, 0.05, vs + i);
+            tintG(band, i % 2 ? 0x4a463f : 0x5e5850, 0.04, vs + i);
             pieces.push(band);
           }
-          const cn = canopyPieces(r2, { k: 4, cy: 2.95, R: 0.85, spread: 0.72, squash: 0.85, seed: vs + 5 });
-          for (const c of cn.pieces) {
-            c.translate(lean * 2.1, 0, 0);
-            ramp(c, 0x6da648, 0xbce07c, cn.lo, cn.hi, { noise: 0.06, seed: vs, exp: 1.1, lift: 0.2 });
-          }
+          const cn = canopyPieces(r2, { k: 5, cy: 2.95, R: 0.88, spread: 0.72, squash: 0.9, seed: vs + 5 });
+          for (const c of cn.pieces) c.translate(lean * 2.1, 0, 0);
+          paintCanopy(cn, 0x659e44, 0xc8e886, { seed: vs, sun: 0xf0f8a4 });
           pieces.push(...cn.pieces);
           return pieces;
         });
@@ -526,30 +1032,38 @@ export function buildProps(zone, heightAt) {
         const g = merged(`willowM${vs}`, () => {
           const r2 = seededRandom(vs + 1);
           const pieces = [];
-          const tr = trunkG({ h: 1.8, r0: 0.32, r1: 0.16, lean: 0.16, flare: 0.75, seed: vs });
-          ramp(tr, 0x60482e, 0x8a6a4c, 0, 1.8, { noise: 0.05, seed: vs });
+          const tr = trunkG({ h: 1.8, r0: 0.32, r1: 0.16, lean: 0.16, flare: 0.75, seed: vs, segs: 8 });
+          ramp(tr, 0x684e32, 0x94744f, 0, 1.8, { noise: 0.04, seed: vs });
           pieces.push(tr);
-          const cn = canopyPieces(r2, { k: 5, cy: 2.45, R: 1.45, spread: 0.62, squash: 0.6, seed: vs });
-          for (const c of cn.pieces) {
-            c.translate(0.28, 0, 0);
-            ramp(c, 0x447a3e, 0x8cc866, cn.lo, cn.hi, { noise: 0.05, seed: vs, exp: 1.1, lift: 0.2 });
-          }
+          const cn = canopyPieces(r2, { k: 5, cy: 2.5, R: 1.45, spread: 0.62, squash: 0.62, seed: vs });
+          for (const c of cn.pieces) c.translate(0.28, 0, 0);
+          paintCanopy(cn, 0x467e40, 0xa2d474, { seed: vs, sun: 0xd8f094 });
           pieces.push(...cn.pieces);
           return pieces;
         });
-        // Hanging frond curtain — one merged double-sided swaying sheet set.
+        // Hanging frond curtain — narrow tapered strands (a soft vertical
+        // fold in each), one merged double-sided swaying set.
         const gf = merged(`willowF${vs}`, () => {
           const r2 = seededRandom(vs + 3);
           const pieces = [];
-          for (let i = 0; i < 12; i++) {
-            const a = (i / 12) * TAU + r2() * 0.4;
-            const len = 1.5 + r2() * 0.9;
-            const rad = 1.45 + r2() * 0.35;
-            const p = piece(planeG(0.2, 1), {
-              t: [Math.cos(a) * rad + 0.28, 2.15 - len / 2, Math.sin(a) * rad],
-              s: [1, len, 1], r: [0.13 * (r2() - 0.2), -a + Math.PI / 2, 0],
+          const n = HI ? 22 : 14;
+          for (let i = 0; i < n; i++) {
+            const a = (i / n) * TAU + r2() * 0.3;
+            const len = 1.4 + r2() * 1.0;
+            const rad = 1.35 + r2() * 0.4;
+            const strand = new THREE.PlaneGeometry(0.16, 1, 1, 3);
+            const sp = strand.attributes.position;
+            for (let k2 = 0; k2 < sp.count; k2++) { // taper toward the tip + curl outward
+              const v = sp.getY(k2) + 0.5; // 0 tip .. 1 root
+              sp.setX(k2, sp.getX(k2) * (0.35 + 0.65 * v));
+              sp.setZ(k2, (1 - v) * (1 - v) * 0.22);
+            }
+            const p = piece(strand, {
+              t: [Math.cos(a) * rad + 0.28, 2.2 - len / 2, Math.sin(a) * rad],
+              s: [1, len, 1], r: [0.1 * (r2() - 0.2), -a + Math.PI / 2, 0], sh: 'smooth',
             });
-            ramp(p, 0x74b55a, 0x447f44, 2.3 - len, 2.3, { noise: 0.05, seed: vs + i, exp: 0.8, lift: 0.15 });
+            strand.dispose();
+            ramp(p, 0x6fb258, 0x4c8a48, 2.3 - len, 2.3, { noise: 0.03, seed: vs + i, exp: 0.8, lift: 0.1 });
             pieces.push(p);
           }
           return pieces;
@@ -573,10 +1087,10 @@ export function buildProps(zone, heightAt) {
             const a = r2() * TAU;
             const y0 = 1.2 + i * 0.32;
             const len = 0.7 + r2() * 0.7;
-            const b = piece(cylG(0.02, 0.07, len, 4), {
+            const b = piece(cylG(0.02, 0.07, len, 5), {
               t: [Math.cos(a) * 0.32, y0, Math.sin(a) * 0.32],
               r: [Math.sin(a) * (0.8 + r2() * 0.5), 0, -Math.cos(a) * (0.8 + r2() * 0.5)],
-              jit: 0.03, jseed: vs + i,
+              jit: 0.02, jseed: vs + i, sh: 'smooth',
             });
             ramp(b, 0x514a42, 0x7d766e, y0 - len / 2, y0 + len / 2, { seed: vs + i });
             pieces.push(b);
@@ -593,20 +1107,28 @@ export function buildProps(zone, heightAt) {
         const g = merged(`glowM${vs}`, () => {
           const r2 = seededRandom(vs + 1);
           const pieces = [];
-          const tr = trunkG({ h: 2.0, r0: 0.26, r1: 0.12, lean: (r2() - 0.5) * 0.14, flare: 0.65, seed: vs });
-          ramp(tr, 0x39405c, 0x5f6a8f, 0, 2.0, { noise: 0.04, seed: vs });
+          const tr = trunkG({ h: 2.0, r0: 0.26, r1: 0.12, lean: (r2() - 0.5) * 0.14, flare: 0.65, seed: vs, segs: 8 });
+          ramp(tr, 0x414a68, 0x6a769c, 0, 2.0, { noise: 0.04, seed: vs });
           pieces.push(tr);
-          const cn = canopyPieces(r2, { k: 5, cy: 2.6, R: 1.15, spread: 0.75, squash: 0.78, seed: vs });
-          for (const c of cn.pieces) ramp(c, 0x235450, 0x4f9184, cn.lo, cn.hi, { noise: 0.05, seed: vs, exp: 1.1, lift: 0.2 });
+          const cn = canopyPieces(r2, { k: 5, cy: 2.65, R: 1.18, spread: 0.75, squash: 0.8, seed: vs });
+          paintCanopy(cn, 0x2d6660, 0x62a896, { seed: vs, sun: 0x9fe0c4 });
           pieces.push(...cn.pieces);
           return pieces;
         });
         const parts = [V(g, FOLIAGE2_V, [0.07, 0.04]), shadowP(1.5)];
-        for (let i = 0; i < 5; i++) {
-          const a = rng() * TAU, r = 0.55 + rng() * 0.6;
-          parts.push(P(sphereG(0.09, 6, 5), GLOW_FRUIT, 0xffe9b0,
-            [Math.cos(a) * r, 2.3 + rng() * 1.1, Math.sin(a) * r], 1, [0, 0, 0], 0, false));
-        }
+        // glowing fruit hang just under the crown's rim (merged: one draw)
+        const gfr = merged(`glowFr${vs}`, () => {
+          const r3 = seededRandom(vs + 7);
+          const out = [];
+          for (let i = 0; i < 7; i++) {
+            const a = (i / 7) * TAU + r3() * 0.6, r = 0.7 + r3() * 0.55;
+            const y = 2.1 + r3() * 0.7;
+            out.push(piece(sphereG(1, 8, 6), { t: [Math.cos(a) * r, y, Math.sin(a) * r], s: [0.1, 0.12, 0.1] }));
+          }
+          return out;
+        });
+        const fp = P(gfr, GLOW_FRUIT, 0xffe9b0, [0, 0, 0], 1, [0, 0, 0], 0, false);
+        parts.push(fp);
         return parts;
       },
       effect: (x, y, z, s, rng, ctx) => {
@@ -629,23 +1151,36 @@ export function buildProps(zone, heightAt) {
         const g = merged(`mushGM${vs}`, () => {
           const r2 = seededRandom(vs + 1);
           const pieces = [];
-          const stem = trunkG({ h: 1.7, r0: 0.44, r1: 0.3, lean: 0.09, flare: 0.5, seed: vs });
-          ramp(stem, 0xcabb9e, 0xf0e6d2, 0, 1.7, { noise: 0.035, seed: vs });
+          const stem = trunkG({ h: 1.7, r0: 0.44, r1: 0.3, lean: 0.09, flare: 0.5, seed: vs, segs: 10 });
+          ramp(stem, 0xd2c4a8, 0xf4ecda, 0, 1.7, { noise: 0.03, seed: vs });
           pieces.push(stem);
-          const gills = piece(cylG(1.18, 1.32, 0.14, 10), { t: [0.14, 1.62, 0] });
-          ramp(gills, 0xd8c9ae, 0xf4ecda, 1.5, 1.75, { noise: 0.05, seed: vs + 2 });
+          // umbrella underside: a shallow bowl from the rim down to the stem,
+          // gill lines painted radially
+          const gills = piece(geo(`gillbowl${HI}`, () => new THREE.CylinderGeometry(1.5, 0.38, 0.2, HI ? 40 : 24, 1, true)),
+            { t: [0.14, 1.46, 0], sh: 'smooth' });
+          ramp(gills, 0xcdbd9c, 0xf2e8d2, 1.36, 1.56, { noise: 0.02, seed: vs + 2 });
+          {
+            const gp = gills.attributes.position, gc = gills.attributes.color;
+            for (let i = 0; i < gp.count; i++) {
+              const ang = Math.atan2(gp.getZ(i), gp.getX(i) - 0.14);
+              const k = 0.9 + 0.1 * Math.cos(ang * (HI ? 20 : 12));
+              gc.setXYZ(i, gc.getX(i) * k, gc.getY(i) * k, gc.getZ(i) * k);
+            }
+          }
           pieces.push(gills);
-          const cap = piece(sphereG(1, 10, 6), { t: [0.14, 1.9, 0], s: [1.55, 0.8, 1.55], jit: 0.07, jseed: vs });
-          ramp(cap, lerpColorHex(capHex, 0x40202c, 0.2), lerpColorHex(capHex, 0xffe0d0, 0.28), 1.55, 2.7,
-            { noise: 0.05, seed: vs, exp: 0.85 });
+          // domed cap with a lip that curls just past the equator
+          const cap = piece(geo(`mcap${HI}`, () => new THREE.SphereGeometry(1, HI ? 22 : 14, HI ? 10 : 7, 0, TAU, 0, Math.PI * 0.55)),
+            { t: [0.14, 1.68, 0], s: [1.55, 0.85, 1.55], jit: 0.025, jseed: vs, sh: 'smooth' });
+          ramp(cap, lerpColorHex(capHex, 0x40202c, 0.08), lerpColorHex(capHex, 0xffe0d0, 0.3), 1.5, 2.55,
+            { noise: 0.03, seed: vs, exp: 0.85 });
           pieces.push(cap);
-          for (let i = 0; i < 6; i++) { // pale spots hugging the dome
+          for (let i = 0; i < 7; i++) { // pale spots hugging the dome
             const a = r2() * TAU, rr = 0.35 + r2() * 0.85;
-            const sp = piece(sphereG(0.12, 6, 4), {
-              t: [0.14 + Math.cos(a) * rr, 1.92 + 0.72 * Math.sqrt(Math.max(0, 1 - (rr / 1.55) ** 2)), Math.sin(a) * rr],
+            const sp = piece(sphereG(0.12, 8, 5), {
+              t: [0.14 + Math.cos(a) * rr, 1.69 + 0.85 * Math.sqrt(Math.max(0, 1 - (rr / 1.55) ** 2)), Math.sin(a) * rr],
               s: [1 + r2() * 0.5, 0.45, 1 + r2() * 0.5],
             });
-            tintG(sp, 0xf5efe2, 0.03, vs + i);
+            tintG(sp, 0xfaf4e8, 0.02, vs + i);
             pieces.push(sp);
           }
           return pieces;
@@ -666,11 +1201,11 @@ export function buildProps(zone, heightAt) {
             const capHex = [0xc25a6e, 0x8a6ec2, 0xd8a05a][Math.floor(r2() * 3)];
             const x = Math.cos(a) * r, z = Math.sin(a) * r;
             const lean = (r2() - 0.5) * 0.35;
-            const stem = piece(cylG(0.05 * s, 0.085 * s, 0.3 * s, 5), { t: [x, 0.14 * s, z], r: [0, 0, lean] });
-            ramp(stem, 0xc9ba9e, 0xf0e6d2, 0, 0.3 * s, { seed: vs + i });
+            const stem = piece(cylG(0.05 * s, 0.085 * s, 0.3 * s, 7), { t: [x, 0.14 * s, z], r: [0, 0, lean] });
+            ramp(stem, 0xd2c4a8, 0xf4ecda, 0, 0.3 * s, { seed: vs + i });
             pieces.push(stem);
-            const cap = piece(sphereG(1, 8, 5), {
-              t: [x - lean * 0.3 * s, 0.32 * s, z], s: [0.16 * s, 0.115 * s, 0.16 * s], jit: 0.05, jseed: vs + i,
+            const cap = piece(geo('mcapS', () => new THREE.SphereGeometry(1, 12, 6, 0, TAU, 0, Math.PI * 0.62)), {
+              t: [x - lean * 0.3 * s, 0.29 * s, z], s: [0.16 * s, 0.13 * s, 0.16 * s], sh: 'smooth',
             });
             ramp(cap, lerpColorHex(capHex, 0x3c2030, 0.18), lerpColorHex(capHex, 0xffe8d8, 0.3),
               0.2 * s, 0.45 * s, { noise: 0.05, seed: vs + i });
@@ -685,15 +1220,26 @@ export function buildProps(zone, heightAt) {
       variants: 3, collider: 0.4, cluster: true,
       make: (rng) => {
         const vs = Math.floor(rng() * 1e6);
+        const blossom = rng() > 0.6; // some bushes carry tiny blossoms
         const g = merged(`bushM${vs}`, () => {
           const r2 = seededRandom(vs + 1);
-          const cn = canopyPieces(r2, { k: 4, cy: 0.42, R: 0.62, spread: 0.85, squash: 0.72, seed: vs, jit: 0.1 });
-          for (const c of cn.pieces) ramp(c, 0x3d7538, 0x8fce5c, cn.lo, cn.hi, { noise: 0.06, seed: vs, exp: 1.1 });
-          const tw = piece(cylG(0.025, 0.045, 0.5, 4), { t: [0.1, 0.35, 0.05], r: [0.3, 0, -0.4] });
-          tintG(tw, 0x5c422c, 0.04, vs);
-          return [...cn.pieces, tw];
+          const cn = canopyPieces(r2, { k: 5, cy: 0.46, R: 0.62, spread: 0.85, squash: 0.74, seed: vs, detail: 1, amp: 0.14, drop: 0.55 });
+          paintCanopy(cn, 0x4a8840, 0x9ad664, { seed: vs, sun: 0xd8f08c });
+          const out = [...cn.pieces];
+          if (blossom) {
+            const pet = [0xfff4f8, 0xffc4d4, 0xfff0a8][Math.floor(r2() * 3)];
+            for (let i = 0; i < 9; i++) { // dots sitting on the upper surface
+              const a = r2() * TAU, b = r2() * 1.0;
+              const d = piece(sphereG(1, 6, 4), {
+                t: [Math.sin(b) * Math.cos(a) * 0.7, 0.62 + Math.cos(b) * 0.36, Math.sin(b) * Math.sin(a) * 0.7], s: 0.055,
+              });
+              tintG(d, pet, 0.02, vs + i, 0);
+              out.push(d);
+            }
+          }
+          return out;
         });
-        return [V(g, FOLIAGE_V, [0.09, 0.07])];
+        return [V(g, FOLIAGE_V, [0.09, 0.07]), shadowP(0.75, 0.04)];
       },
     },
     berry_bush: {
@@ -702,17 +1248,23 @@ export function buildProps(zone, heightAt) {
         const vs = Math.floor(rng() * 1e6);
         const g = merged(`berryM${vs}`, () => {
           const r2 = seededRandom(vs + 1);
-          const cn = canopyPieces(r2, { k: 4, cy: 0.4, R: 0.58, spread: 0.8, squash: 0.75, seed: vs });
-          for (const c of cn.pieces) ramp(c, 0x2f6033, 0x6cae4f, cn.lo, cn.hi, { noise: 0.05, seed: vs, exp: 1.1, lift: 0.2 });
+          const cn = canopyPieces(r2, { k: 5, cy: 0.44, R: 0.58, spread: 0.8, squash: 0.78, seed: vs, detail: 1, amp: 0.14, drop: 0.55 });
+          paintCanopy(cn, 0x3b7539, 0x7dbb58, { seed: vs, sun: 0xc8e886 });
           return cn.pieces;
         });
-        const parts = [V(g, FOLIAGE_V, [0.08, 0.05])];
-        for (let i = 0; i < 8; i++) {
-          const a = rng() * TAU, b = 0.25 + rng() * 0.5 * Math.PI;
-          parts.push(P(sphereG(0.05, 5, 4), BERRY, 0xd83a4a,
-            [Math.sin(b) * Math.cos(a) * 0.62, 0.42 + Math.cos(b) * 0.42, Math.sin(b) * Math.sin(a) * 0.62], 1, [0, 0, 0], 0, false));
-        }
-        return parts;
+        // berries: one merged cluster geometry (was 8 separate draws)
+        const gb = merged(`berryB${vs}`, () => {
+          const r3 = seededRandom(vs + 5);
+          const out = [];
+          for (let i = 0; i < 14; i++) {
+            const a = r3() * TAU, b = 0.25 + r3() * 0.45 * Math.PI;
+            out.push(piece(sphereG(1, 7, 5), {
+              t: [Math.sin(b) * Math.cos(a) * 0.64, 0.44 + Math.cos(b) * 0.44, Math.sin(b) * Math.sin(a) * 0.64], s: 0.055,
+            }));
+          }
+          return out;
+        });
+        return [V(g, FOLIAGE_V, [0.08, 0.05]), P(gb, BERRY, 0xd83a4a, [0, 0, 0], 1, [0, 0, 0], 0, false), shadowP(0.72, 0.04)];
       },
     },
     flower_patch: {
@@ -721,32 +1273,59 @@ export function buildProps(zone, heightAt) {
         const vs = Math.floor(rng() * 1e6);
         const g = merged(`flowM${vs}`, () => {
           const r2 = seededRandom(vs + 1);
+          // each patch leans on a 2-3 color harmony instead of confetti
+          const HARM = [
+            [0xfff6fa, 0xffd94f, 0xffc4d6], [0xff9fb0, 0xfff0f4, 0xffb85c], [0xb8b0ff, 0xfff6fa, 0xe6c8ff],
+            [0xffd24a, 0xffa94f, 0xfff4d0], [0xff8aa0, 0xd8a8ff, 0xfff6fa],
+          ];
+          const petals = HARM[Math.floor(r2() * HARM.length)];
           const pieces = [];
-          const petals = [0xfff4f8, 0xffd94f, 0xff9fb0, 0xb0a8ff, 0xffb85c];
-          const n = 6 + Math.floor(r2() * 4);
+          const n = 7 + Math.floor(r2() * 4);
           for (let i = 0; i < n; i++) {
-            const a = r2() * TAU, r = 0.15 + r2() * 0.6, s = 0.8 + r2() * 0.7;
+            const a = r2() * TAU, r = 0.12 + r2() * 0.6, s = 0.8 + r2() * 0.6;
             const x = Math.cos(a) * r, z = Math.sin(a) * r;
             const cHex = petals[Math.floor(r2() * petals.length)];
-            const tilt = (r2() - 0.5) * 0.4;
-            const stem = piece(cylG(0.013, 0.018, 0.3 * s, 4), { t: [x, 0.15 * s, z], r: [tilt, 0, tilt] });
-            ramp(stem, 0x3f7a38, 0x6fb35a, 0, 0.3 * s, { seed: vs + i });
+            const tilt = (r2() - 0.5) * 0.35;
+            const h = (0.24 + r2() * 0.14) * s;
+            const hx = x + tilt * 0.5 * h, hz = z + tilt * 0.5 * h;
+            const stem = piece(cylG(0.011, 0.016, 1, 5), { t: [x + tilt * 0.25 * h, h / 2, z + tilt * 0.25 * h], s: [1, h, 1], r: [tilt, 0, tilt] });
+            ramp(stem, 0x3f7a38, 0x74b85c, 0, h, { seed: vs + i, lift: 0.1 });
             pieces.push(stem);
-            const leaf = piece(coneG(0.045, 0.16 * s, 4), {
-              t: [x + 0.06, 0.06 * s, z], r: [1.35, r2() * TAU, 0], s: [1, 1, 0.4],
-            });
-            tintG(leaf, 0x559444, 0.04, vs + i);
-            pieces.push(leaf);
-            const head = piece(icoG(1, 0), {
-              t: [x + tilt * 0.09 * s, 0.32 * s, z + tilt * 0.09 * s],
-              s: [0.088 * s, 0.05 * s, 0.088 * s], r: [tilt, r2() * TAU, tilt], jit: 0.012, jseed: vs + i,
-            });
-            ramp(head, lerpColorHex(cHex, 0x664433, 0.12), cHex,
-              0.28 * s, 0.37 * s, { noise: 0.04, seed: vs + i });
-            pieces.push(head);
-            const core = piece(sphereG(0.026 * s, 5, 4), { t: [x + tilt * 0.09 * s, 0.345 * s, z + tilt * 0.09 * s] });
-            tintG(core, 0xffe07a, 0.02, vs + i);
-            pieces.push(core);
+            for (let l = 0; l < 2; l++) { // two soft leaves at the foot
+              const la = r2() * TAU;
+              const leaf = piece(sphereG(1, 6, 4), {
+                t: [x + Math.cos(la) * 0.05, 0.035, z + Math.sin(la) * 0.05],
+                s: [0.075 * s, 0.014, 0.028 * s], r: [0, -la, 0.35], sh: 'smooth',
+              });
+              tintG(leaf, l ? 0x4f9a46 : 0x5ea650, 0.03, vs + i + l, 0.1);
+              pieces.push(leaf);
+            }
+            const kind = r2();
+            if (kind < 0.62) {
+              // daisy: cupped 5-6 petal star disc, both faces, with a domed eye
+              const P5 = r2() > 0.5 ? 5 : 6;
+              const disc = petalDiscG(P5);
+              const head = piece(disc, { t: [hx, h, hz], s: [0.085 * s, 0.085 * s, 0.085 * s], r: [tilt * 1.4, r2() * TAU, tilt * 1.4], sh: 'smooth' });
+              ramp(head, lerpColorHex(cHex, 0x8a5a60, 0.22), cHex, h - 0.01, h + 0.02, { noise: 0.02, seed: vs + i, lift: 0 });
+              pieces.push(head);
+              const eye = piece(sphereG(1, 6, 4), { t: [hx, h + 0.012 * s, hz], s: [0.026 * s, 0.018 * s, 0.026 * s], sh: 'smooth' });
+              tintG(eye, r2() > 0.5 ? 0xffc83a : 0xf29a3a, 0.02, vs + i, 0);
+              pieces.push(eye);
+            } else if (kind < 0.85) {
+              // tulip cup: a scalloped little bowl
+              const cup = piece(tulipG(), { t: [hx, h - 0.01, hz], s: [0.05 * s, 0.07 * s, 0.05 * s], r: [tilt, r2() * TAU, tilt], sh: 'smooth' });
+              ramp(cup, lerpColorHex(cHex, 0x803040, 0.25), cHex, h - 0.01, h + 0.06 * s, { noise: 0.02, seed: vs + i, lift: 0 });
+              pieces.push(cup);
+            } else {
+              // lavender-ish spike: three stacked soft beads
+              for (let b = 0; b < 3; b++) {
+                const bead = piece(sphereG(1, 6, 4), {
+                  t: [hx, h + b * 0.035 * s, hz], s: [(0.03 - b * 0.006) * s, 0.026 * s, (0.03 - b * 0.006) * s], sh: 'smooth',
+                });
+                tintG(bead, lerpColorHex(cHex, 0x9a78e0, 0.5), 0.03, vs + i + b, 0);
+                pieces.push(bead);
+              }
+            }
           }
           return pieces;
         });
@@ -764,9 +1343,9 @@ export function buildProps(zone, heightAt) {
           for (let i = 0; i < n; i++) {
             const a = (i / n) * TAU + r2() * 0.5;
             const len = 0.55 + r2() * 0.4;
-            const p = piece(planeG(0.17, 1), {
+            const p = piece(frondG(), {
               t: [Math.cos(a) * 0.14, len * 0.4, Math.sin(a) * 0.14],
-              s: [1, len, 1], r: [-0.62 - r2() * 0.35, -a + Math.PI / 2, 0],
+              s: [1, len, 1], r: [-0.62 - r2() * 0.35, -a + Math.PI / 2, 0], sh: 'smooth',
             });
             ramp(p, 0x2d6b34, 0x74b356, 0, len * 0.8, { noise: 0.05, seed: vs + i });
             pieces.push(p);
@@ -803,7 +1382,7 @@ export function buildProps(zone, heightAt) {
             const h = 0.34 + r2() * 0.32;
             const b = piece(coneG(0.035, 1, 4), {
               t: [Math.cos(a) * r, h * 0.48, Math.sin(a) * r], s: [1, h, 1],
-              r: [(r2() - 0.5) * 0.55, r2() * TAU, (r2() - 0.5) * 0.55],
+              r: [(r2() - 0.5) * 0.55, r2() * TAU, (r2() - 0.5) * 0.55], sh: 'smooth',
             });
             ramp(b, lerpColorHex(0x4c8a42, 0x639a4a, r2()), lerpColorHex(0x9ad463, 0xc2df7a, r2()),
               0, h, { noise: 0.04, seed: vs + i });
@@ -835,7 +1414,7 @@ export function buildProps(zone, heightAt) {
             const a = r2() * TAU, r = r2() * 0.38, h = 0.9 + r2() * 0.75;
             const x = Math.cos(a) * r, z = Math.sin(a) * r;
             const tilt = (r2() - 0.5) * 0.18;
-            const st = piece(cylG(0.015, 0.028, h, 4), { t: [x, h / 2, z], r: [tilt, 0, tilt] });
+            const st = piece(cylG(0.015, 0.028, h, 5), { t: [x, h / 2, z], r: [tilt, 0, tilt], sh: 'smooth' });
             ramp(st, 0x4e7a3c, 0x9ec26a, 0, h, { noise: 0.04, seed: vs + i });
             pieces.push(st);
             if (r2() > 0.35) {
@@ -882,18 +1461,9 @@ export function buildProps(zone, heightAt) {
         const g = merged(`rockMoM${vs}`, () => {
           const r2 = seededRandom(vs + 1);
           const pieces = stonePieces(r2, { k: 2, R: 0.6, seed: vs, dark: 0x757a6c, light: 0xb0ac9e });
-          // moss saddle hugging the crown, thin — not a green pillow
-          const moss = piece(icoG(1, 1), {
-            t: [0.08, 0.68, -0.05], s: [0.52, 0.17, 0.48], r: [0.1, r2() * TAU, -0.08], jit: 0.14, jseed: vs + 3,
-          });
-          ramp(moss, 0x3f6b34, 0x74a854, 0.5, 0.9, { noise: 0.06, seed: vs + 3 });
-          pieces.push(moss);
-          const drip = piece(icoG(1, 1), { // moss run-off down one flank
-            t: [0.4, 0.4, 0.22], s: [0.2, 0.28, 0.16], r: [0, r2() * TAU, 0], jit: 0.12, jseed: vs + 4,
-          });
-          ramp(drip, 0x35592c, 0x5c8a4a, 0.15, 0.7, { seed: vs + 4 });
-          pieces.push(drip);
-          pieces.push(...tuftPieces(r2, { n: 3, R: 0.68, seed: vs + 6 }));
+          // moss grows over the crown and spills down the flanks
+          for (const pc of pieces) mossify(pc, { amount: 0.62, seed: vs % 89 });
+          pieces.push(...tuftPieces(r2, { n: 4, R: 0.68, seed: vs + 6 }));
           return pieces;
         });
         return [V(g, SOLID_V, [0.07, 0.04]), shadowP(1.0)];
@@ -951,30 +1521,28 @@ export function buildProps(zone, heightAt) {
         const g = merged(`stumpM${vs}`, () => {
           const r2 = seededRandom(vs + 1);
           const pieces = [];
-          const body = trunkG({ h: 0.48, r0: 0.34, r1: 0.29, lean: 0.04, flare: 0.9, seed: vs });
-          ramp(body, 0x5f452c, 0x8a6a4c, 0, 0.5, { noise: 0.05, seed: vs });
+          const body = trunkG({ h: 0.48, r0: 0.34, r1: 0.29, lean: 0.04, flare: 0.9, seed: vs, segs: 10 });
+          ramp(body, 0x654a30, 0x94724f, 0, 0.5, { noise: 0.04, seed: vs });
+          mossify(body, { amount: 0.42, seed: vs % 89 });
           pieces.push(body);
-          const top = piece(cylG(0.27, 0.27, 0.035, 8), { t: [0.02, 0.49, 0] });
-          tintG(top, 0xcfa87a, 0.04, vs);
+          const top = piece(cylG(0.27, 0.27, 0.035, 12), { t: [0.02, 0.49, 0] });
+          tintG(top, 0xd6b07e, 0.03, vs);
           pieces.push(top);
-          const ring = piece(cylG(0.17, 0.17, 0.042, 8), { t: [0.02, 0.49, 0] });
-          tintG(ring, 0xa8804e, 0.04, vs + 1);
+          const ring = piece(cylG(0.17, 0.17, 0.042, 12), { t: [0.02, 0.49, 0] });
+          tintG(ring, 0xb08a56, 0.03, vs + 1);
           pieces.push(ring);
-          const heart = piece(cylG(0.06, 0.06, 0.048, 6), { t: [0.02, 0.49, 0] });
+          const heart = piece(cylG(0.06, 0.06, 0.048, 8), { t: [0.02, 0.49, 0] });
           tintG(heart, 0x7d5b38, 0.03, vs + 2);
           pieces.push(heart);
           for (let i = 0; i < 3; i++) { // root spurs
             const a = (i / 3) * TAU + r2();
-            const rn = piece(coneG(0.11, 0.34, 5), {
+            const rn = piece(coneG(0.11, 0.34, 7), {
               t: [Math.cos(a) * 0.32, 0.08, Math.sin(a) * 0.32],
-              r: [Math.sin(a) * 1.25, 0, -Math.cos(a) * 1.25], jit: 0.03, jseed: vs + i,
+              r: [Math.sin(a) * 1.25, 0, -Math.cos(a) * 1.25], sh: 'smooth',
             });
-            ramp(rn, 0x412d1c, 0x5c422c, 0, 0.3, { seed: vs + i });
+            ramp(rn, 0x4f3a25, 0x6a4d33, 0, 0.3, { seed: vs + i });
             pieces.push(rn);
           }
-          const moss = piece(icoG(1, 1), { t: [-0.16, 0.47, 0.12], s: [0.18, 0.06, 0.15], jit: 0.14, jseed: vs + 8 });
-          ramp(moss, 0x3f6b34, 0x74a854, 0.42, 0.55, { seed: vs + 8 });
-          pieces.push(moss);
           pieces.push(...tuftPieces(r2, { n: 3, R: 0.45, seed: vs + 9 }));
           return pieces;
         });
@@ -990,8 +1558,9 @@ export function buildProps(zone, heightAt) {
         const g = merged(`logM${vs}`, () => {
           const r2 = seededRandom(vs + 1);
           const pieces = [];
-          const body = piece(cylG(0.23, 0.27, 1.9, 9), { t: [0, 0.27, 0], r: [0, 0, Math.PI / 2], jit: 0.03, jseed: vs });
-          ramp(body, 0x6f5138, 0xa8845c, 0.02, 0.52, { noise: 0.05, seed: vs });
+          const body = piece(cylG(0.23, 0.27, 1.9, 12, 3), { t: [0, 0.27, 0], r: [0, 0, Math.PI / 2], jit: 0.02, jseed: vs, sh: 'crease' });
+          ramp(body, 0x6f5138, 0xa8845c, 0.02, 0.52, { noise: 0.04, seed: vs });
+          mossify(body, { amount: 0.5, seed: vs % 89 });
           pieces.push(body);
           const ends = [
             [0.96, 0.24, 0xcfa87a], [0.96, 0.155, 0xa8804e], [0.96, 0.06, 0x7d5b38],
@@ -1004,12 +1573,9 @@ export function buildProps(zone, heightAt) {
             pieces.push(d);
             off += 0.006;
           }
-          const stub = piece(cylG(0.05, 0.07, 0.32, 5), { t: [0.35, 0.5, 0.06], r: [0.9, 0, 0.5], jit: 0.02, jseed: vs + 2 });
-          ramp(stub, 0x543c26, 0x6b4a33, 0.35, 0.65, { seed: vs + 2 });
+          const stub = piece(cylG(0.05, 0.07, 0.32, 7), { t: [0.35, 0.5, 0.06], r: [0.9, 0, 0.5], sh: 'smooth' });
+          ramp(stub, 0x5a4029, 0x735237, 0.35, 0.65, { seed: vs + 2 });
           pieces.push(stub);
-          const moss = piece(icoG(1, 1), { t: [-0.42, 0.5, 0], s: [0.26, 0.08, 0.19], jit: 0.14, jseed: vs + 3 });
-          ramp(moss, 0x3f6b34, 0x74a854, 0.4, 0.62, { seed: vs + 3 });
-          pieces.push(moss);
           pieces.push(...tuftPieces(r2, { n: 4, R: 0.75, seed: vs + 4 }));
           return pieces;
         });
@@ -1024,20 +1590,21 @@ export function buildProps(zone, heightAt) {
         const g = merged(`fenceM${vs}`, () => {
           const r2 = seededRandom(vs + 1);
           const pieces = [];
-          for (const px of [-0.65, 0.65]) {
-            const lean = (r2() - 0.5) * 0.09;
-            const post = piece(boxG(0.1, 0.78, 0.1), { t: [px, 0.37, 0], r: [(r2() - 0.5) * 0.05, 0, lean], jit: 0.012, jseed: vs + px });
-            ramp(post, 0x8f6b44, 0xb08a58, 0, 0.8, { noise: 0.05, seed: vs + px * 3 });
+          for (const px of [-0.72, 0.72]) {
+            const lean = (r2() - 0.5) * 0.07;
+            const post = piece(rboxG(0.12, 0.82, 0.12, 0.03, 1), { t: [px, 0.38, 0], r: [(r2() - 0.5) * 0.04, 0, lean] });
+            ramp(post, 0x8a6642, 0xb89262, 0, 0.8, { noise: 0.03, seed: vs + px * 3, lift: 0.25 });
             pieces.push(post);
-            const cap = piece(coneG(0.085, 0.1, 4), { t: [px - lean * 0.5, 0.79, 0], r: [0, r2(), lean] });
-            tintG(cap, 0xa08054, 0.05, vs + px);
+            const cap = piece(sphereG(1, 7, 5), { t: [px - lean * 0.4, 0.8, 0], s: [0.075, 0.055, 0.075], sh: 'smooth' });
+            tintG(cap, 0xa88458, 0.03, vs + px, 0.15);
             pieces.push(cap);
           }
-          for (const [ry, sag] of [[0.56, 0.02], [0.29, 0.035]]) {
-            const rail = piece(boxG(1.58, 0.075, 0.055), { t: [0, ry, 0.02], r: [0, 0, (r2() - 0.5) * sag * 2], jit: 0.012, jseed: vs + ry });
-            ramp(rail, 0xa07a4c, 0xcaa476, ry - 0.05, ry + 0.05, { noise: 0.06, seed: vs + ry * 7 });
+          for (const [ry, sag] of [[0.58, 0.02], [0.3, 0.03]]) {
+            const rail = piece(rboxG(1.62, 0.085, 0.06, 0.025, 1), { t: [0, ry, 0.03], r: [0, 0, (r2() - 0.5) * sag * 2] });
+            ramp(rail, 0xa07a4c, 0xcca878, ry - 0.05, ry + 0.05, { noise: 0.03, seed: vs + ry * 7, lift: 0.25 });
             pieces.push(rail);
           }
+          pieces.push(...tuftPieces(r2, { n: 3, R: 0.6, seed: vs + 9 }));
           return pieces;
         });
         return [V(g, SOLID_V, [0.07, 0.04])];
@@ -1049,32 +1616,54 @@ export function buildProps(zone, heightAt) {
         const vs = Math.floor(rng() * 1e6);
         const g = merged(`lampM${vs}`, () => {
           const pieces = [];
-          const base = piece(cylG(0.15, 0.21, 0.14, 7), { t: [0, 0.07, 0], jit: 0.008, jseed: vs });
-          ramp(base, 0x3a4050, 0x555d72, 0, 0.16, { seed: vs });
+          const IRON = 0x34423f, IRON_L = 0x566a64;
+          const base = piece(cylG(0.16, 0.22, 0.16, 10), { t: [0, 0.08, 0], sh: 'crease' });
+          ramp(base, IRON, IRON_L, 0, 0.16, { seed: vs, lift: 0.3 });
           pieces.push(base);
-          const pole = piece(cylG(0.042, 0.075, 2.3, 6), { t: [0, 1.15, 0], jit: 0.006, jseed: vs + 1 });
-          ramp(pole, 0x3d4454, 0x616a80, 0, 2.3, { noise: 0.03, seed: vs + 1 });
+          const pole = piece(cylG(0.045, 0.07, 2.3, 8), { t: [0, 1.15, 0], sh: 'smooth' });
+          ramp(pole, IRON, IRON_L, 0, 2.3, { noise: 0.02, seed: vs + 1, lift: 0.3 });
           pieces.push(pole);
-          const collar = piece(cylG(0.065, 0.052, 0.07, 6), { t: [0, 1.9, 0] });
-          tintG(collar, 0x4c5364, 0.03, vs);
-          pieces.push(collar);
-          const arm = piece(boxG(0.5, 0.05, 0.05), { t: [0.2, 2.28, 0] });
-          ramp(arm, 0x424a5c, 0x5c6579, 2.25, 2.31, { seed: vs + 2 });
+          for (const y of [0.5, 1.9]) {
+            const collar = piece(sphereG(1, 8, 5), { t: [0, y, 0], s: [0.075, 0.05, 0.075], sh: 'smooth' });
+            tintG(collar, IRON_L, 0.02, vs + y, 0.2);
+            pieces.push(collar);
+          }
+          // curled arm (three short segments bending out and down)
+          const arm = piece(cylG(0.028, 0.028, 0.5, 6), { t: [0.2, 2.3, 0], r: [0, 0, Math.PI / 2], sh: 'smooth' });
+          tintG(arm, IRON, 0.02, vs + 2, 0.2);
           pieces.push(arm);
-          const brace = piece(boxG(0.32, 0.04, 0.04), { t: [0.15, 2.13, 0], r: [0, 0, 0.75] });
-          tintG(brace, 0x424a5c, 0.03, vs + 3);
-          pieces.push(brace);
-          const cap = piece(coneG(0.17, 0.15, 4), { t: [0.42, 2.33, 0], r: [0, Math.PI / 4, 0] });
-          ramp(cap, 0x424a5c, 0x646d84, 2.26, 2.4, { seed: vs + 4 });
+          const curl = piece(geo('lampCurl', () => new THREE.TorusGeometry(0.1, 0.022, 5, 10, Math.PI)), { t: [0.06, 2.2, 0], r: [0, 0, Math.PI / 2], sh: 'smooth' });
+          tintG(curl, IRON, 0.02, vs + 3, 0.2);
+          pieces.push(curl);
+          const cap = piece(coneG(0.19, 0.17, 8), { t: [0.42, 2.37, 0], sh: 'crease' });
+          ramp(cap, IRON, IRON_L, 2.28, 2.46, { seed: vs + 4, lift: 0.3 });
           pieces.push(cap);
-          const tip = piece(sphereG(0.03, 5, 4), { t: [0.42, 2.43, 0] });
-          tintG(tip, 0x707a90, 0.02, vs);
+          const tip = piece(sphereG(0.035, 6, 4), { t: [0.42, 2.47, 0] });
+          tintG(tip, IRON_L, 0.02, vs, 0.2);
           pieces.push(tip);
+          const hook = piece(cylG(0.012, 0.012, 0.1, 4), { t: [0.42, 2.3, 0] });
+          tintG(hook, IRON, 0.02, vs, 0);
+          pieces.push(hook);
+          const cage = piece(rboxG(0.2, 0.04, 0.2, 0.015, 1), { t: [0.42, 1.98, 0] });
+          tintG(cage, IRON, 0.02, vs + 5, 0.2);
+          pieces.push(cage);
+          // hanging flower basket on the pole
+          const bk = piece(sphereG(1, 8, 5), { t: [-0.14, 1.62, 0], s: [0.16, 0.1, 0.16], sh: 'smooth' });
+          tintG(bk, 0x7a5a36, 0.03, vs + 6, 0.2);
+          pieces.push(bk);
+          const r3 = seededRandom(vs + 9);
+          for (let i = 0; i < 7; i++) {
+            const a = (i / 7) * TAU;
+            const f = piece(sphereG(1, 6, 4), { t: [-0.14 + Math.cos(a) * 0.12, 1.7 + r3() * 0.04, Math.sin(a) * 0.12], s: 0.055 });
+            tintG(f, i % 2 ? 0x5a9a48 : [0xff8aa0, 0xfff4f8, 0xffd24a][i % 3], 0.02, vs + i, 0.1);
+            pieces.push(f);
+          }
           return pieces;
         });
+        const gl = merged(`lampG${vs}`, () => [piece(rboxG(0.17, 0.24, 0.17, 0.04, 1), { t: [0.42, 2.14, 0] })]);
         return [
           V(g, SOLID_V, [0.05, 0.02]), shadowP(0.5),
-          P(boxG(0.16, 0.22, 0.16), LAMP_GLASS, 0xffd9a0, [0.42, 2.14, 0], 1, [0, 0, 0], 0, false),
+          P(gl, LAMP_GLASS, 0xffe2b0, [0, 0, 0], 1, [0, 0, 0], 0, false),
         ];
       },
       effect: (x, y, z, s, rng) => {
@@ -1094,32 +1683,36 @@ export function buildProps(zone, heightAt) {
         const g = merged(`shrineM${vs}`, () => {
           const r2 = seededRandom(vs + 1);
           const pieces = [];
-          const foot = piece(boxG(0.92, 0.32, 0.92), { t: [0, 0.15, 0], r: [0, r2() * 0.3, 0], jit: 0.02, jseed: vs });
-          ramp(foot, 0x8f8c83, 0xaeaba0, 0, 0.34, { noise: 0.05, seed: vs, lift: 0.55 });
+          const foot = piece(rboxG(0.92, 0.32, 0.92, 0.07, 2), { t: [0, 0.15, 0], r: [0, r2() * 0.3, 0] });
+          ramp(foot, 0x8f8c83, 0xb2afa4, 0, 0.34, { noise: 0.03, seed: vs, lift: 0.4 });
+          mossify(foot, { amount: 0.55, seed: vs % 89 });
           pieces.push(foot);
-          const lip = piece(boxG(0.99, 0.09, 0.99), { t: [0, 0.32, 0], r: [0, r2() * 0.3, 0], jit: 0.015, jseed: vs + 1 });
-          tintG(lip, 0xb8b5ab, 0.04, vs + 1);
+          const lip = piece(rboxG(0.99, 0.09, 0.99, 0.035, 1), { t: [0, 0.32, 0], r: [0, r2() * 0.3, 0] });
+          tintG(lip, 0xbcb9af, 0.03, vs + 1);
+          mossify(lip, { amount: 0.35, seed: (vs + 3) % 89 });
           pieces.push(lip);
-          const mono = piece(boxG(0.52, 1.5, 0.36), {
-            t: [0, 1.02, 0], r: [(r2() - 0.5) * 0.03, 0, (r2() - 0.5) * 0.07], jit: 0.028, jseed: vs + 2,
+          const mono = piece(rboxG(0.52, 1.5, 0.36, 0.07, 2), {
+            t: [0, 1.02, 0], r: [(r2() - 0.5) * 0.03, 0, (r2() - 0.5) * 0.07],
           });
-          ramp(mono, 0xbcb6a4, 0xdedac8, 0.3, 1.85, { noise: 0.05, seed: vs + 2, lift: 0.55 });
+          ramp(mono, 0xc2bcaa, 0xe4e0ce, 0.3, 1.85, { noise: 0.03, seed: vs + 2, lift: 0.45 });
+          mossify(mono, { amount: 0.3, seed: (vs + 5) % 89 });
           pieces.push(mono);
-          const cap = piece(boxG(0.58, 0.14, 0.42), { t: [0, 1.82, 0], r: [0, 0, (r2() - 0.5) * 0.08], jit: 0.02, jseed: vs + 3 });
-          ramp(cap, 0xc6c3b8, 0xdcd9cd, 1.74, 1.9, { seed: vs + 3, lift: 0.55 });
+          const cap = piece(rboxG(0.6, 0.15, 0.44, 0.05, 1), { t: [0, 1.82, 0], r: [0, 0, (r2() - 0.5) * 0.08] });
+          ramp(cap, 0xc9c6bb, 0xe2dfd3, 1.74, 1.9, { seed: vs + 3, lift: 0.45 });
+          mossify(cap, { amount: 0.3, seed: (vs + 7) % 89 });
           pieces.push(cap);
-          const moss = piece(icoG(1, 1), { t: [0.28, 0.36, 0.24], s: [0.26, 0.1, 0.2], jit: 0.14, jseed: vs + 4 });
-          ramp(moss, 0x3f6b34, 0x74a854, 0.28, 0.46, { seed: vs + 4 });
-          pieces.push(moss);
-          const moss2 = piece(icoG(1, 1), { t: [-0.2, 1.72, 0.1], s: [0.14, 0.05, 0.12], jit: 0.14, jseed: vs + 5 });
-          ramp(moss2, 0x466e38, 0x78a856, 1.68, 1.78, { seed: vs + 5 });
-          pieces.push(moss2);
-          pieces.push(...tuftPieces(r2, { n: 4, R: 0.62, seed: vs + 6 }));
+          pieces.push(...tuftPieces(r2, { n: 5, R: 0.62, seed: vs + 6 }));
           return pieces;
+        });
+        // carved rune channel down the face: warm glow, a notch-framed stripe
+        const gr = merged(`shrineR${vs}`, () => {
+          const out = [piece(rboxG(0.22, 0.96, 0.03, 0.012, 1), { t: [0, 1.07, 0.18] })];
+          for (const y of [0.72, 1.07, 1.42]) out.push(piece(octaG(1), { t: [0, y, 0.19], s: [0.075, 0.075, 0.02] }));
+          return out;
         });
         return [
           V(g, SOLID_V, [0.06, 0.03]), shadowP(0.85),
-          P(boxG(0.3, 1.0, 0.02), GLOW_RUNE, 0xffe9b0, [0, 1.07, 0.19], 1, [0, 0, 0], 0, false),
+          P(gr, GLOW_RUNE, 0xffe9b0, [0, 0, 0], 1, [0, 0, 0], 0, false),
         ];
       },
     },
@@ -1130,286 +1723,282 @@ export function buildProps(zone, heightAt) {
         const g = merged(`wellM${vs}`, () => {
           const r2 = seededRandom(vs + 1);
           const pieces = [];
-          const n = 9;
-          for (let i = 0; i < n; i++) { // individual rim stones
-            const a = (i / n) * TAU;
-            const st = piece(boxG(0.52, 0.5 + r2() * 0.14, 0.34), {
-              t: [Math.cos(a) * 0.72, 0.26, Math.sin(a) * 0.72],
-              r: [0, -a + Math.PI / 2, (r2() - 0.5) * 0.06], jit: 0.03, jseed: vs + i,
-            });
-            ramp(st, i % 2 ? 0x8a877c : 0x96938a, i % 2 ? 0xb4b1a4 : 0xc0bdb2, 0, 0.6, { noise: 0.05, seed: vs + i });
-            pieces.push(st);
+          const n = 10;
+          for (let row = 0; row < 2; row++) { // two courses of rounded rim stones, staggered
+            for (let i = 0; i < n; i++) {
+              const a = ((i + row * 0.5) / n) * TAU;
+              const st = piece(rboxG(0.5, 0.3, 0.32, 0.07, 1), {
+                t: [Math.cos(a) * 0.74, 0.15 + row * 0.3, Math.sin(a) * 0.74],
+                r: [0, -a + Math.PI / 2, (r2() - 0.5) * 0.05],
+              });
+              ramp(st, (i + row) % 2 ? 0x8c887d : 0x9a968b, (i + row) % 2 ? 0xb8b4a8 : 0xc6c2b6, row * 0.3 - 0.05, row * 0.3 + 0.35, { noise: 0.03, seed: vs + i + row * 20, lift: 0.3 });
+              if (row === 1) mossify(st, { amount: 0.35, seed: (vs + i) % 89 });
+              pieces.push(st);
+            }
           }
-          const water = piece(cylG(0.6, 0.6, 0.04, 9), { t: [0, 0.34, 0] });
-          tintG(water, 0x1c2a38, 0.02, vs);
+          const water = piece(cylG(0.6, 0.6, 0.04, 14), { t: [0, 0.4, 0] });
+          tintG(water, 0x2c4a5c, 0.02, vs, 0);
           pieces.push(water);
-          for (const px of [-0.72, 0.72]) { // posts
-            const post = piece(boxG(0.11, 1.5, 0.11), { t: [px, 0.95, 0], jit: 0.012, jseed: vs + px });
-            ramp(post, 0x6a5236, 0x8f6f4e, 0.4, 1.7, { noise: 0.05, seed: vs + px * 5 });
+          for (const px of [-0.74, 0.74]) { // posts
+            const post = piece(rboxG(0.13, 1.55, 0.13, 0.035, 1), { t: [px, 1.0, 0] });
+            ramp(post, 0x6a5236, 0x94744f, 0.4, 1.8, { noise: 0.03, seed: vs + px * 5, lift: 0.25 });
             pieces.push(post);
           }
-          pieces.push(gableG({ L: 2.0, halfW: 1.08, roofH: 0.62, y: 1.68, dark: 0x7e3a30, light: 0xb0564a, wall: 0x6b4f36, seed: vs }));
-          const ridge = piece(boxG(2.06, 0.07, 0.09), { t: [0, 2.32, 0] });
-          tintG(ridge, 0x5c3a2c, 0.04, vs);
-          pieces.push(ridge);
-          const axle = piece(cylG(0.045, 0.045, 1.4, 5), { t: [0, 1.42, 0], r: [0, 0, Math.PI / 2] });
-          tintG(axle, 0x4a3a2a, 0.04, vs);
+          const pal = { dark: 0x8e3d2f, light: 0xcf6c52, ridge: 0x5e2a22 };
+          const roof = [];
+          roofPieces(roof, { L: 1.66, hd: 0.52, yTop: 1.74, pitch: 0.78, over: 0.4, gover: 0.14, t: 0.1, courses: 3, pal, wallHex: 0x6b4f36, seed: vs });
+          pieces.push(...roof);
+          const axle = piece(cylG(0.045, 0.045, 1.5, 7), { t: [0, 1.42, 0], r: [0, 0, Math.PI / 2], sh: 'smooth' });
+          tintG(axle, 0x4a3a2a, 0.03, vs, 0.2);
           pieces.push(axle);
-          const crank = piece(boxG(0.05, 0.26, 0.05), { t: [0.78, 1.32, 0], r: [0, 0, 0.3] });
-          tintG(crank, 0x3f332a, 0.03, vs);
+          const crank = piece(rboxG(0.05, 0.28, 0.05, 0.015, 1), { t: [0.84, 1.32, 0], r: [0, 0, 0.3] });
+          tintG(crank, 0x3f332a, 0.03, vs, 0.2);
           pieces.push(crank);
-          const rope = piece(cylG(0.018, 0.018, 0.55, 4), { t: [0, 1.15, 0] });
-          tintG(rope, 0xb0946a, 0.05, vs);
+          const rope = piece(cylG(0.016, 0.016, 0.55, 5), { t: [0, 1.15, 0], sh: 'smooth' });
+          tintG(rope, 0xc0a476, 0.04, vs, 0.2);
           pieces.push(rope);
-          const bucket = piece(cylG(0.16, 0.13, 0.2, 6), { t: [0, 0.98, 0], jit: 0.01, jseed: vs + 8 });
-          ramp(bucket, 0x6f5138, 0x9a7a55, 0.88, 1.08, { seed: vs + 8 });
+          const bucket = piece(cylG(0.16, 0.13, 0.2, 10), { t: [0, 0.98, 0], sh: 'crease' });
+          ramp(bucket, 0x6f5138, 0x9a7a55, 0.88, 1.08, { seed: vs + 8, lift: 0.3 });
           pieces.push(bucket);
-          pieces.push(...tuftPieces(r2, { n: 4, R: 1.0, seed: vs + 9 }));
+          const hoop = piece(cylG(0.165, 0.165, 0.03, 10), { t: [0, 1.04, 0] });
+          tintG(hoop, 0x54504a, 0.02, vs, 0.2);
+          pieces.push(hoop);
+          pieces.push(...tuftPieces(r2, { n: 6, R: 1.0, seed: vs + 9 }));
           return pieces;
         });
         return [V(g, SOLID_V, [0.05, 0.03]), shadowP(1.25)];
       },
     },
     house_small: {
-      variants: 2, collider: 2.5, faceCenter: true, sinkY: 0.25,
+      variants: 4, collider: 2.5, faceCenter: true, sinkY: 0.25,
       surface: 'wood', surfaceRect: [1.8, 1.55], // plank floor: footprint + doorstep
-
-
-      make: (rng) => {
+      chimney: [-1.0, -0.5],
+      make: (rng, v) => {
         const vs = Math.floor(rng() * 1e6);
-        const warm = rng() > 0.5;
+        const vi = (v ?? 0) % 4;
+        const pal = ROOFS[[0, 1, 3, 2][vi]], wall = WALLS[vi];
+        const shutter = SHUTTERS[(vi * 2 + 1) % SHUTTERS.length];
+        const bloom = [BLOOMS[vi % BLOOMS.length], BLOOMS[(vi + 2) % BLOOMS.length], 0xfff4f8];
+        const glowL = [];
         const g = merged(`hsM${vs}`, () => {
           const r2 = seededRandom(vs + 1);
-          const wallLo = warm ? 0xd8c8a6 : 0xccc2b0, wallHi = warm ? 0xf8eed8 : 0xf0eade;
-          const roofD = warm ? 0x793830 : 0x5f463c, roofL = warm ? 0xba5c4a : 0x9a7458;
-          const wood = 0x6f5138, woodL = 0x8a6a48;
-          const pieces = [];
-          // stone footing skirt
-          const fo = piece(boxG(3.56, 0.44, 3.06), { t: [0, 0.21, 0], jit: 0.025, jseed: vs });
-          ramp(fo, 0x7a776e, 0xa19e93, 0, 0.46, { noise: 0.05, seed: vs });
-          pieces.push(fo);
-          // plaster walls (footing -> pale top)
-          const w = piece(boxG(3.4, 1.92, 2.9), { t: [0, 1.36, 0] });
-          ramp(w, wallLo, wallHi, 0.38, 2.35, { noise: 0.03, seed: vs + 1, lift: 0.5 });
-          pieces.push(w);
-          // eave shadow band under the roof line
-          const eave = piece(boxG(3.44, 0.15, 2.94), { t: [0, 2.26, 0] });
-          tintG(eave, lerpColorHex(wallLo, 0x241a12, 0.3), 0.02, vs);
-          pieces.push(eave);
-          // gable roof, ridge along x, with beam + overhang
-          pieces.push(gableG({ L: 3.95, halfW: 1.9, roofH: 1.5, y: 2.3, dark: roofD, light: roofL, wall: lerpColorHex(wallHi, wallLo, 0.35), seed: vs }));
-          const ridge = piece(boxG(4.02, 0.1, 0.13), { t: [0, 3.82, 0] });
-          tintG(ridge, lerpColorHex(roofD, 0x201410, 0.35), 0.03, vs);
-          pieces.push(ridge);
-          for (const s of [-1, 1]) { // fascia boards under both eaves
-            const fa = piece(boxG(3.98, 0.1, 0.09), { t: [0, 2.3, s * 1.86] });
-            tintG(fa, wood, 0.04, vs + s);
-            pieces.push(fa);
+          const out = [];
+          const fo = piece(rboxG(3.62, 0.5, 3.12, 0.08, 1), { t: [0, 0.2, 0] });
+          ramp(fo, 0x77736a, 0xa29e93, -0.05, 0.46, { noise: 0.04, seed: vs, lift: 0.3 });
+          mossify(fo, { amount: 0.3, seed: vs % 89 });
+          out.push(fo);
+          const w = piece(boxG(3.4, 2.0, 2.9), { t: [0, 1.38, 0] });
+          ramp(w, wall.lo, wall.hi, 0.38, 2.4, { noise: 0.02, seed: vs + 1, lift: 0.35 });
+          out.push(w);
+          // timber frame: corner posts, front lintel + cross brace
+          for (const [px, pz] of [[-1.69, 1.44], [1.69, 1.44], [-1.69, -1.44], [1.69, -1.44]]) {
+            const post = piece(boxG(0.14, 2.02, 0.14), { t: [px, 1.37, pz] });
+            ramp(post, WOOD, WOOD_L, 0.4, 2.4, { noise: 0.03, seed: vs + px + pz, lift: 0.25 });
+            out.push(post);
           }
-          // timber frame (corners + front cross-brace + mid rail)
-          for (const px of [-1.68, 1.68]) {
-            const post = piece(boxG(0.13, 1.98, 0.13), { t: [px, 1.34, 1.42] });
-            ramp(post, wood, woodL, 0.4, 2.3, { noise: 0.04, seed: vs + px });
-            pieces.push(post);
-          }
-          const lintel = piece(boxG(3.42, 0.12, 0.12), { t: [0, 2.16, 1.43] });
-          tintG(lintel, wood, 0.04, vs + 3);
-          pieces.push(lintel);
-          const brace = piece(boxG(0.11, 1.15, 0.1), { t: [-1.62, 1.33, 1.44], r: [0, 0, 0.62] });
-          tintG(brace, wood, 0.04, vs + 4);
-          pieces.push(brace);
-          // door: recess, plank leaf, frame, lintel, step
-          const rec = piece(boxG(0.86, 1.46, 0.06), { t: [0.6, 1.08, 1.44] });
-          tintG(rec, 0x3a2c1e, 0.02, vs);
-          pieces.push(rec);
-          const door = piece(boxG(0.74, 1.36, 0.07), { t: [0.6, 1.06, 1.46] });
-          ramp(door, 0x66492f, 0x8f6f4e, 0.4, 1.8, { noise: 0.06, seed: vs + 5 });
-          pieces.push(door);
-          for (const px of [0.19, 1.01]) {
-            const jamb = piece(boxG(0.09, 1.5, 0.1), { t: [px, 1.1, 1.45] });
-            tintG(jamb, wood, 0.04, vs + px);
-            pieces.push(jamb);
-          }
-          const dlin = piece(boxG(0.95, 0.1, 0.11), { t: [0.6, 1.88, 1.45] });
-          tintG(dlin, wood, 0.04, vs + 6);
-          pieces.push(dlin);
-          const step = piece(boxG(1.0, 0.15, 0.5), { t: [0.6, 0.08, 1.68], jit: 0.02, jseed: vs + 7 });
-          ramp(step, 0x84817a, 0xa5a29a, 0, 0.17, { seed: vs + 7 });
-          pieces.push(step);
-          // window frames + sills (glow panes are separate parts)
-          for (const [wx, wy, wz, ry] of [[-0.85, 1.4, 1.45, 0], [1.71, 1.4, -0.5, Math.PI / 2]]) {
-            const fr = piece(boxG(0.68, 0.68, 0.07), { t: [wx, wy, wz], r: [0, ry, 0] });
-            tintG(fr, wood, 0.04, vs + wx);
-            pieces.push(fr);
-            const sill = piece(boxG(0.76, 0.08, 0.13), { t: [wx + Math.sin(ry) * 0.04, wy - 0.38, wz + Math.cos(ry) * 0.04], r: [0, ry, 0] });
-            tintG(sill, woodL, 0.04, vs + wx * 3);
-            pieces.push(sill);
-          }
-          // chimney with cap lip
-          const ch = piece(boxG(0.44, 1.6, 0.44), { t: [-1.0, 3.3, -0.5], jit: 0.015, jseed: vs + 8 });
-          ramp(ch, 0x84766c, 0xa89a8e, 2.4, 4.1, { noise: 0.05, seed: vs + 8 });
-          pieces.push(ch);
-          const chCap = piece(boxG(0.54, 0.12, 0.54), { t: [-1.0, 4.12, -0.5] });
-          tintG(chCap, 0x5c534c, 0.04, vs + 9);
-          pieces.push(chCap);
-          pieces.push(...tuftPieces(r2, { n: 5, R: 1.95, seed: vs + 10 }));
-          return pieces;
+          const lintel = piece(boxG(3.44, 0.13, 0.13), { t: [0, 2.3, 1.44] });
+          tintG(lintel, WOOD, 0.03, vs + 3, 0.25);
+          out.push(lintel);
+          roofPieces(out, { L: 3.42, hd: 1.46, yTop: 2.37, pitch: 0.72, pal, wallHex: lerpColorHex(wall.hi, wall.lo, 0.3), seed: vs });
+          doorPieces(out, glowL, { x: 0.6, y0: 0.42, z: 1.45, seed: vs + 20, lantern: -1 });
+          windowPieces(out, glowL, { x: -0.72, y: 1.45, z: 1.45, shutter, bloom, seed: vs + 30 });
+          windowPieces(out, glowL, { x: 1.7, y: 1.45, z: -0.45, ry: Math.PI / 2, shutter, bloom, seed: vs + 40 });
+          windowPieces(out, glowL, { x: -1.7, y: 1.5, z: 0.3, ry: -Math.PI / 2, w: 0.5, h: 0.5, shutter: null, box: false, seed: vs + 50 });
+          chimneyPieces(out, { x: -1.0, z: -0.5, y0: 2.3, h: 1.85, seed: vs + 60 });
+          out.push(...tuftPieces(r2, { n: 6, R: 1.95, seed: vs + 10 }));
+          return out;
         });
-        return [
-          V(g, SOLID_V, [0.045, 0.03]), shadowP(2.6),
-          P(boxG(0.55, 0.55, 0.06), WINDOW, 0xffc97a, [-0.85, 1.4, 1.46], 1, [0, 0, 0], 0, false),
-          P(boxG(0.55, 0.55, 0.06), WINDOW, 0xffc97a, [1.73, 1.4, -0.5], 1, [0, Math.PI / 2, 0], 0, false),
-          P(sphereG(0.05, 5, 4), SOLID_S, 0xc9b878, [0.85, 1.06, 1.52], 1, [0, 0, 0], 0, false),
-        ];
+        const gl = merged(`hsG${vs}`, () => glowL.length ? glowL : [piece(boxG(0.01, 0.01, 0.01), {})]);
+        return [V(g, SOLID_V, [0.04, 0.03]), shadowP(2.6), P(gl, WINDOW, 0xffd9a8, [0, 0, 0], 1, [0, 0, 0], 0, false)];
+      },
+      effect: (x, y, z, s, rng, ctx) => {
+        const [cx, cy, cz] = localToWorld(x, y, z, s, ctx.yaw, -1.0 + 0.06, 4.45, -0.5 - 0.04);
+        addChimneySmoke(cx, cy, cz, s);
+        return null;
       },
     },
     house_large: {
-      variants: 1, collider: 3.6, faceCenter: true, sinkY: 0.3,
+      variants: 2, collider: 3.6, faceCenter: true, sinkY: 0.3,
       surface: 'wood', surfaceRect: [2.7, 2.0],
-
-      make: (rng) => {
+      make: (rng, v) => {
         const vs = Math.floor(rng() * 1e6);
+        const vi = (v ?? 0) % 2;
+        const pal = ROOFS[vi ? 1 : 0], wall = WALLS[vi ? 2 : 0];
+        const shutter = vi ? 0x3f7a78 : 0x4f7fa8;
+        const bloom = vi ? [0xffd24a, 0xfff4f8, 0xff9f5a] : [0xff8aa0, 0xfff4f8, 0xc8a0ff];
+        const glowL = [];
         const g = merged(`hlM${vs}`, () => {
           const r2 = seededRandom(vs + 1);
-          const wallLo = 0xd8c8a6, wallHi = 0xf8eed8;
-          const roofD = 0x74352c, roofL = 0xb2564a;
-          const wood = 0x6f5138, woodL = 0x8a6a48;
-          const pieces = [];
-          const fo = piece(boxG(5.36, 0.5, 3.96), { t: [0, 0.24, 0], jit: 0.03, jseed: vs });
-          ramp(fo, 0x7a776e, 0xa19e93, 0, 0.52, { noise: 0.05, seed: vs });
-          pieces.push(fo);
-          const w = piece(boxG(5.2, 2.2, 3.8), { t: [0, 1.5, 0] });
-          ramp(w, wallLo, wallHi, 0.45, 2.65, { noise: 0.03, seed: vs + 1, lift: 0.5 });
-          pieces.push(w);
-          const eave = piece(boxG(5.24, 0.16, 3.84), { t: [0, 2.54, 0] });
-          tintG(eave, lerpColorHex(wallLo, 0x241a12, 0.3), 0.02, vs);
-          pieces.push(eave);
-          // main gable roof, ridge along x
-          pieces.push(gableG({ L: 5.8, halfW: 2.42, roofH: 1.75, y: 2.6, dark: roofD, light: roofL, wall: lerpColorHex(wallHi, wallLo, 0.35), seed: vs }));
-          const ridge = piece(boxG(5.88, 0.11, 0.14), { t: [0, 4.37, 0] });
-          tintG(ridge, lerpColorHex(roofD, 0x201410, 0.35), 0.03, vs);
-          pieces.push(ridge);
-          // dormer gable over the entrance
-          const dw = piece(boxG(1.5, 1.15, 1.15), { t: [0, 3.1, 1.35] });
-          ramp(dw, wallLo, wallHi, 2.6, 3.7, { noise: 0.03, seed: vs + 2 });
-          pieces.push(dw);
-          const dr = gableG({ L: 1.66, halfW: 0.72, roofH: 0.62, y: 3.66, dark: roofD, light: roofL, wall: lerpColorHex(wallHi, wallLo, 0.35), seed: vs + 2 });
-          dr.rotateY(Math.PI / 2);
-          dr.translate(0, 0, 1.35);
-          pieces.push(dr);
-          // timber frame across the front
-          for (const px of [-2.56, 2.56]) {
-            const post = piece(boxG(0.14, 2.3, 0.14), { t: [px, 1.5, 1.86] });
-            ramp(post, wood, woodL, 0.4, 2.6, { noise: 0.04, seed: vs + px });
-            pieces.push(post);
+          const out = [];
+          const fo = piece(rboxG(5.44, 0.56, 4.04, 0.09, 1), { t: [0, 0.23, 0] });
+          ramp(fo, 0x77736a, 0xa29e93, -0.05, 0.52, { noise: 0.04, seed: vs, lift: 0.3 });
+          mossify(fo, { amount: 0.3, seed: vs % 89 });
+          out.push(fo);
+          const w = piece(boxG(5.2, 2.3, 3.8), { t: [0, 1.6, 0] });
+          ramp(w, wall.lo, wall.hi, 0.45, 2.75, { noise: 0.02, seed: vs + 1, lift: 0.35 });
+          out.push(w);
+          for (const px of [-2.6, 2.6]) for (const pz of [-1.9, 1.9]) {
+            const post = piece(boxG(0.16, 2.32, 0.16), { t: [px, 1.6, pz] });
+            ramp(post, WOOD, WOOD_L, 0.45, 2.75, { noise: 0.03, seed: vs + px + pz, lift: 0.25 });
+            out.push(post);
           }
-          const rail = piece(boxG(5.2, 0.13, 0.13), { t: [0, 2.44, 1.87] });
-          tintG(rail, wood, 0.04, vs + 3);
-          pieces.push(rail);
-          for (const px of [-1.9, 1.9]) {
-            const brace = piece(boxG(0.11, 1.2, 0.1), { t: [px, 1.5, 1.88], r: [0, 0, px > 0 ? -0.55 : 0.55] });
-            tintG(brace, wood, 0.04, vs + px * 7);
-            pieces.push(brace);
-          }
-          // door + frame + step
-          const rec = piece(boxG(1.0, 1.66, 0.06), { t: [0, 1.18, 1.9] });
-          tintG(rec, 0x3a2c1e, 0.02, vs);
-          pieces.push(rec);
-          const door = piece(boxG(0.88, 1.56, 0.07), { t: [0, 1.16, 1.92] });
-          ramp(door, 0x66492f, 0x8f6f4e, 0.4, 2.0, { noise: 0.06, seed: vs + 5 });
-          pieces.push(door);
-          for (const px of [-0.5, 0.5]) {
-            const jamb = piece(boxG(0.1, 1.7, 0.1), { t: [px, 1.2, 1.91] });
-            tintG(jamb, wood, 0.04, vs + px);
-            pieces.push(jamb);
-          }
-          const dlin = piece(boxG(1.14, 0.11, 0.12), { t: [0, 2.1, 1.91] });
-          tintG(dlin, wood, 0.04, vs + 6);
-          pieces.push(dlin);
-          const step = piece(boxG(1.3, 0.17, 0.6), { t: [0, 0.09, 2.2], jit: 0.02, jseed: vs + 7 });
-          ramp(step, 0x84817a, 0xa5a29a, 0, 0.19, { seed: vs + 7 });
-          pieces.push(step);
-          // window frames + sills
-          for (const [wx, wy] of [[-1.5, 1.55], [1.5, 1.55]]) {
-            const fr = piece(boxG(0.74, 0.74, 0.07), { t: [wx, wy, 1.9] });
-            tintG(fr, wood, 0.04, vs + wx);
-            pieces.push(fr);
-            const sill = piece(boxG(0.82, 0.09, 0.14), { t: [wx, wy - 0.42, 1.94] });
-            tintG(sill, woodL, 0.04, vs + wx * 3);
-            pieces.push(sill);
-          }
-          const dfr = piece(boxG(0.66, 0.66, 0.07), { t: [0, 3.2, 1.93] });
-          tintG(dfr, wood, 0.04, vs + 11);
-          pieces.push(dfr);
-          // chimney
-          const ch = piece(boxG(0.52, 2.4, 0.52), { t: [-1.9, 3.4, -1.0], jit: 0.02, jseed: vs + 8 });
-          ramp(ch, 0x84766c, 0xa89a8e, 2.2, 4.6, { noise: 0.05, seed: vs + 8 });
-          pieces.push(ch);
-          const chCap = piece(boxG(0.64, 0.13, 0.64), { t: [-1.9, 4.62, -1.0] });
-          tintG(chCap, 0x5c534c, 0.04, vs + 9);
-          pieces.push(chCap);
-          pieces.push(...tuftPieces(r2, { n: 6, R: 2.7, seed: vs + 10 }));
-          return pieces;
+          const rail = piece(boxG(5.24, 0.13, 0.13), { t: [0, 2.7, 1.91] });
+          tintG(rail, WOOD, 0.03, vs + 27, 0.25);
+          out.push(rail);
+          const wallHex = lerpColorHex(wall.hi, wall.lo, 0.3);
+          const rf = roofPieces(out, { L: 5.22, hd: 1.92, yTop: 2.76, pitch: 0.68, courses: 6, pal, wallHex, seed: vs });
+          // dormer: little gabled box on the front slope with its own window
+          const dFront = 1.55, dBack = 0.35, dTop = 4.02, dBot = 3.0;
+          const dz = (dFront + dBack) / 2;
+          const dw = piece(boxG(1.3, dTop - dBot, dFront - dBack), { t: [0, (dTop + dBot) / 2, dz] });
+          ramp(dw, wall.lo, wall.hi, dBot, dTop, { noise: 0.02, seed: vs + 2, lift: 0.35 });
+          out.push(dw);
+          const dRoof = [];
+          roofPieces(dRoof, { L: dFront - dBack + 0.06, hd: 0.66, yTop: dTop, pitch: 0.62, over: 0.16, gover: 0.12, t: 0.11, courses: 3, pal, wallHex, seed: vs + 3 });
+          for (const pc of dRoof) { pc.rotateY(Math.PI / 2); pc.translate(0, 0, dz); out.push(pc); }
+          windowPieces(out, glowL, { x: 0, y: 3.58, z: dFront, w: 0.46, h: 0.46, shutter: null, box: true, bloom, seed: vs + 70 });
+          doorPieces(out, glowL, { x: 0, y0: 0.47, z: 1.9, w: 0.92, h: 1.6, seed: vs + 20, lantern: [1, -1] });
+          windowPieces(out, glowL, { x: -1.55, y: 1.62, z: 1.9, w: 0.66, h: 0.66, shutter, bloom, seed: vs + 30 });
+          windowPieces(out, glowL, { x: 1.55, y: 1.62, z: 1.9, w: 0.66, h: 0.66, shutter, bloom, seed: vs + 35 });
+          windowPieces(out, glowL, { x: 2.6, y: 1.62, z: 0, ry: Math.PI / 2, w: 0.62, h: 0.62, shutter, bloom, seed: vs + 40 });
+          windowPieces(out, glowL, { x: -2.6, y: 1.62, z: 0, ry: -Math.PI / 2, w: 0.62, h: 0.62, shutter, bloom, seed: vs + 45 });
+          chimneyPieces(out, { x: -1.9, z: -1.0, y0: 2.6, h: 2.35, w: 0.52, seed: vs + 60 });
+          out.push(...tuftPieces(r2, { n: 7, R: 2.8, seed: vs + 10 }));
+          void rf;
+          return out;
         });
-        return [
-          V(g, SOLID_V, [0.04, 0.025]), shadowP(3.4),
-          P(boxG(0.6, 0.6, 0.06), WINDOW, 0xffc97a, [-1.5, 1.55, 1.91], 1, [0, 0, 0], 0, false),
-          P(boxG(0.6, 0.6, 0.06), WINDOW, 0xffc97a, [1.5, 1.55, 1.91], 1, [0, 0, 0], 0, false),
-          P(boxG(0.52, 0.52, 0.06), WINDOW, 0xffc97a, [0, 3.2, 1.94], 1, [0, 0, 0], 0, false),
-          P(sphereG(0.055, 5, 4), SOLID_S, 0xc9b878, [0.32, 1.16, 1.98], 1, [0, 0, 0], 0, false),
-        ];
+        const gl = merged(`hlG${vs}`, () => glowL);
+        return [V(g, SOLID_V, [0.04, 0.025]), shadowP(3.4), P(gl, WINDOW, 0xffd9a8, [0, 0, 0], 1, [0, 0, 0], 0, false)];
+      },
+      effect: (x, y, z, s, rng, ctx) => {
+        const [cx, cy, cz] = localToWorld(x, y, z, s, ctx.yaw, -1.9 + 0.06, 5.25, -1.0 - 0.04);
+        addChimneySmoke(cx, cy, cz, s);
+        return null;
+      },
+    },
+    townhouse: {
+      // tall, narrow two-storey house for lining streets
+      variants: 3, collider: 2.1, faceCenter: true, sinkY: 0.25,
+      surface: 'wood', surfaceRect: [1.45, 1.35],
+      make: (rng, v) => {
+        const vs = Math.floor(rng() * 1e6);
+        const vi = (v ?? 0) % 3;
+        const pal = ROOFS[[1, 0, 2][vi]], wall = WALLS[[1, 3, 0][vi]];
+        const shutter = SHUTTERS[(vi * 3 + 2) % SHUTTERS.length];
+        const bloom = [BLOOMS[(vi + 3) % BLOOMS.length], 0xfff4f8, BLOOMS[(vi + 1) % BLOOMS.length]];
+        const glowL = [];
+        const g = merged(`thM${vs}`, () => {
+          const r2 = seededRandom(vs + 1);
+          const out = [];
+          const fo = piece(rboxG(2.96, 0.5, 2.76, 0.08, 1), { t: [0, 0.2, 0] });
+          ramp(fo, 0x77736a, 0xa29e93, -0.05, 0.46, { noise: 0.04, seed: vs, lift: 0.3 });
+          mossify(fo, { amount: 0.3, seed: vs % 89 });
+          out.push(fo);
+          const w = piece(boxG(2.8, 3.7, 2.6), { t: [0, 2.23, 0] });
+          ramp(w, wall.lo, wall.hi, 0.38, 4.1, { noise: 0.02, seed: vs + 1, lift: 0.35 });
+          out.push(w);
+          // jettied upper floor band + corner posts
+          const band = piece(boxG(2.9, 0.16, 2.7), { t: [0, 2.2, 0] });
+          tintG(band, WOOD, 0.03, vs + 2, 0.25);
+          out.push(band);
+          for (const [px, pz] of [[-1.39, 1.29], [1.39, 1.29], [-1.39, -1.29], [1.39, -1.29]]) {
+            const post = piece(boxG(0.13, 3.72, 0.13), { t: [px, 2.22, pz] });
+            ramp(post, WOOD, WOOD_L, 0.4, 4.1, { noise: 0.03, seed: vs + px + pz, lift: 0.25 });
+            out.push(post);
+          }
+          roofPieces(out, { L: 2.82, hd: 1.31, yTop: 4.07, pitch: 0.92, courses: 5, pal, wallHex: lerpColorHex(wall.hi, wall.lo, 0.3), seed: vs });
+          doorPieces(out, glowL, { x: -0.55, y0: 0.42, z: 1.3, w: 0.76, h: 1.42, seed: vs + 20, lantern: 1 });
+          windowPieces(out, glowL, { x: 0.62, y: 1.4, z: 1.3, w: 0.56, h: 0.6, shutter: null, bloom, seed: vs + 30 });
+          windowPieces(out, glowL, { x: -0.6, y: 3.05, z: 1.3, w: 0.52, h: 0.6, shutter, bloom, seed: vs + 35 });
+          windowPieces(out, glowL, { x: 0.6, y: 3.05, z: 1.3, w: 0.52, h: 0.6, shutter, bloom, seed: vs + 38 });
+          windowPieces(out, glowL, { x: 1.4, y: 3.05, z: -0.3, ry: Math.PI / 2, w: 0.5, h: 0.56, shutter: null, box: false, seed: vs + 40 });
+          windowPieces(out, glowL, { x: -1.4, y: 1.45, z: -0.3, ry: -Math.PI / 2, w: 0.5, h: 0.56, shutter: null, box: false, seed: vs + 45 });
+          chimneyPieces(out, { x: 0.7, z: -0.62, y0: 4.0, h: 1.9, w: 0.42, seed: vs + 60 });
+          out.push(...tuftPieces(r2, { n: 5, R: 1.7, seed: vs + 10 }));
+          return out;
+        });
+        const gl = merged(`thG${vs}`, () => glowL);
+        return [V(g, SOLID_V, [0.04, 0.03]), shadowP(2.2), P(gl, WINDOW, 0xffd9a8, [0, 0, 0], 1, [0, 0, 0], 0, false)];
+      },
+      effect: (x, y, z, s, rng, ctx) => {
+        const [cx, cy, cz] = localToWorld(x, y, z, s, ctx.yaw, 0.7 + 0.06, 6.15, -0.62 - 0.04);
+        addChimneySmoke(cx, cy, cz, s);
+        return null;
       },
     },
     shop_stall: {
-      variants: 2, collider: 1.4, faceCenter: true,
-      make: (rng) => {
-        const stripe = rng() > 0.5 ? 0xc25a4a : 0x4a7ac2;
+      variants: 3, collider: 1.4, faceCenter: true,
+      make: (rng, v) => {
+        const vi = (v ?? 0) % 3;
+        const stripe = [0xc8503e, 0x3f78b8, 0x5a9a4a][vi];
         const vs = Math.floor(rng() * 1e6);
         const g = merged(`stallM${vs}`, () => {
           const r2 = seededRandom(vs + 1);
           const pieces = [];
-          const base = piece(boxG(2.4, 0.9, 1.1), { t: [0, 0.45, 0], jit: 0.015, jseed: vs });
-          ramp(base, 0x92714c, 0xbc9a6c, 0, 0.95, { noise: 0.05, seed: vs });
+          const base = piece(rboxG(2.4, 0.9, 1.1, 0.05, 1), { t: [0, 0.45, 0] });
+          ramp(base, 0x8a6a46, 0xb89466, 0, 0.95, { noise: 0.03, seed: vs, lift: 0.3 });
           pieces.push(base);
           for (let i = 0; i < 5; i++) { // front plank lines
-            const pl = piece(boxG(0.44, 0.86, 0.03), { t: [-0.96 + i * 0.48, 0.45, 0.55] });
-            ramp(pl, lerpColorHex(0x7d5f3f, 0x5c4630, r2() * 0.6), 0x9e7e56, 0, 0.9, { noise: 0.07, seed: vs + i });
+            const pl = piece(boxG(0.44, 0.8, 0.03), { t: [-0.96 + i * 0.48, 0.46, 0.555] });
+            ramp(pl, lerpColorHex(0x7d5f3f, 0x5c4630, r2() * 0.6), 0x9e7e56, 0, 0.9, { noise: 0.04, seed: vs + i, lift: 0.3 });
             pieces.push(pl);
           }
-          const top = piece(boxG(2.52, 0.09, 1.22), { t: [0, 0.95, 0] });
-          ramp(top, 0xa8885c, 0xc9a878, 0.9, 1.0, { noise: 0.05, seed: vs + 6 });
+          const top = piece(rboxG(2.56, 0.1, 1.24, 0.035, 1), { t: [0, 0.95, 0] });
+          ramp(top, 0xa8885c, 0xcfae80, 0.9, 1.0, { noise: 0.03, seed: vs + 6, lift: 0.3 });
           pieces.push(top);
-          for (const [px, pz, h] of [[-1.2, -0.5, 2.1], [1.2, -0.5, 2.1], [-1.2, 0.62, 2.4], [1.2, 0.62, 2.4]]) {
-            const post = piece(boxG(0.09, h, 0.09), { t: [px, h / 2, pz], jit: 0.01, jseed: vs + px + pz });
-            ramp(post, 0x7d5c3d, 0x9e7e56, 0, h, { noise: 0.04, seed: vs + px * 3 + pz });
+          for (const [px, pz, h] of [[-1.2, -0.5, 2.15], [1.2, -0.5, 2.15], [-1.2, 0.62, 2.45], [1.2, 0.62, 2.45]]) {
+            const post = piece(rboxG(0.1, h, 0.1, 0.03, 1), { t: [px, h / 2, pz] });
+            ramp(post, 0x7d5c3d, 0xa38460, 0, h, { noise: 0.03, seed: vs + px * 3 + pz, lift: 0.25 });
             pieces.push(post);
           }
-          pieces.push(...tuftPieces(r2, { n: 3, R: 1.35, seed: vs + 7 }));
+          const rail = piece(rboxG(2.62, 0.07, 0.07, 0.02, 1), { t: [0, 1.62, 0.5] });
+          tintG(rail, 0x6b4a33, 0.03, vs, 0.25);
+          pieces.push(rail);
+          // wares: crates of fruit / veg, a basket of loaves, jars
+          const wares = [[0xe8603c, 0xf0a030], [0x8cc050, 0xd8d060], [0xc03a48, 0x8a4ac0]][vi];
+          for (let c = 0; c < 3; c++) {
+            const cx = -0.8 + c * 0.8;
+            const cr = piece(rboxG(0.56, 0.2, 0.4, 0.03, 1), { t: [cx, 1.1, 0.12] });
+            ramp(cr, 0x7a5a38, 0xa88458, 1.0, 1.2, { noise: 0.03, seed: vs + c, lift: 0.3 });
+            pieces.push(cr);
+            for (let k = 0; k < 7; k++) {
+              const f = piece(sphereG(1, 7, 5), {
+                t: [cx - 0.2 + (k % 4) * 0.13 + (k > 3 ? 0.06 : 0), 1.24 + (k > 3 ? 0.06 : 0), 0.04 + (k > 3 ? 0.08 : (k % 2) * 0.12)],
+                s: 0.075 + r2() * 0.015, sh: 'smooth',
+              });
+              tintG(f, wares[(c + k) % 2], 0.03, vs + c * 9 + k, 0.1);
+              pieces.push(f);
+            }
+          }
+          // hanging sign board on the front rail
+          const sign = piece(rboxG(0.7, 0.3, 0.05, 0.03, 1), { t: [0, 1.42, 0.52] });
+          tintG(sign, 0xd9c49a, 0.03, vs + 40, 0.2);
+          pieces.push(sign);
+          const glyph = piece(sphereG(1, 7, 5), { t: [0, 1.42, 0.555], s: [0.09, 0.09, 0.02] });
+          tintG(glyph, stripe, 0.02, vs + 41, 0);
+          pieces.push(glyph);
+          pieces.push(...tuftPieces(r2, { n: 4, R: 1.35, seed: vs + 7 }));
           return pieces;
         });
-        const parts = [V(g, SOLID_V, [0.05, 0.03]), shadowP(1.7)];
-        for (let i = 0; i < 5; i++) {
-          const c = i % 2 ? 0xf0e8d8 : stripe;
-          // lit top face…
-          parts.push(P(planeG(0.52, 1.5), CLOTH, c,
-            [-1.04 + i * 0.52, 2.25, 0.15], 1, [-0.42, 0, 0], 0.03, false));
-          // …with a shaded underside (offset down the awning normal) so the
-          // canopy is never a single unshaded quad when seen from below.
-          parts.push(P(planeG(0.52, 1.5), CLOTH, lerpColorHex(c, 0x2a2018, 0.5),
-            [-1.04 + i * 0.52, 2.235, 0.117], 1, [-0.42, 0, 0], 0.02, false));
-          // hanging valance skirt along the awning's front edge
-          parts.push(P(planeG(0.52, 0.24), CLOTH, lerpColorHex(c, 0x2a2018, 0.2),
-            [-1.04 + i * 0.52, 1.46, 0.46], 1, [0, 0, 0], 0.02, false));
-        }
-        // front rail + diagonal struts carrying the awning
-        parts.push(P(boxG(2.62, 0.07, 0.07), SOLID, 0x6b4a33, [0, 1.58, 0.47], 1, [0, 0, 0], 0.02, false));
-        parts.push(P(boxG(0.06, 0.06, 0.85), SOLID, 0x6b4a33, [-1.18, 1.95, 0.12], 1, [-0.55, 0, 0], 0.02, false));
-        parts.push(P(boxG(0.06, 0.06, 0.85), SOLID, 0x6b4a33, [1.18, 1.95, 0.12], 1, [-0.55, 0, 0], 0.02, false));
-        // wares
-        parts.push(P(sphereG(0.14, 6, 5), SOLID_S, 0xd8a05a, [-0.6, 1.06, 0.2], 1, [0, 0, 0], 0.15, false));
-        parts.push(P(sphereG(0.12, 6, 5), SOLID_S, 0xc25a6e, [-0.28, 1.05, 0.05], 1, [0, 0, 0], 0.15, false));
-        parts.push(P(boxG(0.4, 0.24, 0.3), SOLID, 0x9a7a55, [0.55, 1.06, 0.1], 1, [0, 0.4, 0], 0.1, false));
-        return parts;
+        // striped awning (one merged, vertex-colored, gently swaying sheet)
+        const aw = merged(`stallA${vs}`, () => {
+          const out = [];
+          for (let i = 0; i < 6; i++) {
+            const c = i % 2 ? 0xf6eee0 : stripe;
+            const w = 2.64 / 6;
+            const top = piece(rboxG(w + 0.005, 0.03, 1.5, 0.012, 1), { t: [-1.32 + w / 2 + i * w, 2.26, 0.14], r: [-0.42, 0, 0] });
+            ramp(top, lerpColorHex(c, 0x201810, 0.18), c, 1.9, 2.6, { noise: 0.015, seed: vs + i, lift: 0 });
+            out.push(top);
+            const val = piece(boxG(w + 0.005, 0.24, 0.02), { t: [-1.32 + w / 2 + i * w, 1.86, 0.84] });
+            tintG(val, lerpColorHex(c, 0x201810, 0.1), 0.015, vs + i, 0);
+            // scalloped hem: nudge the bottom edge of each valance tab
+            const vp = val.attributes.position;
+            for (let k = 0; k < vp.count; k++) if (vp.getY(k) < 1.8) vp.setY(k, vp.getY(k) - 0.05);
+            out.push(val);
+          }
+          return out;
+        });
+        return [V(g, SOLID_V, [0.05, 0.03]), V(aw, CLOTH_V, [0.03, 0.02]), shadowP(1.7)];
       },
     },
     bridge: {
@@ -1441,33 +2030,43 @@ export function buildProps(zone, heightAt) {
         const g = merged(`cartM${vs}`, () => {
           const r2 = seededRandom(vs + 1);
           const pieces = [];
-          const bed = piece(boxG(1.7, 0.48, 1.0), { t: [0, 0.64, 0], jit: 0.015, jseed: vs });
-          ramp(bed, 0x77573c, 0xa08054, 0.4, 0.9, { noise: 0.06, seed: vs });
+          const bed = piece(rboxG(1.7, 0.46, 1.0, 0.05, 1), { t: [0, 0.66, 0] });
+          ramp(bed, 0x77573c, 0xa68658, 0.42, 0.9, { noise: 0.03, seed: vs, lift: 0.3 });
           pieces.push(bed);
-          for (const s of [-1, 1]) { // top rails
-            const rail = piece(boxG(1.76, 0.08, 0.09), { t: [0, 0.92, s * 0.5] });
-            tintG(rail, 0x6a4c33, 0.06, vs + s);
+          for (const s of [-1, 1]) { // top rails + side planks
+            const rail = piece(rboxG(1.78, 0.08, 0.09, 0.025, 1), { t: [0, 0.93, s * 0.5] });
+            tintG(rail, 0x6a4c33, 0.03, vs + s, 0.25);
             pieces.push(rail);
           }
-          for (const s of [-1, 1]) { // wheels: rim + pale hub
-            const wheel = piece(cylG(0.42, 0.42, 0.1, 9), { t: [0.55, 0.42, s * 0.56], r: [Math.PI / 2, 0, 0], jit: 0.012, jseed: vs + s * 3 });
-            ramp(wheel, 0x5c452c, 0x7d5c3d, 0.02, 0.85, { noise: 0.05, seed: vs + s });
-            pieces.push(wheel);
-            const hub = piece(cylG(0.13, 0.13, 0.13, 7), { t: [0.55, 0.42, s * 0.58], r: [Math.PI / 2, 0, 0] });
-            tintG(hub, 0x8f6f4c, 0.04, vs + s * 5);
+          for (const s of [-1, 1]) { // wheels: rim, spokes, hub
+            const rim = piece(geo('cartRim', () => new THREE.TorusGeometry(0.4, 0.05, 6, 16)), { t: [0.55, 0.42, s * 0.58], sh: 'smooth' });
+            ramp(rim, 0x4f3a26, 0x6f5236, 0.02, 0.85, { seed: vs + s, lift: 0.3 });
+            pieces.push(rim);
+            for (let k = 0; k < 6; k++) {
+              const sp = piece(cylG(0.022, 0.022, 0.78, 5), { t: [0.55, 0.42, s * 0.58], r: [0, 0, (k / 6) * Math.PI], sh: 'smooth' });
+              tintG(sp, 0x6a4c33, 0.03, vs + k, 0.2);
+              pieces.push(sp);
+            }
+            const hub = piece(cylG(0.1, 0.1, 0.14, 10), { t: [0.55, 0.42, s * 0.6], r: [Math.PI / 2, 0, 0], sh: 'crease' });
+            tintG(hub, 0x8f6f4c, 0.03, vs + s * 5, 0.2);
             pieces.push(hub);
           }
-          const axle = piece(cylG(0.05, 0.05, 1.24, 5), { t: [0.55, 0.42, 0], r: [Math.PI / 2, 0, 0] });
-          tintG(axle, 0x3f2f20, 0.03, vs);
+          const axle = piece(cylG(0.045, 0.045, 1.24, 6), { t: [0.55, 0.42, 0], r: [Math.PI / 2, 0, 0] });
+          tintG(axle, 0x3f2f20, 0.03, vs, 0.2);
           pieces.push(axle);
           for (const s of [-1, 1]) { // handles
-            const h = piece(cylG(0.04, 0.05, 1.3, 5), { t: [-1.2, 0.5, s * 0.3], r: [0, 0, 1.1] });
-            ramp(h, 0x6a4c33, 0x8a6a48, 0.1, 0.95, { seed: vs + s * 7 });
+            const h = piece(cylG(0.04, 0.05, 1.3, 6), { t: [-1.2, 0.5, s * 0.3], r: [0, 0, 1.1], sh: 'smooth' });
+            ramp(h, 0x6a4c33, 0x8a6a48, 0.1, 0.95, { seed: vs + s * 7, lift: 0.25 });
             pieces.push(h);
           }
-          const hay = piece(icoG(1, 1), { t: [0.15, 1.0, 0], s: [0.72, 0.34, 0.46], jit: 0.16, jseed: vs + 9 });
-          ramp(hay, 0xb08d4c, 0xe0c078, 0.75, 1.35, { noise: 0.08, seed: vs + 9 });
+          const hay = piece(lobeG(1, (vs + 9) % 97, 0.3), { t: [0.12, 1.0, 0], s: [0.74, 0.34, 0.44], sh: 'smooth' });
+          ramp(hay, 0xb89048, 0xecd08a, 0.75, 1.35, { noise: 0.04, seed: vs + 9, lift: 0.15 });
           pieces.push(hay);
+          for (let k = 0; k < 3; k++) { // a few sacks/pumpkins on the hay
+            const pk = piece(sphereG(1, 9, 6), { t: [-0.35 + k * 0.32, 1.22, (r2() - 0.5) * 0.4], s: [0.15, 0.12, 0.15], sh: 'smooth' });
+            tintG(pk, k === 1 ? 0xe8883a : 0xd8c49a, 0.03, vs + k, 0.15);
+            pieces.push(pk);
+          }
           return pieces;
         });
         return [V(g, SOLID_V, [0.06, 0.04]), shadowP(1.25)];
@@ -1480,19 +2079,18 @@ export function buildProps(zone, heightAt) {
         const yaw = rng() * 0.5;
         const g = merged(`crateM${vs}`, () => {
           const pieces = [];
-          const body = piece(boxG(0.75, 0.75, 0.75), { t: [0, 0.37, 0], r: [0, yaw, 0], jit: 0.012, jseed: vs });
-          ramp(body, 0x92714c, 0xbc9a6c, 0, 0.78, { noise: 0.06, seed: vs });
+          const body = piece(rboxG(0.72, 0.72, 0.72, 0.04, 1), { t: [0, 0.36, 0], r: [0, yaw, 0] });
+          ramp(body, 0x92714c, 0xc4a274, 0, 0.78, { noise: 0.03, seed: vs, lift: 0.3 });
           pieces.push(body);
-          for (const ey of [0.08, 0.7]) { // edge battens
-            const b1 = piece(boxG(0.8, 0.1, 0.1), { t: [0, ey, 0], r: [0, yaw, 0] });
-            tintG(b1, 0x6f5138, 0.05, vs + ey * 9);
-            pieces.push(b1);
-            const b2 = piece(boxG(0.1, 0.1, 0.8), { t: [0, ey, 0], r: [0, yaw, 0] });
-            tintG(b2, 0x6f5138, 0.05, vs + ey * 11);
-            pieces.push(b2);
+          for (const ey of [0.07, 0.66]) { // edge battens
+            for (const [sx, sz] of [[0.78, 0.1], [0.1, 0.78]]) {
+              const b1 = piece(rboxG(sx, 0.1, sz, 0.025, 1), { t: [0, ey, 0], r: [0, yaw, 0] });
+              tintG(b1, 0x6f5138, 0.03, vs + ey * 9 + sx, 0.25);
+              pieces.push(b1);
+            }
           }
-          const diag = piece(boxG(0.9, 0.09, 0.04), { t: [0, 0.39, Math.cos(yaw) * 0.385], r: [0, yaw, 0.75] });
-          tintG(diag, 0x6b4f36, 0.05, vs + 3);
+          const diag = piece(boxG(0.86, 0.09, 0.04), { t: [Math.sin(yaw) * 0.37, 0.37, Math.cos(yaw) * 0.37], r: [0, yaw, 0.75] });
+          tintG(diag, 0x6b4f36, 0.03, vs + 3, 0.25);
           pieces.push(diag);
           return pieces;
         });
@@ -1593,7 +2191,7 @@ export function buildProps(zone, heightAt) {
             ramp(drum, 0x7d7a70, 0xa19e93, 0, 0.55, { seed: vs + 3 });
             pieces.push(drum);
           }
-          const moss = piece(icoG(1, 1), { t: [0.2, 0.36, 0.28], s: [0.24, 0.09, 0.2], jit: 0.14, jseed: vs + 4 });
+          const moss = piece(lobeG(1, Math.abs(Math.round(vs + 4)) % 97, 0.22), { t: [0.2, 0.36, 0.28], s: [0.24, 0.09, 0.2], sh: 'smooth' });
           ramp(moss, 0x3f6b34, 0x74a854, 0.28, 0.46, { seed: vs + 4 });
           pieces.push(moss);
           pieces.push(...tuftPieces(r2, { n: 4, R: 0.7, seed: vs + 5 }));
@@ -1629,12 +2227,12 @@ export function buildProps(zone, heightAt) {
           const lintel2 = piece(boxG(1.15, 0.56, 0.74), { t: [1.22, 3.22, 0], r: [0, 0, -0.09], jit: 0.035, jseed: vs + 9 });
           ramp(lintel2, 0x8d8a80, 0xb0aca0, 2.9, 3.5, { noise: 0.05, seed: vs + 9 });
           pieces.push(lintel2);
-          const moss = piece(icoG(1, 1), { t: [-1.5, 3.58, 0.15], s: [0.38, 0.13, 0.28], jit: 0.14, jseed: vs + 5 });
+          const moss = piece(lobeG(1, Math.abs(Math.round(vs + 5)) % 97, 0.22), { t: [-1.5, 3.58, 0.15], s: [0.38, 0.13, 0.28], sh: 'smooth' });
           ramp(moss, 0x3f6b34, 0x74a854, 3.45, 3.75, { seed: vs + 5 });
           pieces.push(moss);
           for (const s of [-1, 1]) { // rubble at the feet
-            const rub = piece(icoG(1, 1), {
-              t: [s * 1.85, 0.14, 0.35 * s], s: [0.26, 0.16, 0.22], r: [0, r2() * TAU, 0], jit: 0.16, jseed: vs + s + 20,
+            const rub = piece(rockG(1, Math.abs(Math.round(vs + s + 20)) % 61), {
+              t: [s * 1.85, 0.06, 0.35 * s], s: [0.28, 0.2, 0.24], r: [0, r2() * TAU, 0], sh: 'soft',
             });
             ramp(rub, 0x7d7a70, 0xa19e93, 0, 0.32, { seed: vs + s });
             pieces.push(rub);
@@ -1667,12 +2265,12 @@ export function buildProps(zone, heightAt) {
             x += w + 0.15 + r2() * 0.35;
             i++;
           }
-          const moss = piece(icoG(1, 1), { t: [0.6, 1.3, 0.2], s: [0.42, 0.15, 0.28], jit: 0.14, jseed: vs + 9 });
+          const moss = piece(lobeG(1, Math.abs(Math.round(vs + 9)) % 97, 0.22), { t: [0.6, 1.3, 0.2], s: [0.42, 0.15, 0.28], sh: 'smooth' });
           ramp(moss, 0x3f6b34, 0x74a854, 1.18, 1.48, { seed: vs + 9 });
           pieces.push(moss);
           for (const s of [-1, 1]) { // tumbled blocks at the wall feet
-            const rub = piece(icoG(1, 0), {
-              t: [s * (1.5 + r2() * 0.5), 0.13, 0.5 + r2() * 0.3], s: [0.24, 0.15, 0.2], r: [0, r2() * TAU, 0], jit: 0.1, jseed: vs + s + 30,
+            const rub = piece(rockG(1, Math.abs(Math.round(vs + s + 30)) % 61), {
+              t: [s * (1.5 + r2() * 0.5), 0.05, 0.5 + r2() * 0.3], s: [0.26, 0.18, 0.22], r: [0, r2() * TAU, 0], sh: 'soft',
             });
             ramp(rub, 0x7d7a70, 0x9e9a8e, 0, 0.3, { seed: vs + s + 3 });
             pieces.push(rub);
@@ -1724,10 +2322,10 @@ export function buildProps(zone, heightAt) {
           const cuff = piece(cylG(0.145, 0.13, 0.2, 6), { t: [0.72, 2.52, 0.44], r: [0.5, 0, -0.5] });
           tintG(cuff, 0xc2bfb4, 0.04, vs + 8);
           pieces.push(cuff);
-          const moss = piece(icoG(1, 1), { t: [-0.55, 0.36, 0.5], s: [0.3, 0.11, 0.24], jit: 0.14, jseed: vs + 9 });
+          const moss = piece(lobeG(1, Math.abs(Math.round(vs + 9)) % 97, 0.22), { t: [-0.55, 0.36, 0.5], s: [0.3, 0.11, 0.24], sh: 'smooth' });
           ramp(moss, 0x3f6b34, 0x74a854, 0.28, 0.48, { seed: vs + 9 });
           pieces.push(moss);
-          const moss2 = piece(icoG(1, 1), { t: [0.5, 0.68, -0.4], s: [0.2, 0.08, 0.18], jit: 0.14, jseed: vs + 10 });
+          const moss2 = piece(lobeG(1, Math.abs(Math.round(vs + 10)) % 97, 0.22), { t: [0.5, 0.68, -0.4], s: [0.2, 0.08, 0.18], sh: 'smooth' });
           ramp(moss2, 0x466e38, 0x78a856, 0.62, 0.78, { seed: vs + 10 });
           pieces.push(moss2);
           pieces.push(...tuftPieces(r2, { n: 5, R: 1.05, seed: vs + 11 }));
@@ -1758,9 +2356,9 @@ export function buildProps(zone, heightAt) {
             const main = i === 0;
             const a = r2() * TAU;
             const s = main ? 0.9 : 0.35 + r2() * 0.3;
-            const b = piece(icoG(1, 1), {
+            const b = piece(lobeG(1, Math.abs(Math.round(vs + i)) % 97, 0.22), {
               t: [main ? 0 : Math.cos(a) * 0.7, s * 0.28, main ? 0 : Math.sin(a) * 0.7],
-              s: [s, s * 0.34, s * (0.85 + r2() * 0.3)], r: [0, r2() * TAU, 0], jit: 0.1, jseed: vs + i,
+              s: [s, s * 0.34, s * (0.85 + r2() * 0.3)], r: [0, r2() * TAU, 0], sh: 'smooth',
             });
             ramp(b, 0xcdd8e6, 0xfafdff, 0, s * 0.55, { noise: 0.02, seed: vs + i });
             pieces.push(b);
@@ -1903,19 +2501,370 @@ export function buildProps(zone, heightAt) {
     dock: {
       variants: 1, collider: 0, ground: 'water', faceWater: true,
       surface: 'wood', surfaceRect: [1.0, 2.4], surfaceOff: [0, 2.3], // boards run +z from the shore
-
       make: (rng) => {
-        const parts = [];
-        for (let i = 0; i < 6; i++) {
-          parts.push(P(boxG(1.7, 0.1, 0.72), SOLID, i % 2 ? 0x8a6a48 : 0x94765a, [0, 0.35, 0.4 + i * 0.75]));
-        }
-        for (let i = 0; i < 3; i++) {
-          for (const s of [-1, 1]) {
-            parts.push(P(cylG(0.08, 0.1, 1.1, 6), SOLID, 0x6b4a33, [s * 0.78, -0.1, 0.55 + i * 1.75]));
+        const vs = Math.floor(rng() * 1e6);
+        const g = merged(`dockM${vs}`, () => {
+          const r2 = seededRandom(vs + 1);
+          const out = [];
+          for (let i = 0; i < 7; i++) {
+            const pl = piece(rboxG(1.72, 0.1, 0.62, 0.025, 1), { t: [(r2() - 0.5) * 0.06, 0.35, 0.35 + i * 0.68], r: [0, (r2() - 0.5) * 0.04, (r2() - 0.5) * 0.02] });
+            ramp(pl, i % 2 ? 0x8a6a48 : 0x967658, i % 2 ? 0xb08a60 : 0xbc9868, 0.3, 0.4, { noise: 0.03, seed: vs + i, lift: 0.2 });
+            out.push(pl);
           }
-        }
-        parts.push(P(boxG(0.09, 0.5, 0.09), SOLID, 0x6b4a33, [0.7, 0.62, 4.1]));
-        return parts;
+          for (let i = 0; i < 3; i++) {
+            for (const sd of [-1, 1]) {
+              const post = piece(cylG(0.08, 0.1, 1.4, 8), { t: [sd * 0.8, 0.0, 0.5 + i * 1.8], sh: 'smooth' });
+              ramp(post, 0x3f3226, 0x6b4a33, -0.7, 0.7, { seed: vs + i + sd, lift: 0.2 });
+              out.push(post);
+            }
+          }
+          const bollard = piece(cylG(0.09, 0.1, 0.5, 8), { t: [0.72, 0.62, 4.5], sh: 'smooth' });
+          tintG(bollard, 0x5e4630, 0.03, vs, 0.2);
+          out.push(bollard);
+          const coil = piece(geo('ropeCoil', () => new THREE.TorusGeometry(0.16, 0.05, 6, 12)), { t: [-0.5, 0.45, 3.9], r: [Math.PI / 2, 0, 0], sh: 'smooth' });
+          tintG(coil, 0xc8a878, 0.03, vs, 0.2);
+          out.push(coil);
+          return out;
+        });
+        const gl = merged(`dockL${vs}`, () => [piece(rboxG(0.16, 0.22, 0.16, 0.04, 1), { t: [0.72, 1.02, 4.5] })]);
+        return [V(g, SOLID_V, [0.06, 0.03]), P(gl, LAMP_GLASS, 0xffe2b0, [0, 0, 0], 1, [0, 0, 0], 0, false)];
+      },
+    },
+    // ------------------------------------------------ v2 composition kinds
+    tree_cluster: {
+      // a merged grove of 3-5 trees: edge framing / dense tree lines
+      variants: 4, collider: 2.0, noCluster: true,
+      make: (rng) => {
+        const vs = Math.floor(rng() * 1e6);
+        const g = merged(`tclM${vs}`, () => {
+          const r2 = seededRandom(vs + 1);
+          const out = [];
+          const n = 3 + Math.floor(r2() * 3);
+          for (let t = 0; t < n; t++) {
+            const a = (t / n) * TAU + r2() * 0.8, rad = t === 0 ? 0 : 2.0 + r2() * 1.4;
+            const tx = Math.cos(a) * rad, tz = Math.sin(a) * rad;
+            const sc = 0.85 + r2() * 0.55;
+            const birch = r2() > 0.72;
+            const tr = trunkG({ h: 2.1 * sc, r0: (birch ? 0.15 : 0.28) * sc, r1: 0.1 * sc, lean: (r2() - 0.5) * 0.15, flare: 0.6, seed: vs + t, segs: 7 });
+            tr.translate(tx, 0, tz);
+            ramp(tr, birch ? 0xc4bdad : 0x684a2f, birch ? 0xf0ebdc : 0x9a7852, 0, 2.1 * sc, { noise: 0.03, seed: vs + t });
+            out.push(tr);
+            const cn = canopyPieces(r2, { k: 5, cy: 2.7 * sc, R: 1.35 * sc, spread: 0.8, squash: 0.82, seed: vs + t * 7, detail: 1, amp: 0.18 });
+            for (const c of cn.pieces) c.translate(tx, 0, tz);
+            const hue = r2();
+            if (birch) paintCanopy(cn, 0x659e44, 0xc8e886, { seed: vs + t, sun: 0xf0f8a4 });
+            else if (hue > 0.8) paintCanopy(cn, 0x5a7e30, 0xc2d45e, { seed: vs + t, sun: 0xf2eea0 }); // olive-gold crown
+            else paintCanopy(cn, 0x3f7c38, lerpColorHex(0x9ed262, 0xb2e070, hue), { seed: vs + t, sun: 0xe2f48e });
+            out.push(...cn.pieces);
+          }
+          return out;
+        });
+        return [V(g, FOLIAGE2_V, [0.08, 0.07]), shadowP(4.2)];
+      },
+    },
+    pine_cluster: {
+      variants: 3, collider: 1.9, noCluster: true,
+      make: (rng) => {
+        const vs = Math.floor(rng() * 1e6);
+        const g = merged(`pclM${vs}`, () => {
+          const r2 = seededRandom(vs + 1);
+          const out = [];
+          const n = 3 + Math.floor(r2() * 3);
+          for (let t = 0; t < n; t++) {
+            const a = (t / n) * TAU + r2() * 0.8, rad = t === 0 ? 0 : 1.7 + r2() * 1.3;
+            const tx = Math.cos(a) * rad, tz = Math.sin(a) * rad, sc = 0.9 + r2() * 0.7;
+            const tr = trunkG({ h: 1.5 * sc, r0: 0.22 * sc, r1: 0.09 * sc, lean: 0, flare: 0.5, seed: vs + t });
+            tr.translate(tx, 0, tz);
+            ramp(tr, 0x5a3f24, 0x85613f, 0, 1.5 * sc, { noise: 0.03, seed: vs + t });
+            out.push(tr);
+            let y = 1.1 * sc, r = 1.3 * sc;
+            for (let i = 0; i < 4; i++) {
+              const h = (1.45 - i * 0.16) * sc;
+              const tier = piece(coneG(1, 1, 10), { t: [tx, y + h / 2, tz], s: [r, h, r], r: [0, r2() * TAU, 0], sh: 'soft' });
+              ramp(tier, 0x2f6a45, 0x79c276, y, y + h, { noise: 0.03, seed: vs + t + i, lift: 0.18 });
+              out.push(tier);
+              y += h * 0.6; r *= 0.72;
+            }
+          }
+          return out;
+        });
+        return [V(g, FOLIAGE2_V, [0.08, 0.05]), shadowP(3.6)];
+      },
+    },
+    hedge: {
+      // clipped garden hedge, 2.4 m long, soft lumpy top
+      variants: 2, collider: 0.75,
+      make: (rng) => {
+        const vs = Math.floor(rng() * 1e6);
+        const g = merged(`hedgeM${vs}`, () => {
+          const r2 = seededRandom(vs + 1);
+          const out = [];
+          for (let i = 0; i < 4; i++) {
+            const lg = piece(lobeG(1, (vs + i) % 97, 0.1), { t: [-0.9 + i * 0.6, 0.52, (r2() - 0.5) * 0.06], s: [0.52, 0.56, 0.46], sh: 'smooth' });
+            out.push(lg);
+          }
+          const cn = { pieces: out, lo: 0, hi: 1.1 };
+          const c = new THREE.Vector3(0, 0.1, 0);
+          for (const pc of out) sphericalNormals(pc, { center: c, blend: 0.45 });
+          paintCanopy(cn, 0x3c7434, 0x86c254, { seed: vs, sun: 0xcfe888, lobeVar: 0.04 });
+          return out;
+        });
+        return [V(g, FOLIAGE2_V, [0.06, 0.04]), shadowP(1.4, 0.04)];
+      },
+    },
+    planter: {
+      // clay pot or wooden tub bursting with flowers
+      variants: 3, collider: 0.35,
+      make: (rng, v) => {
+        const vs = Math.floor(rng() * 1e6);
+        const vi = (v ?? 0) % 3;
+        const g = merged(`plantM${vs}`, () => {
+          const r2 = seededRandom(vs + 1);
+          const out = [];
+          if (vi === 1) {
+            const tub = piece(cylG(0.36, 0.3, 0.46, 12), { t: [0, 0.23, 0], sh: 'crease' });
+            ramp(tub, 0x6f5138, 0x9a7a55, 0, 0.46, { noise: 0.03, seed: vs, lift: 0.3 });
+            out.push(tub);
+            for (const y of [0.1, 0.36]) {
+              const hoop = piece(cylG(0.37, 0.37, 0.04, 12), { t: [0, y, 0] });
+              tintG(hoop, 0x4e4a44, 0.02, vs + y, 0.2);
+              out.push(hoop);
+            }
+          } else {
+            const pot = piece(cylG(0.3, 0.2, 0.44, 12), { t: [0, 0.22, 0], sh: 'smooth' });
+            ramp(pot, 0xa2502e, 0xd4784a, 0, 0.44, { noise: 0.03, seed: vs, lift: 0.3 });
+            out.push(pot);
+            const lip = piece(geo('potLip', () => new THREE.TorusGeometry(0.3, 0.045, 6, 14)), { t: [0, 0.44, 0], r: [Math.PI / 2, 0, 0], sh: 'smooth' });
+            tintG(lip, 0xc86a40, 0.02, vs, 0.2);
+            out.push(lip);
+          }
+          const bush = piece(lobeG(1, vs % 97, 0.16), { t: [0, 0.6, 0], s: [0.34, 0.26, 0.34], sh: 'smooth' });
+          tintG(bush, 0x4f8c42, 0.03, vs, 0.1);
+          out.push(bush);
+          const cols = [[0xff8aa0, 0xfff4f8], [0xffd24a, 0xff9f5a], [0xc8a0ff, 0xfff4f8]][vi];
+          for (let i = 0; i < 11; i++) {
+            const a = r2() * TAU, b = r2() * 1.2;
+            const f = piece(sphereG(1, 6, 4), { t: [Math.sin(b) * Math.cos(a) * 0.3, 0.64 + Math.cos(b) * 0.2, Math.sin(b) * Math.sin(a) * 0.3], s: 0.06, sh: 'smooth' });
+            tintG(f, cols[i % 2], 0.02, vs + i, 0.05);
+            out.push(f);
+          }
+          return out;
+        });
+        return [V(g, SOLID_V, [0.05, 0.04]), shadowP(0.5, 0.04)];
+      },
+    },
+    flower_bed: {
+      // tended garden bed: low stone border, dark soil, rows of blooms
+      variants: 3, collider: 0, noPathAvoid: false,
+      make: (rng, v) => {
+        const vs = Math.floor(rng() * 1e6);
+        const vi = (v ?? 0) % 3;
+        const g = merged(`fbedM${vs}`, () => {
+          const r2 = seededRandom(vs + 1);
+          const out = [];
+          const soil = piece(rboxG(2.4, 0.16, 1.2, 0.06, 1), { t: [0, 0.04, 0] });
+          tintG(soil, 0x5e4630, 0.04, vs, 0.1);
+          out.push(soil);
+          for (let i = 0; i < 12; i++) { // border stones
+            const u = i / 12;
+            const px = u < 0.5 ? -1.25 + u * 2 * 2.5 : 1.25 - (u - 0.5) * 2 * 2.5;
+            const pz = u < 0.5 ? 0.66 : -0.66;
+            const st = piece(rockG(1, (vs + i) % 61), { t: [px, 0.06, pz], s: [0.16, 0.12, 0.13], r: [0, r2() * TAU, 0], sh: 'soft' });
+            paintStone(st, 0x8a867c, 0xbcb8ac, -0.05, 0.2, vs + i);
+            out.push(st);
+          }
+          const rows = [[0xff8aa0, 0xfff4f8, 0xffd24a], [0xc8a0ff, 0xff9fb0, 0xfff4f8], [0xffd24a, 0xff9f5a, 0xe8604e]][vi];
+          for (let rI = 0; rI < 2; rI++) for (let i = 0; i < 7; i++) {
+            const x = -0.95 + i * 0.32 + (r2() - 0.5) * 0.08, z = rI ? 0.25 : -0.25;
+            const leaf = piece(lobeG(1, (vs + i * 3 + rI) % 97, 0.18), { t: [x, 0.2, z], s: [0.17, 0.13, 0.17], sh: 'smooth' });
+            tintG(leaf, 0x4f8c42, 0.03, vs + i, 0.1);
+            out.push(leaf);
+            for (let k = 0; k < 3; k++) {
+              const f = piece(sphereG(1, 6, 4), { t: [x + (r2() - 0.5) * 0.2, 0.3 + r2() * 0.06, z + (r2() - 0.5) * 0.2], s: 0.055, sh: 'smooth' });
+              tintG(f, rows[(i + k + rI) % 3], 0.02, vs + i * 5 + k, 0.05);
+              out.push(f);
+            }
+          }
+          return out;
+        });
+        return [V(g, FOLIAGE2_V, [0.05, 0.04])];
+      },
+    },
+    signpost: {
+      variants: 1, collider: 0.2,
+      make: (rng) => {
+        const vs = Math.floor(rng() * 1e6);
+        const g = merged(`signM${vs}`, () => {
+          const out = [];
+          const post = piece(rboxG(0.12, 2.0, 0.12, 0.03, 1), { t: [0, 1.0, 0] });
+          ramp(post, 0x6a4c33, 0x94704a, 0, 2.0, { noise: 0.03, seed: vs, lift: 0.25 });
+          out.push(post);
+          const cap = piece(coneG(0.1, 0.12, 4), { t: [0, 2.06, 0], r: [0, Math.PI / 4, 0], sh: 'flat' });
+          tintG(cap, 0x5a4029, 0.02, vs, 0.2);
+          out.push(cap);
+          for (const [y, ry, len] of [[1.72, 0.35, 0.9], [1.42, -0.5, 0.8], [1.12, 2.4, 0.7]]) {
+            const board = piece(rboxG(len, 0.22, 0.05, 0.03, 1), {});
+            board.translate(len / 2 - 0.05, 0, 0);
+            const tipG = piece(coneG(0.13, 0.16, 3), { r: [0, 0, -Math.PI / 2], s: [1, 1, 0.3] });
+            tipG.translate(len + 0.02, 0, 0);
+            for (const b of [board, tipG]) { b.rotateY(ry); b.translate(0, y, 0); }
+            ramp(board, 0xc8a878, 0xe0c898, y - 0.1, y + 0.1, { noise: 0.03, seed: vs + y * 9, lift: 0.2 });
+            tintG(tipG, 0xc8a878, 0.02, vs, 0.2);
+            out.push(board, tipG);
+          }
+          return out;
+        });
+        return [V(g, SOLID_V, [0.05, 0.03]), shadowP(0.4, 0.04)];
+      },
+    },
+    bunting: {
+      // a sagging string of pennants between two slim poles, 9 m span
+      variants: 2, collider: 0, noPathAvoid: true,
+      make: (rng, v) => {
+        const vs = Math.floor(rng() * 1e6);
+        const span = 9, H = 4.2;
+        const poles = merged(`bunP${vs}`, () => {
+          const out = [];
+          for (const sd of [-1, 1]) {
+            const p = piece(cylG(0.05, 0.07, H + 0.2, 7), { t: [sd * span / 2, (H + 0.2) / 2, 0], sh: 'smooth' });
+            ramp(p, 0x6a4c33, 0x94704a, 0, H, { seed: vs + sd, lift: 0.25 });
+            out.push(p);
+            const knob = piece(sphereG(1, 7, 5), { t: [sd * span / 2, H + 0.24, 0], s: 0.08 });
+            tintG(knob, 0xd8b460, 0.02, vs, 0.1);
+            out.push(knob);
+          }
+          return out;
+        });
+        const flags = merged(`bunF${vs}`, () => {
+          const out = [];
+          const cols = (v ?? 0) % 2 ? [0xe8604e, 0xffd24a, 0x4f8fd0, 0xfff4f8, 0x6aba58] : [0xff8aa0, 0xfff0a8, 0x8ac8f0, 0xc8a0ff, 0xfff4f8];
+          const n = 14;
+          const sag = (u) => H - 0.1 - Math.sin(u * Math.PI) * 0.7;
+          for (let i = 0; i <= n * 3; i++) { // the string (short smooth segments)
+            const u0 = i / (n * 3), u1 = (i + 1) / (n * 3);
+            if (u1 > 1) break;
+            const x0 = (u0 - 0.5) * span, x1 = (u1 - 0.5) * span, y0 = sag(u0), y1 = sag(u1);
+            const seg = piece(cylG(0.012, 0.012, 1, 4), {
+              t: [(x0 + x1) / 2, (y0 + y1) / 2, 0], s: [1, Math.hypot(x1 - x0, y1 - y0), 1], r: [0, 0, Math.atan2(x1 - x0, y1 - y0) * -1 + 0],
+            });
+            tintG(seg, 0xe8e0d0, 0.01, vs, 0);
+            out.push(seg);
+          }
+          for (let i = 0; i < n; i++) {
+            const u = (i + 0.5) / n;
+            const x = (u - 0.5) * span, y = sag(u);
+            const f = piece(geo('pennant', () => {
+              const gg = new THREE.BufferGeometry();
+              const pos = [-0.17, 0, 0, 0, -0.42, 0, 0.17, 0, 0, 0.17, 0, 0, 0, -0.42, 0, -0.17, 0, 0];
+              gg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+              gg.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(12), 2));
+              gg.computeVertexNormals();
+              return gg;
+            }), { t: [x, y, 0], r: [0, 0, 0] });
+            tintG(f, cols[i % cols.length], 0.02, vs + i, 0);
+            out.push(f);
+          }
+          return out;
+        });
+        return [V(poles, SOLID_V, [0.04, 0.02]), { ...V(flags, FLAG_V, [0.05, 0.03]), shadow: false }];
+      },
+    },
+    path_lantern: {
+      // a short stake with a paper lantern — warm dots along lanes at night
+      variants: 1, collider: 0, noPathAvoid: true,
+      make: (rng) => {
+        const vs = Math.floor(rng() * 1e6);
+        const g = merged(`plM${vs}`, () => {
+          const out = [];
+          const stake = piece(cylG(0.035, 0.045, 1.2, 6), { t: [0, 0.6, 0], sh: 'smooth' });
+          ramp(stake, 0x5a4029, 0x7d5c3d, 0, 1.2, { seed: vs, lift: 0.25 });
+          out.push(stake);
+          const hook = piece(rboxG(0.3, 0.04, 0.04, 0.015, 1), { t: [0.12, 1.2, 0] });
+          tintG(hook, 0x4a3522, 0.02, vs, 0.2);
+          out.push(hook);
+          const cap = piece(coneG(0.13, 0.08, 10), { t: [0.24, 1.12, 0], sh: 'smooth' });
+          tintG(cap, 0x3a2e28, 0.02, vs, 0.1);
+          out.push(cap);
+          return out;
+        });
+        const gl = merged(`plG${vs}`, () => [piece(sphereG(1, 10, 7), { t: [0.24, 0.98, 0], s: [0.12, 0.15, 0.12] })]);
+        return [V(g, SOLID_V, [0.04, 0.02]), P(gl, LAMP_GLASS, 0xffc890, [0, 0, 0], 1, [0, 0, 0], 0, false)];
+      },
+    },
+    bench: {
+      variants: 1, collider: 0.6,
+      make: (rng) => {
+        const vs = Math.floor(rng() * 1e6);
+        const g = merged(`benchM${vs}`, () => {
+          const out = [];
+          for (const z of [-0.12, 0.12]) {
+            const slat = piece(rboxG(1.6, 0.06, 0.2, 0.025, 1), { t: [0, 0.46, z] });
+            ramp(slat, 0x96704a, 0xbc946a, 0.4, 0.5, { noise: 0.03, seed: vs + z * 9, lift: 0.2 });
+            out.push(slat);
+          }
+          const back = piece(rboxG(1.6, 0.2, 0.05, 0.025, 1), { t: [0, 0.84, -0.26], r: [-0.18, 0, 0] });
+          ramp(back, 0x96704a, 0xbc946a, 0.74, 0.94, { noise: 0.03, seed: vs + 5, lift: 0.2 });
+          out.push(back);
+          for (const sd of [-1, 1]) {
+            const leg = piece(rboxG(0.08, 0.46, 0.46, 0.025, 1), { t: [sd * 0.68, 0.23, 0] });
+            tintG(leg, 0x3a3634, 0.02, vs + sd, 0.25);
+            out.push(leg);
+            const up = piece(rboxG(0.07, 0.5, 0.07, 0.02, 1), { t: [sd * 0.68, 0.7, -0.24], r: [-0.18, 0, 0] });
+            tintG(up, 0x3a3634, 0.02, vs + sd * 3, 0.25);
+            out.push(up);
+          }
+          return out;
+        });
+        return [V(g, SOLID_V, [0.05, 0.03]), shadowP(0.9, 0.04)];
+      },
+    },
+    woodpile: {
+      variants: 2, collider: 0.7,
+      make: (rng) => {
+        const vs = Math.floor(rng() * 1e6);
+        const g = merged(`wpM${vs}`, () => {
+          const r2 = seededRandom(vs + 1);
+          const out = [];
+          const rows = [5, 4, 3];
+          rows.forEach((n, ry) => {
+            for (let i = 0; i < n; i++) {
+              const x = (i - (n - 1) / 2) * 0.26, y = 0.12 + ry * 0.21;
+              const lg = piece(cylG(0.11, 0.11, 1.1, 8), { t: [x, y, (r2() - 0.5) * 0.08], r: [Math.PI / 2, 0, 0], sh: 'crease' });
+              ramp(lg, 0x6a4a2e, 0x9a7650, y - 0.1, y + 0.1, { noise: 0.03, seed: vs + i + ry * 9, lift: 0.2 });
+              // pale cut ends: color by |z|
+              const col = lg.attributes.color, pos = lg.attributes.position, nrm = lg.attributes.normal;
+              for (let k = 0; k < col.count; k++) if (Math.abs(nrm.getZ(k)) > 0.9) col.setXYZ(k, 0.86, 0.72, 0.5);
+              out.push(lg);
+            }
+          });
+          return out;
+        });
+        return [V(g, SOLID_V, [0.06, 0.04]), shadowP(0.8, 0.04)];
+      },
+    },
+    cliff_wall: {
+      // a big weathered rock outcrop (edge framing for rocky zones)
+      variants: 3, collider: 2.6, noCluster: true, sinkY: 0.3,
+      make: (rng) => {
+        const vs = Math.floor(rng() * 1e6);
+        const g = merged(`cliffM${vs}`, () => {
+          const r2 = seededRandom(vs + 1);
+          const out = [];
+          const n = 3 + Math.floor(r2() * 2);
+          for (let i = 0; i < n; i++) {
+            const x = (i - (n - 1) / 2) * 1.9 + (r2() - 0.5) * 0.6;
+            const h = 2.6 + r2() * 2.4, w = 1.4 + r2() * 0.8;
+            const st = piece(rockG(LOD, (vs + i * 5) % 61), {
+              t: [x, h * 0.28, (r2() - 0.5) * 0.9], s: [w, h, w * (0.8 + r2() * 0.4)], r: [0, r2() * TAU, (r2() - 0.5) * 0.12], sh: 'soft',
+            });
+            paintStone(st, 0x6e6a62, 0xa8a398, -0.2, h * 1.1, vs + i);
+            mossify(st, { amount: 0.4, seed: (vs + i) % 89 });
+            out.push(st);
+          }
+          out.push(...tuftPieces(r2, { n: 7, R: 2.8, seed: vs + 9 }));
+          return out;
+        });
+        return [V(g, SOLID_V, [0.06, 0.03]), shadowP(3.6, 0.04)];
       },
     },
     boat: {
@@ -2210,6 +3159,7 @@ export function buildProps(zone, heightAt) {
       if (Math.abs(x) > half - 2 || Math.abs(z) > half - 2) continue;
       const pi = pathInfo(x, z);
       if (!def.noPathAvoid && pi.d < pi.w * 0.5 + 0.6) continue;
+      if (def.collider && !clearFor(def, x, z, (entry.scale ?? 1) * 1.1)) continue; // keep-outs (see clearFor)
       if (def.pathRing && paths.length) {
         // flowers & grass love path edges: probabilistic pull toward the verge
         const verge = pi.d > pi.w * 0.5 + 0.2 && pi.d < pi.w * 0.5 + 2.8;
@@ -2258,7 +3208,7 @@ export function buildProps(zone, heightAt) {
       const bucket = buckets[v];
       if (!bucket.length) continue;
       const brng = seededRandom(seed * 31 + hashStr(kind) + v * 977);
-      const parts = def.make(brng);
+      const parts = def.make(brng, v);
       // Pre-bake local matrices once per part.
       const locals = parts.map((p) => {
         const sc = typeof p.scl === 'number' ? [p.scl, p.scl, p.scl] : p.scl;
@@ -2326,14 +3276,99 @@ export function buildProps(zone, heightAt) {
     }
   }
 
+  // ------------------------------------------------------------- keep-outs
+  // Generated colliding props (scatter / border / line / ring) must never
+  // crowd the walkable skeleton: they keep >= CLEAR m from every path edge,
+  // portal ring, NPC, interactable, the zone spawn and every portal arrival
+  // point other zones drop the player at. Hand-placed `at:` props are
+  // authored compositions and are audited separately.
+  const CLEAR = 3;
+  const keepOut = [];
+  for (const p of zone.portals ?? []) keepOut.push([p.at[0], p.at[1], (p.radius ?? 3) + CLEAR]);
+  for (const n of zone.npcs ?? []) keepOut.push([n.at[0], n.at[1], CLEAR]);
+  for (const it of zone.interactables ?? []) keepOut.push([it.at[0], it.at[1], CLEAR]);
+  if (zone.spawn) keepOut.push([zone.spawn[0], zone.spawn[1], CLEAR + 1]);
+  try {
+    for (const oz of Object.values(ZONES)) for (const p of oz.portals ?? []) {
+      if (p.to === zone.id && p.spawn) keepOut.push([p.spawn[0], p.spawn[1], CLEAR + 2]);
+    }
+  } catch (e) { /* gallery / partial worlds */ }
+  const portalSet = (zone.portals ?? []).map((p) => [p.at[0], p.at[1]]);
+  function clearFor(def, x, z, s) {
+    const r = (def.collider ?? 0) * s;
+    if (!r) return true;
+    for (const [kx, kz, kr] of keepOut) {
+      const d = kr + r;
+      if ((x - kx) ** 2 + (z - kz) ** 2 < d * d) return false;
+    }
+    if (paths.length) {
+      const pi = pathInfo(x, z);
+      if (pi.d < pi.w * 0.5 + Math.max(CLEAR - 0.5, r + 1.5)) return false;
+    }
+    return true;
+  }
+
+  // Edge framing: rings of instances walking the square zone border, inset
+  // from the terrain edge, with wide gaps where portals open the border.
+  //   border: { inset=6, step=8, rows=1, rowGap=step*0.85, jitter=step*0.3, gap=14 }
+  function borderPositions(entry, def, rngS) {
+    const b = entry.border;
+    const inset = b.inset ?? 6, step = b.step ?? 8, rows = b.rows ?? 1;
+    const rowGap = b.rowGap ?? step * 0.85, jit = b.jitter ?? step * 0.3, gap = b.gap ?? 14;
+    const out = [];
+    for (let r = 0; r < rows; r++) {
+      const d = half - inset - r * rowGap;
+      if (d < 10) break;
+      const side = 2 * d, n = Math.max(4, Math.floor((4 * side) / step));
+      for (let i = 0; i < n; i++) {
+        const u = ((i + (r % 2) * 0.5 + rngS() * 0.2) / n) * 4 * side;
+        const edge = Math.floor(u / side), t = u - edge * side - d;
+        let x = edge === 0 ? t : edge === 1 ? d : edge === 2 ? -t : -d;
+        let z = edge === 0 ? -d : edge === 1 ? t : edge === 2 ? d : -t;
+        x += (rngS() - 0.5) * jit; z += (rngS() - 0.5) * jit;
+        if (Math.abs(x) > half - 1 || Math.abs(z) > half - 1) continue;
+        if (portalSet.some(([px, pz]) => Math.hypot(x - px, z - pz) < gap)) continue;
+        if (inWater(x, z)) continue;
+        out.push([x, z]);
+      }
+    }
+    return out;
+  }
+  // Evenly spaced along a segment: line: [[x0,z0],[x1,z1]], step, jitter;
+  // align:true yaws each instance along the line (fences, hedges).
+  function linePositions(entry) {
+    const [[x0, z0], [x1, z1]] = entry.line;
+    const L = Math.hypot(x1 - x0, z1 - z0), step = entry.step ?? 3;
+    const n = Math.max(1, Math.floor(L / step) + 1);
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const u = n === 1 ? 0.5 : i / (n - 1);
+      out.push([x0 + (x1 - x0) * u, z0 + (z1 - z0) * u]);
+    }
+    return { pts: out, yaw: Math.atan2(x1 - x0, z1 - z0) - Math.PI / 2 };
+  }
+  // Around a circle: ring: [cx, cz, r], count; align 'center' faces inward.
+  function ringPositions(entry) {
+    const [cx, cz, r] = entry.ring;
+    const n = entry.count ?? 8, a0 = entry.startAngle ?? 0;
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const a = a0 + (i / n) * TAU;
+      out.push([cx + Math.cos(a) * r, cz + Math.sin(a) * r, a]);
+    }
+    return out;
+  }
+
   // ------------------------------------------------------------- run placement
   const byKindScatter = new Map(); // kind -> [{x,z,y,yaw,s,...}]
   const byKindSingle = new Map();
+  let dropped = 0;
 
   for (const entry of (zone.props ?? [])) {
     const def = KINDS[entry.kind];
     if (!def) { warnOnce(`unknown prop kind "${entry.kind}" — skipped`); continue; }
-    const eRng = seededRandom(seed * 13 + hashStr(entry.kind) + Math.round((entry.at?.[0] ?? entry.area?.[0] ?? 0) * 7));
+    const eRng = seededRandom(seed * 13 + hashStr(entry.kind) + Math.round((entry.at?.[0] ?? entry.area?.[0] ?? entry.line?.[0]?.[0] ?? entry.ring?.[0] ?? 0) * 7)
+      + Math.round((entry.at?.[1] ?? entry.area?.[1] ?? entry.line?.[0]?.[1] ?? entry.ring?.[1] ?? 0) * 3) + (entry.border ? 911 : 0));
     if (entry.at) {
       const [x, z] = entry.at;
       const s = (entry.scale ?? 1);
@@ -2345,23 +3380,41 @@ export function buildProps(zone, heightAt) {
       };
       if (!byKindSingle.has(entry.kind)) byKindSingle.set(entry.kind, []);
       byKindSingle.get(entry.kind).push(pl);
-    } else {
-      const pts = scatterPositions(entry, def, eRng);
-      const list = byKindScatter.get(entry.kind) ?? [];
-      for (const [x, z] of pts) {
-        const s = (entry.scale ?? 1) * (0.8 + eRng() * 0.5);
-        list.push({
-          x, z, y: placementY(entry.kind, def, x, z, eRng),
-          yaw: yawFor(entry, def, x, z, eRng), s,
-          sy: s * (1 + (eRng() - 0.5) * 0.14),
-          hueJ: (eRng() - 0.5) * 2, lumJ: (eRng() - 0.5) * 2,
-        });
-      }
-      byKindScatter.set(entry.kind, list);
+      continue;
     }
+    // generated placements: [x, z, yawOverride?]
+    let pts;
+    let lineYaw = null;
+    if (entry.border) pts = borderPositions(entry, def, eRng);
+    else if (entry.line) { const L = linePositions(entry); pts = L.pts; lineYaw = L.yaw; }
+    else if (entry.ring) pts = ringPositions(entry);
+    else {
+      pts = scatterPositions(entry, def, eRng);
+      // tiny ground dressing thins on lower quality tiers
+      if (SMALL_MUL < 1 && !def.collider) pts = pts.filter(() => eRng() < SMALL_MUL);
+    }
+    const list = byKindScatter.get(entry.kind) ?? [];
+    const sVar = entry.scaleVar ?? (entry.line || entry.ring ? 0.12 : 0.5);
+    for (const p of pts) {
+      let [x, z] = p;
+      if (entry.line || entry.ring) { x += (eRng() - 0.5) * (entry.jitter ?? 0); z += (eRng() - 0.5) * (entry.jitter ?? 0); }
+      const s = (entry.scale ?? 1) * (1 - sVar * 0.4 + eRng() * sVar);
+      if (!clearFor(def, x, z, s)) { dropped++; continue; }
+      let yaw;
+      if (entry.align && lineYaw != null) yaw = lineYaw + (entry.rot ?? 0) + (eRng() - 0.5) * 0.08;
+      else if (entry.align === 'center' && entry.ring) yaw = Math.atan2(entry.ring[0] - x, entry.ring[1] - z) + (entry.rot ?? 0);
+      else yaw = yawFor(entry, def, x, z, eRng);
+      list.push({
+        x, z, y: placementY(entry.kind, def, x, z, eRng), yaw, s,
+        sy: s * (1 + (eRng() - 0.5) * 0.14),
+        hueJ: (eRng() - 0.5) * 2, lumJ: (eRng() - 0.5) * 2,
+      });
+    }
+    byKindScatter.set(entry.kind, list);
   }
   for (const [kind, list] of byKindScatter) realize(kind, list, null, null, false);
   for (const [kind, list] of byKindSingle) realize(kind, list, null, null, true);
+  group.userData.dressing = { dropped, keepOut: keepOut.length };
 
   // ------------------------------------------------------------- master updater
   let T = Math.random() * 100;
@@ -2371,12 +3424,15 @@ export function buildProps(zone, heightAt) {
       const p = pulseMats[i];
       p.m.emissiveIntensity = p.base + Math.sin(T * p.speed + p.phase) * p.amp * p.base;
     }
-    const night = 1 - daylight(G.calendar?.dayTime ?? 0.5);
+    const day = daylight(G.calendar?.dayTime ?? 0.5);
+    const night = 1 - day;
     const nightSoft = night * night * (3 - 2 * night);
     for (let i = 0; i < nightMats.length; i++) {
       const nm = nightMats[i];
-      nm.m.emissiveIntensity = nm.base * (0.06 + 0.94 * nightSoft);
+      nm.m.emissiveIntensity = nm.base * (nm.day + (1 - nm.day) * nightSoft);
     }
+    const liftK = 0.3 + 0.7 * day;
+    for (let i = 0; i < liftSets.length; i++) liftSets[i].u.value = liftSets[i].base * liftK;
     for (let i = 0; i < nightLights.length; i++) {
       const nl = nightLights[i];
       nl.light.intensity = nl.base * nightSoft * (0.92 + Math.sin(T * 6 + nl.phase) * 0.08);
@@ -2396,7 +3452,7 @@ export function buildProps(zone, heightAt) {
     }
     geoCache.clear();
     matCache.clear();
-    pulseMats.length = nightMats.length = nightLights.length = pulseLights.length = 0;
+    pulseMats.length = nightMats.length = nightLights.length = pulseLights.length = liftSets.length = 0;
     updaters.length = 0;
     surfacePatches.length = 0;
     group.clear();
