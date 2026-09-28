@@ -69,7 +69,7 @@ export const ZONE = {
     { kind: 'flower_patch', at: [-18, 14], scale: 1.1 },
     { kind: 'flower_patch', at: [-24, -8], scale: 1.1 },
     // — glowfern undergrowth and soft edges —
-    { kind: 'glowfern', density: 0.3, area: [0, 0, 45] },
+    { kind: 'glowfern', density: 0.14, area: [0, 0, 45] },
     { kind: 'fern', density: 0.2, area: [0, 0, 55] },
     { kind: 'grass_tuft', density: 0.35, area: [0, 0, 60] },
     { kind: 'rock_mossy', at: [40, -10] },
