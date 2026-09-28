@@ -69,7 +69,10 @@ const h = {
   page,
   shot: async (name) => {
     const f = join(OUT, `${String(++shotN).padStart(2, '0')}-${name}.png`);
-    await page.screenshot({ path: f });
+    // Heavy zones at 1600x900 High can take >30 s for one frame under software
+    // GL — give the capture room, and retry once before failing the driver.
+    try { await page.screenshot({ path: f, timeout: 120000 }); }
+    catch (e) { console.log(`SHOT RETRY ${name}: ${String(e.message).split('\n')[0]}`); await page.screenshot({ path: f, timeout: 180000 }); }
     console.log(`SHOT ${f}`);
   },
   sleep: (ms) => page.waitForTimeout(ms),

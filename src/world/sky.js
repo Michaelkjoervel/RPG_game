@@ -77,7 +77,7 @@ const MOODS = {
   dawnmeadow:    { name: 'fresh spring gold',    key: 0xffd79a, keyI: 1.05, fillI: 1.0,  shadow: 0x84a0d4, bounce: 0xbcc88c, warmth: 0.35, fogTint: 0xd2e8c4, fogTintAmt: 0.35, fogMul: 0.95 },
   // haze/midMix: the forest horizon is a luminous green-gold haze under a
   // clear teal sky — the v1 values washed the band above the canopy to gray.
-  whisperwood:   { name: 'green-gold shafts',    key: 0xf0d878, keyI: 1.15, fillI: 0.72, shadow: 0x4a6a58, bounce: 0x84a068, warmth: 0.6,  haze: 0.08, midMix: 0.14, fogTint: 0x94b070, fogTintAmt: 0.55, fogMul: 1.2, clouds: 0.8 },
+  whisperwood:   { name: 'green-gold shafts',    key: 0xf0d878, keyI: 1.05, fillI: 1.25, shadowI: 0.55, shadow: 0x86aa98, bounce: 0x84a068, warmth: 0.6,  haze: 0.08, midMix: 0.14, fogTint: 0x94b070, fogTintAmt: 0.55, fogMul: 1.2, clouds: 0.8 },
   mirrorlake:    { name: 'dusk rose',            key: 0xffd8b4, keyI: 1.0,  fillI: 0.95, shadow: 0x8a8cc8, bounce: 0xc4aca4, warmth: 0.3,  duskBias: 0xe8907e, fogTint: 0xdcc0c0, fogTintAmt: 0.4, fogMul: 1.0 },
   skyreach:      { name: 'cold thin blue',       key: 0xd4e4ff, keyI: 0.92, fillI: 0.85, shadow: 0x46536e, bounce: 0x66718a, warmth: 0.05, fogTint: 0x59688a, fogTintAmt: 0.45, fogMul: 1.0, clouds: 1.7 },
   sunkenruins:   { name: 'murky cyan',           key: 0xe8eecc, keyI: 0.95, fillI: 0.85, shadow: 0x5a8a86, bounce: 0x8ca894, warmth: 0.2,  fogTint: 0x76a49c, fogTintAmt: 0.5,  fogMul: 1.1 },
@@ -1151,6 +1151,11 @@ export function createSky(zone, scene) {
   sunLight.shadow.camera.near = 1; sunLight.shadow.camera.far = 70;
   sunLight.shadow.bias = -0.0015;
   sunLight.shadow.normalBias = 0.02;
+  // Shadow strength (three's LightShadow.intensity): 1 = shadowed pixels get
+  // only the ambient fill, which three divides by PI while the sun is not —
+  // on dark biome albedos that reads as black holes. A stylized look keeps
+  // part of the key inside shadows; dense canopy (whisperwood) keeps more.
+  sunLight.shadow.intensity = mood.shadowI ?? 0.75;
   sunLight.shadow.camera.updateProjectionMatrix();
   scene.add(sunLight, sunLight.target);
 
@@ -1166,7 +1171,7 @@ export function createSky(zone, scene) {
   const hemi = new THREE.HemisphereLight(
     indoor ? ind.hemiSky : colors.day.top.getHex(),
     indoor ? ind.hemiGround : colors.day.bottom.getHex(),
-    indoor ? indoorHemiI : 0.5 * fillI,
+    indoor ? indoorHemiI : 0.6 * fillI,
   );
   hemi.name = 'skyHemi';
   scene.add(hemi);
@@ -1309,7 +1314,7 @@ export function createSky(zone, scene) {
       // from 0.44: shadow sides of tall props and canopy undersides were
       // dropping to unreadable cool gray.)
       // (dusk floor 0.4 -> 0.5 in v2: the soft look wants readable dusk grounds)
-      hemi.intensity = Math.max(lerp(0.13, 0.5, dw), 0.5 * clamp01(ddw * 5)) * fillI;
+      hemi.intensity = Math.max(lerp(0.13, 0.6, dw), 0.5 * clamp01(ddw * 5)) * fillI;
 
       if (stars) {
         // zone.ambient.stars / mood.starFloor: permanent-twilight zones

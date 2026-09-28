@@ -351,7 +351,9 @@ vec3 lfGround(vec3 wp, vec3 nrm, float fw, vec4 m, out float grassAmt, out vec3 
   // only where it is really steep — pseudo-triplanar noise (no streaks on
   // walls), strata ledges that catch the light, dark crevices
   float bankT = smoothstep(uGP2.y - 0.04, uGP2.y + 0.02, slope + (n3 - 0.5) * 0.08 + (n4 - 0.5) * 0.03);
-  vec3 bank = mix(uGDirt * 0.78, uGGrassB * 0.72, 0.4 + (n3 - 0.5) * 0.6) * (0.92 + (n4 - 0.5) * 0.14);
+  // Mostly moss over earth, a shade darker than the flats: a pale dirt band
+  // on a steep path cut read as a ghostly smear right in front of the camera.
+  vec3 bank = mix(uGDirt * 0.7, uGGrassB * 0.68, 0.64 + (n3 - 0.5) * 0.5) * (0.9 + (n4 - 0.5) * 0.12);
 #ifndef LF_GROUND_LQ
   if (bankT > 0.0) bank *= 0.88 + 0.24 * lfNoise(vec2(wp.x + wp.z, h * 2.2) * 1.3); // faint erosion streaks
 #endif

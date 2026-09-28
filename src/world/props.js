@@ -204,7 +204,7 @@ export function buildProps(zone, heightAt) {
   const ICE      = std('ice', { rough: 0.35, transparent: true, opacity: 0.85, emissive: 0x9fd4ff, emissiveIntensity: 0.12 });
   const GLOW_CRYSTAL = std('glow_crystal', { emissive: 0x9fe8ff, emissiveIntensity: 0.9, rough: 0.4, pulse: { amp: 0.45, speed: 1.1 } });
   const GLOW_FRUIT  = std('glow_fruit', { emissive: 0xffe9b0, emissiveIntensity: 1.1, rough: 0.5, pulse: { amp: 0.35, speed: 0.8, phase: 1.7 } });
-  const GLOW_FERN   = std('glow_fern', { sway: 0.6, side: THREE.DoubleSide, emissive: 0x59e8c2, emissiveIntensity: 0.85, pulse: { amp: 0.4, speed: 1.4 } });
+  const GLOW_FERN_V = std('glow_fern_v', { sway: 0.6, side: THREE.DoubleSide, vcolor: true, emissive: 0x2fb897, emissiveIntensity: 0.45, pulse: { amp: 0.35, speed: 1.4 }, lift: 0.16 });
   const GLOW_RUNE   = std('glow_rune', { emissive: 0xffe9b0, emissiveIntensity: 0.8, rough: 0.6, pulse: { amp: 0.25, speed: 0.55 } });
   const GLOW_LAVA   = std('glow_lava', { emissive: 0xff5a1f, emissiveIntensity: 1.3, rough: 0.7, pulse: { amp: 0.5, speed: 0.9 } });
   // Windows: a warm pane by day (so glass never reads as a black hole), a
@@ -1463,15 +1463,30 @@ export function buildProps(zone, heightAt) {
       },
     },
     glowfern: {
+      // the fern rosette, lit from within: teal fronds that pulse softly
+      // (one merged mesh per variant, like the plain fern)
       variants: 2, noShadow: true, collider: 0, noPathAvoid: true, cluster: true,
       make: (rng) => {
-        const parts = [];
-        for (let i = 0; i < 6; i++) {
-          const a = (i / 6) * TAU + rng() * 0.5;
-          parts.push(P(planeG(0.14, 0.6), GLOW_FERN, 0x59e8c2,
-            [Math.cos(a) * 0.1, 0.26, Math.sin(a) * 0.1], [1, 0.8 + rng() * 0.4, 1], [-0.55 - rng() * 0.3, -a + Math.PI / 2, 0], 0.1, false));
-        }
-        return parts;
+        const vs = Math.floor(rng() * 1e6);
+        const g = merged(`gfernM${vs}`, () => {
+          const r2 = seededRandom(vs + 1);
+          const pieces = [];
+          const n = 6 + Math.floor(r2() * 3);
+          for (let i = 0; i < n; i++) {
+            const a = (i / n) * TAU + r2() * 0.5;
+            const len = 0.5 + r2() * 0.35;
+            const p = piece(frondG(), {
+              t: [Math.cos(a) * 0.13, len * 0.4, Math.sin(a) * 0.13],
+              s: [1, len, 1], r: [-0.6 - r2() * 0.35, -a + Math.PI / 2, 0], sh: 'smooth',
+            });
+            ramp(p, 0x1d5a52, 0x7af0cf, 0, len * 0.8, { noise: 0.05, seed: vs + i });
+            pieces.push(p);
+          }
+          return pieces;
+        });
+        const p = V(g, GLOW_FERN_V, [0.05, 0.05]);
+        p.shadow = false;
+        return [p];
       },
     },
     grass_tuft: {
@@ -3703,6 +3718,10 @@ export function buildProps(zone, heightAt) {
   for (const entry of (zone.props ?? [])) {
     const def = KINDS[entry.kind];
     if (!def) { warnOnce(`unknown prop kind "${entry.kind}" — skipped`); continue; }
+    // Outdoors, grass.js grows a real wind-swept field; the old tuft props sat
+    // on top of it as brighter, stiffer clumps. They only still make sense on
+    // the bare stone floors of the cave and the spire.
+    if (entry.kind === 'grass_tuft' && !INDOOR) continue;
     const eRng = seededRandom(seed * 13 + hashStr(entry.kind) + Math.round((entry.at?.[0] ?? entry.area?.[0] ?? entry.line?.[0]?.[0] ?? entry.ring?.[0] ?? 0) * 7)
       + Math.round((entry.at?.[1] ?? entry.area?.[1] ?? entry.line?.[0]?.[1] ?? entry.ring?.[1] ?? 0) * 3) + (entry.border ? 911 : 0));
     if (entry.at) {
