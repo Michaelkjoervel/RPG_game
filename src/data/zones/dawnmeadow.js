@@ -148,7 +148,7 @@ export const ZONE = {
   interactables: [
     { kind: 'shrine', at: [-38, 48] },
     { kind: 'chest', at: [-46, 58], item: 'tonic', qty: 2, flag: 'dm_chest1' },
-    { kind: 'chest', at: [72, 46], item: 'woven_charm', qty: 1, flag: 'dm_chest2' },
+    { kind: 'chest', at: [83, 46], item: 'woven_charm', qty: 1, flag: 'dm_chest2' }, // east shore of the pond (was in deep water)
     { kind: 'shard', at: [76, 52], flag: 'dm_shard1', dialogue: 'lore_dm_1' },
   ],
 

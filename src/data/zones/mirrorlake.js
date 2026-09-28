@@ -76,10 +76,12 @@ export const ZONE = {
     { kind: 'house_stilt', at: [72, 84.5], rot: -2.6 },
     { kind: 'house_stilt', at: [86, 64], rot: -1.1 },
     { kind: 'house_stilt', at: [48, 80], rot: 1.9 },
-    { kind: 'boardwalk', at: [69.4, 80.4], rot: 0.54 },
-    { kind: 'boardwalk', at: [61.2, 80.8], rot: -0.64 },
-    { kind: 'boardwalk', at: [75.2, 70.2], rot: -1.1 },
-    { kind: 'boardwalk', at: [53.8, 77], rot: -1.2 },
+    // plank walkways run out from the market deck like spokes (each overlaps
+    // the deck or the previous span, so the whole hamlet is walkable)
+    { kind: 'boardwalk', at: [66, 79.9], rot: 0 },            // south, toward the two cottages
+    { kind: 'boardwalk', at: [72, 74], rot: Math.PI / 2 },    // east...
+    { kind: 'boardwalk', at: [74.6, 70.9], rot: 0 },          // ...then north to the mooring chest
+    { kind: 'boardwalk', at: [60, 75.5], rot: Math.PI / 2 },  // west, over the shallows
     { kind: 'boat', at: [80, 58], rot: Math.PI / 6 },
     { kind: 'boat', at: [56, 60], rot: -Math.PI / 5 },
     { kind: 'boat', at: [71, 69], rot: 0.4 },
@@ -122,8 +124,8 @@ export const ZONE = {
     { id: 'keeper_maro', at: [8, -59], face: Math.PI }, // faces -Z into the shrine
     { id: 'ferryman_juno', at: [-44, 34], face: -Math.PI * 0.75 },
     { id: 'merchant_wren', at: [66, 75], face: Math.PI },
-    { id: 'v_dm_1', at: [60, 82], face: -Math.PI / 3 },
-    { id: 'v_dm_2', at: [80, 66], face: Math.PI * 0.8 },
+    { id: 'v_dm_1', at: [66, 81.8], face: Math.PI },          // end of the south walkway
+    { id: 'v_dm_2', at: [58, 75.5], face: Math.PI / 2 },      // end of the west walkway
   ],
 
   encounters: {
@@ -146,7 +148,7 @@ export const ZONE = {
   interactables: [
     { kind: 'shrine', at: [8, -66] },
     { kind: 'chest', at: [-80, 92], item: 'gilded_charm', qty: 1, flag: 'ml_chest_falls' },
-    { kind: 'chest', at: [74, 62], item: 'super_tonic', qty: 2, flag: 'ml_chest1' },
+    { kind: 'chest', at: [74.6, 68.4], item: 'super_tonic', qty: 2, flag: 'ml_chest1' }, // end of the north-east walkway
     { kind: 'sparkle', at: [-60, -20], item: 'honey_drop', qty: 1, flag: 'ml_spark1' },
   ],
 

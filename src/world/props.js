@@ -2588,7 +2588,7 @@ export function buildProps(zone, heightAt) {
     // ------------------------------------------------------------- water structures
     dock: {
       variants: 1, collider: 0, ground: 'water', faceWater: true,
-      surface: 'wood', surfaceRect: [1.0, 2.4], surfaceOff: [0, 2.3], // boards run +z from the shore
+      surface: 'wood', surfaceRect: [1.0, 2.4], surfaceOff: [0, 2.3], deckTop: 0.4, // boards run +z from the shore
       make: (rng) => {
         const vs = Math.floor(rng() * 1e6);
         const g = merged(`dockM${vs}`, () => {
@@ -2963,7 +2963,7 @@ export function buildProps(zone, heightAt) {
     boardwalk: {
       // straight plank walkway on posts over water/shallows, 6 m along local Z
       variants: 1, collider: 0, ground: 'water', noPathAvoid: true,
-      surface: 'wood', surfaceRect: [0.9, 3.0],
+      surface: 'wood', surfaceRect: [0.9, 3.0], deckTop: 0.6,
       make: (rng) => {
         const vs = Math.floor(rng() * 1e6);
         const g = merged(`bwM${vs}`, () => {
@@ -2987,7 +2987,7 @@ export function buildProps(zone, heightAt) {
     deck: {
       // square plank platform on stilts with a low rail (market / mooring)
       variants: 1, collider: 0, ground: 'water', noPathAvoid: true,
-      surface: 'wood', surfaceRect: [3.0, 3.0],
+      surface: 'wood', surfaceRect: [3.0, 3.0], deckTop: 0.61,
       make: (rng) => {
         const vs = Math.floor(rng() * 1e6);
         const g = merged(`dkM${vs}`, () => {
@@ -3597,6 +3597,9 @@ export function buildProps(zone, heightAt) {
             x: pl.x + (ox * cos + oz * sin) * pl.s,
             z: pl.z + (-ox * sin + oz * cos) * pl.s,
             hx, hz, cos, sin, r2: hx * hx + hz * hz, surface: def.surface,
+            // Decks built over water are something to stand ON: world.heightAt
+            // lifts walkers to the plank top instead of the lake floor.
+            y: def.deckTop != null ? pl.y + def.deckTop * pl.s : null,
           });
         }
         if (def.effect) {

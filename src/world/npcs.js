@@ -965,9 +965,27 @@ export function createNpcs(zone, world) {
   load();
 
   // ---------------------------------------------------------------- steering
+  // Would a walk from (x0,z0) to (x1,z1) step into water? Villagers on
+  // Driftmoor's plank walkways must not stroll off the edge into the lake.
+  function wetStroll(x0, z0, x1, z1) {
+    const w = zone.water;
+    if (!w) return false;
+    const wx = w.pos?.[0] ?? 0, wz = w.pos?.[1] ?? 0, half = (w.size ?? 0) / 2, lvl = w.level ?? 0;
+    for (let i = 1; i <= 6; i++) {
+      const x = x0 + (x1 - x0) * i / 6, z = z0 + (z1 - z0) * i / 6;
+      if (Math.abs(x - wx) > half || Math.abs(z - wz) > half) continue;
+      if (lvl - heightAt(x, z) > 0.15) return true;
+    }
+    return false;
+  }
+
   function pickWanderTarget(rec) {
-    const a = Math.random() * TAU, r = Math.random() * rec.wanderRadius;
-    rec.wanderTarget = { x: rec.home.x + Math.cos(a) * r, z: rec.home.z + Math.sin(a) * r };
+    for (let tries = 0; tries < 6; tries++) {
+      const a = Math.random() * TAU, r = Math.random() * rec.wanderRadius;
+      const x = rec.home.x + Math.cos(a) * r, z = rec.home.z + Math.sin(a) * r;
+      if (!wetStroll(rec.home.x, rec.home.z, x, z)) { rec.wanderTarget = { x, z }; return; }
+    }
+    rec.wanderTarget = { x: rec.home.x, z: rec.home.z }; // hemmed in by water: stay put
   }
 
   function resolveCollision(rec, x, z) {

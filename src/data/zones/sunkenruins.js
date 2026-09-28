@@ -116,13 +116,13 @@ export const ZONE = {
 
   interactables: [
     { kind: 'shard', at: [-18, 56], flag: 'ru_shard1', dialogue: 'lore_ruins_1' },
-    { kind: 'shard', at: [20, 12], flag: 'ru_shard2', dialogue: 'lore_ruins_2' },
+    { kind: 'shard', at: [-22, 29], flag: 'ru_shard2', dialogue: 'lore_ruins_2' }, // on the drowned causeway (was in deep water)
     { kind: 'shard', at: [-18, -24], flag: 'ru_shard3', dialogue: 'lore_ruins_3' },
     { kind: 'valve', at: [40, -25], flag: 'ru_valve_1' },
     { kind: 'valve', at: [48, -25], flag: 'ru_valve_2' },
     { kind: 'valve', at: [44, -32], flag: 'ru_valve_3' },
     { kind: 'dais', at: [0, -78], flag: 'ru_sancturne_trial' },
-    { kind: 'chest', at: [24, 46], item: 'gilded_charm', qty: 1, flag: 'ru_chest1' },
+    { kind: 'chest', at: [37.5, 46], item: 'gilded_charm', qty: 1, flag: 'ru_chest1' }, // east terrace rim (was in deep water)
   ],
 
   spawn: [0, 90],

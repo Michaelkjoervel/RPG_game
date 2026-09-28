@@ -84,7 +84,27 @@ export class World {
 
   get camera() { return this.cameraRig ? this.cameraRig.camera : null; }
 
-  heightAt(x, z) { return this.terrain ? this.terrain.heightAt(x, z) : 0; }
+  /**
+   * Standing height: the terrain, or the plank top of a deck/boardwalk/dock
+   * built over water (Driftmoor stands on stilts in the lake). Everything that
+   * walks — player, follower, NPCs, roaming Kindred — and the camera floor
+   * read this, so a deck is solid ground to all of them. Water depth measured
+   * against it is zero on a deck, which is what unblocks wading limits there.
+   */
+  heightAt(x, z) {
+    const t = this.terrain ? this.terrain.heightAt(x, z) : 0;
+    const decks = this._decks;
+    if (!decks) return t;
+    for (let i = 0; i < decks.length; i++) {
+      const p = decks[i];
+      const dx = x - p.x, dz = z - p.z;
+      if (dx * dx + dz * dz > p.r2) continue;
+      const lx = dx * p.cos - dz * p.sin;
+      const lz = dx * p.sin + dz * p.cos;
+      if (Math.abs(lx) <= p.hx && Math.abs(lz) <= p.hz) return Math.max(t, p.y);
+    }
+    return t;
+  }
   addCollider(c) { this.colliders.push(c); }
   removeCollider(c) {
     const i = this.colliders.indexOf(c);
@@ -132,6 +152,8 @@ export class World {
       this.props = buildProps(zone, this.terrain.heightAt);
       this.scene.add(this.props.group);
       if (this.props.colliders) for (const c of this.props.colliders) this.colliders.push(c);
+      const decks = (this.props.surfacePatches ?? []).filter((p) => p.y != null);
+      this._decks = decks.length ? decks : null;
     } catch (e) { warnOnce('props.js', e?.message ?? e); }
 
     try {
@@ -185,6 +207,7 @@ export class World {
   }
 
   _disposeZone() {
+    this._decks = null;
     const safe = (tag, fn) => { try { fn(); } catch (e) { console.error(`[world] ${tag} dispose failed`, e); } };
     safe('player', () => this.player?.dispose?.());
     safe('cameraRig', () => this.cameraRig?.dispose?.());
