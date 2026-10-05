@@ -39,7 +39,7 @@ function bellGeo() {
 // A thin hanging strand (tapers to a closed tip), along pts.
 function strand(pts, r0) {
   const curve = new THREE.CatmullRomCurve3(pts.map((p) => new THREE.Vector3(...p)));
-  const tub = 12, rad = 4;
+  const tub = 9, rad = 4;
   const g = new THREE.TubeGeometry(curve, tub, 1, rad, false);
   g.deleteAttribute('uv');
   const pos = g.attributes.position, P = new THREE.Vector3();
@@ -93,14 +93,14 @@ export function build_jellune(kit = kitDefault) {
   const marks = [];
   for (let k = 0; k < 4; k++) {
     const a = k * Math.PI / 2 + Math.PI / 4;
-    const x = Math.sin(a) * 0.072, z = Math.cos(a) * 0.072;
+    const x = Math.sin(a) * 0.095, z = Math.cos(a) * 0.095;
     const p = S.surface(bell, [0, -1, 0], { from: [x, 1, z], nearest: true, inset: -0.002 });
-    const g = new THREE.TorusGeometry(0.03, 0.0075, 5, 16, Math.PI * 1.3);
+    const g = new THREE.TorusGeometry(0.036, 0.009, 4, 12, Math.PI * 1.3);
     g.deleteAttribute('uv');
     g.rotateZ(-Math.PI * 0.15 - Math.PI / 2 + Math.PI / 2); // gap toward -Y
     g.rotateX(-Math.PI / 2); // gap toward +Z, ring lying flat
     g.rotateY(Math.atan2(x, z)); // gap faces outward
-    S.aim(g, [x * 1.6, 1, z * 1.6]); // tangent to the dome
+    S.aim(g, [x * 2.6, 1, z * 2.6]); // tangent to the dome
     marks.push(S.pose(g, p));
   }
   const moon = new THREE.Mesh(S.merge(marks.map((g) => S.paint(g, 0xffffff))), moonMat);
@@ -113,9 +113,9 @@ export function build_jellune(kit = kitDefault) {
   // --- Oral arms: four frilly ribbons from the centre (the first is the tail). --
   const arms = [0, 1, 2, 3].map((k) => {
     const a = k * Math.PI / 2;
-    const t = S.softTail(5, jelly, {
-      segLen: 0.055, startR: 0.017, endR: 0.006, sx: 2.3, radial: 7, capSeg: 2,
-      curl: (i) => (i % 2 ? -0.22 : 0.22), rootPitch: 0.1,
+    const t = S.softTail(4, jelly, {
+      segLen: 0.065, startR: 0.02, endR: 0.008, sx: 3.0, radial: 7, capSeg: 1,
+      curl: (i) => (i % 2 ? -0.3 : 0.3), yaw: (i) => (i % 2 ? 0.25 : -0.25), rootPitch: 0.15,
       color: (u) => S.mixHex(ARM_HI, ARM_LO, u),
     });
     const g = t.group;

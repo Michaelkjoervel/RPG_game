@@ -17,8 +17,8 @@ import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
 import * as S from './soft.js';
 
-const FUZZ_LO = 0x6c5a92, FUZZ_HI = 0xb6a8d8, RUFF_LO = 0xd8cce6, RUFF_HI = 0xfffaf4, BAND = 0x4e3f72,
-  WING_R = 0xf4e4ee, WING_T = 0x7552a8, EDGE = 0x4a3478, GOLD = 0xffd27a, GLOW = 0xffe9b0;
+const FUZZ_LO = 0x4a3a78, FUZZ_HI = 0x9884c6, RUFF_LO = 0xd8cce6, RUFF_HI = 0xfffaf4, BAND = 0x3a2c60,
+  WING_R = 0x553a8c, WING_T = 0xf2d6ec, EDGE = 0xfff0dc, GOLD = 0xffd27a, GLOW = 0xffe9b0;
 
 export function build_zephyra(kit = kitDefault) {
   const pal = kit.palette(['gale']);
@@ -47,14 +47,14 @@ export function build_zephyra(kit = kitDefault) {
   body.position.y = 0.2;
 
   // --- Head: round, big glossy moth eyes, a little gold blaze. --------------
-  const headGeo = S.ball(0.046, { sx: 1.08, sy: 0.96, radial: 16, rings: 12 });
-  S.paint(headGeo, { from: 0x7c6e9e, to: 0xc6badc, axis: 'y', noise: 0.015, seed: 87 });
-  S.blush(headGeo, S.surface(headGeo, S.dirYP(0, 0.55)), 0.022, 0xf2e2c6, 0.8);
+  const headGeo = S.ball(0.052, { sx: 1.08, sy: 0.96, radial: 16, rings: 12 });
+  S.paint(headGeo, { from: 0x7a6aa8, to: 0xcabfe2, axis: 'y', noise: 0.015, seed: 87 });
+  S.blush(headGeo, S.surface(headGeo, S.dirYP(0, 0.6)), 0.026, 0xffe2b0, 0.85);
   const head = S.bake([headGeo], fuzz, 'head');
-  kit.at(body, head, 0, 0.06, 0.07, { rx: -0.12 });
+  kit.at(body, head, 0, 0.065, 0.075, { rx: -0.12 });
   const eyeOpts = { irisColor: 0x1c1428, pupilColor: 0x0c0a12, skinColor: 0x8a7ea8, glintSize: 0.01, irisScale: 1.3 };
-  const eyeL = S.seatEye(kit, head, headGeo, 0.022, 0.55, 0.08, eyeOpts, { sink: 0.35, front: 0.5 });
-  const eyeR = S.seatEye(kit, head, headGeo, 0.022, -0.55, 0.08, eyeOpts, { sink: 0.35, front: 0.5 });
+  const eyeL = S.seatEye(kit, head, headGeo, 0.026, 0.55, 0.08, eyeOpts, { sink: 0.35, front: 0.5 });
+  const eyeR = S.seatEye(kit, head, headGeo, 0.026, -0.55, 0.08, eyeOpts, { sink: 0.35, front: 0.5 });
 
   // --- Plume antennae: a crown of feathery fronds with glowing tips. --------
   const antennae = [1, -1].map((s) => {
@@ -82,36 +82,50 @@ export function build_zephyra(kit = kitDefault) {
   });
 
   // --- FOUR wings: broad forewings, long ribbon-tailed hindwings. ----------
-  const foreSpots = [{ t: 0.6, v: 0.08, r: 0.038, ring: 0x3e2a5a, core: GOLD }];
+  const foreSpots = [{ t: 0.58, v: 0.06, r: 0.044, ring: 0x2e1e4a, core: GOLD }];
   const hindSpots = [{ t: 0.2, v: 0.05, r: 0.026, ring: 0x3e2a5a, core: 0xffc0a0 }];
-  const fore = (side) => S.openWing(0.23, fuzz, {
-    width: 0.16, thick: 0.07, sweep: 0.2, color: { root: WING_R, tip: WING_T }, edge: EDGE, spots: foreSpots, radial: 14, rings: 12,
-  });
+  const fore = (side) => {
+    const w = S.openWing(0.27, fuzz, {
+      width: 0.2, thick: 0.065, sweep: 0.22, color: { root: WING_R, tip: WING_T }, spots: foreSpots, radial: 14, rings: 12,
+      chord: (t) => Math.pow(Math.sin(Math.PI * Math.min(1, 0.14 + t * 0.9)), 0.6) * (0.62 + 0.38 * t),
+    });
+    // a pale cream border band round the outer edge, gold veins of light
+    const g = w.group.children[0].geometry;
+    S.overlay(g, EDGE, (x, y, z) => {
+      const t = x / 0.27, cz = -0.22 * 0.27 * t * t, half = 0.1 * Math.pow(Math.sin(Math.PI * Math.min(1, 0.14 + t * 0.9)), 0.6) * (0.62 + 0.38 * t);
+      const e = Math.abs(z - cz) / Math.max(1e-3, half);
+      return S.sstep(0.74, 0.9, Math.max(e, S.sstep(0.84, 0.98, t))) * S.sstep(0.3, 0.5, t);
+    });
+    return w;
+  };
   const ribbon = (t) => {
     const lobe = t < 0.5 ? Math.pow(Math.sin(Math.PI * (0.14 + t * 1.72)), 0.6) : 0;
-    return Math.max(lobe, 0.17 + 0.2 * S.bump(t, 0.9, 0.08));
+    return Math.max(lobe, 0.3 + 0.32 * S.bump(t, 0.88, 0.09));
   };
   const hind = (side) => {
-    const w = S.openWing(0.34, fuzz, {
-      width: 0.13, thick: 0.08, sweep: 0.55, chord: ribbon, color: { root: WING_R, tip: 0xc890c8 }, spots: hindSpots, radial: 12, rings: 16,
+    const w = S.openWing(0.32, fuzz, {
+      width: 0.15, thick: 0.08, sweep: 0.35, lift: -0.2, chord: ribbon, color: { root: WING_R, tip: 0xe0b8e4 }, spots: hindSpots, radial: 12, rings: 16,
     });
     // the ribbon's tail end warms to glowing comet-gold
-    S.overlay(w.group.children[0].geometry, GOLD, (x) => S.sstep(0.24, 0.33, x));
-    const tipX = 0.34 * 0.92, tipZ = -0.55 * 0.34 * 0.92 * 0.92;
-    const halo = S.glow(GOLD, 0.06, 0.6);
-    halo.position.set(tipX, 0, tipZ);
+    S.overlay(w.group.children[0].geometry, GOLD, (x) => S.sstep(0.22, 0.3, x));
+    const tipX = 0.32 * 0.9, tipZ = -0.35 * 0.32 * 0.81;
+    const halo = S.glow(GOLD, 0.07, 0.65);
+    halo.position.set(tipX, -0.2 * 0.32 * 0.81, tipZ);
     w.group.add(halo);
     return w;
   };
   const wingDefs = [
     // [side, builder, y, z, raise(rz), back(ry)]
-    [1, fore, 0.035, 0.0, 0.42, 0.45],
-    [-1, fore, 0.035, 0.0, 0.42, 0.45],
-    [1, hind, 0.0, -0.035, -0.3, 0.95],
-    [-1, hind, 0.0, -0.035, -0.3, 0.95],
+    [1, fore, 0.035, 0.0, 0.62, 0.3],
+    [-1, fore, 0.035, 0.0, 0.62, 0.3],
+    [1, hind, 0.0, -0.035, -0.4, 1.05],
+    [-1, hind, 0.0, -0.035, -0.4, 1.05],
   ];
   const wingParts = wingDefs.map(([side, mk, y, z, up, back]) => {
     const w = mk(side);
+    // tip each wing's leading edge up about its own span so its painted
+    // face reads from the front/battle cameras instead of going edge-on
+    w.group.children[0].rotation.x = mk === fore ? -0.55 : -0.35;
     kit.at(body, w, side * 0.04, y, z, { rz: side * up, ry: side * back });
     w.group.scale.x = side;
     return w;

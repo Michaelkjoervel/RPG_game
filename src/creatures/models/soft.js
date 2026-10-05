@@ -168,16 +168,18 @@ export function limb(len, r0, r1, {
 /**
  * A thin tube laid ON a sculpted surface — mouths, brows, stripes, seams.
  * `dirs` are [yaw, pitch] pairs (see dirYP) sampled from `from` onto the
- * skin of `geo`; the tube rides `lift` above it.
+ * skin of `geo`; the tube rides `lift` above it. `caps: false` skips the two
+ * round end caps (~100 triangles) — fine when the ends sink into the skin.
  */
-export function groove(geo, dirs, { from = [0, 0, 0], radius = 0.006, lift = 0.0, radial = 4, seg = null } = {}) {
+export function groove(geo, dirs, { from = [0, 0, 0], radius = 0.006, lift = 0.0, radial = 4, seg = null, caps = true } = {}) {
   const pts = dirs.map(([yaw, pitch]) => new THREE.Vector3(...surface(geo, dirYP(yaw, pitch), { from, inset: -lift })));
   const curve = new THREE.CatmullRomCurve3(pts);
   const g = new THREE.TubeGeometry(curve, seg ?? Math.max(6, dirs.length * 3), radius, radial, false);
   g.deleteAttribute('uv');
+  if (!caps) return smoothGeometry(g); // budget: open ends tucked into the skin
   // round the two open ends with tiny caps
-  const caps = [pts[0], pts[pts.length - 1]].map((p) => ball(radius, { radial: 5, rings: 3 }).translate(p.x, p.y, p.z));
-  const out = mergeGeometries([smoothGeometry(g), ...caps.map((c) => { c.deleteAttribute('color'); return c; })], false);
+  const capGeos = [pts[0], pts[pts.length - 1]].map((p) => ball(radius, { radial: 5, rings: 3 }).translate(p.x, p.y, p.z));
+  const out = mergeGeometries([smoothGeometry(g), ...capGeos.map((c) => { c.deleteAttribute('color'); return c; })], false);
   return out;
 }
 
@@ -186,7 +188,7 @@ export function groove(geo, dirs, { from = [0, 0, 0], radius = 0.006, lift = 0.0
  * [x, z, yLift]) positions projected straight down onto `geo` from above
  * (nearest hit) — spine seams, stripes, cracks along a back.
  */
-export function grooveTop(geo, pts, { radius = 0.008, lift = 0, radial = 4, seg = null, dir = [0, -1, 0], height = 5 } = {}) {
+export function grooveTop(geo, pts, { radius = 0.008, lift = 0, radial = 4, seg = null, dir = [0, -1, 0], height = 5, caps = true } = {}) {
   const v = pts.map(([x, z, dy = 0]) => {
     const p = surface(geo, dir, { from: [x - dir[0] * height, -dir[1] * height, z - dir[2] * height], nearest: true, inset: -lift });
     return new THREE.Vector3(p[0], p[1] + dy, p[2]);
@@ -194,8 +196,9 @@ export function grooveTop(geo, pts, { radius = 0.008, lift = 0, radial = 4, seg 
   const curve = new THREE.CatmullRomCurve3(v);
   const g = new THREE.TubeGeometry(curve, seg ?? Math.max(6, pts.length * 3), radius, radial, false);
   g.deleteAttribute('uv');
-  const caps = [v[0], v[v.length - 1]].map((p) => ball(radius, { radial: 5, rings: 3 }).translate(p.x, p.y, p.z));
-  return mergeGeometries([smoothGeometry(g), ...caps], false);
+  if (!caps) return smoothGeometry(g);
+  const capGeos = [v[0], v[v.length - 1]].map((p) => ball(radius, { radial: 5, rings: 3 }).translate(p.x, p.y, p.z));
+  return mergeGeometries([smoothGeometry(g), ...capGeos], false);
 }
 
 /**

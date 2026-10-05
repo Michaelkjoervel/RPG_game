@@ -19,7 +19,7 @@ import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
 import * as S from './soft.js';
 
-const TOP_LO = 0x6f809c, TOP = 0x96a6be, TOP_HI = 0xc8d4e4, BELLY = 0xf2f5fa, CLOUD_LO = 0xb9c5d6, CLOUD_HI = 0xffffff, INK = 0x2a3044;
+const TOP_LO = 0x3a4566, TOP = 0x56668e, TOP_HI = 0x7e8fb6, BELLY = 0xf2f5fa, CLOUD_LO = 0xb9c5d6, CLOUD_HI = 0xffffff, INK = 0x2a3044;
 
 export function build_nimbis(kit = kitDefault) {
   const pal = kit.palette(['gale']);
@@ -30,17 +30,18 @@ export function build_nimbis(kit = kitDefault) {
 
   // --- Hull: a plump baby manta, drizzle-grey back, cloud-white belly. ------
   const hull = S.spindle({
-    len: 0.3, r: 0.12, sx: 1.28, sy: 0.74, pTail: 0.8, pNose: 1.2, radial: 18, rings: 12, belly: 0.22,
-    profile: (t) => 0.58 + 0.42 * Math.sin(Math.PI * Math.min(1, t * 0.82 + 0.12)),
+    len: 0.29, r: 0.13, sx: 1.2, sy: 0.82, pTail: 0.8, pNose: 1.3, radial: 18, rings: 12, belly: 0.22,
+    profile: (t) => 0.55 + 0.45 * Math.sin(Math.PI * Math.min(1, t * 0.78 + 0.16)),
     arch: (t) => 0.012 * S.bump(t, 0.55, 0.35),
   });
   S.paint(hull, { from: TOP_LO, to: TOP_HI, axis: 'y', noise: 0.012, seed: 100 });
-  S.overlayN(hull, BELLY, (nx, ny, nz) => S.sstep(0.05, -0.45, ny) + S.sstep(0.55, 0.9, nz) * S.sstep(0.2, -0.2, ny) * 0.8);
+  S.overlayN(hull, BELLY, (nx, ny, nz) => S.sstep(-0.25, -0.65, ny) + S.sstep(0.6, 0.95, nz) * S.sstep(-0.05, -0.35, ny) * 0.9);
+  S.overlayN(hull, TOP_HI, (nx, ny, nz) => S.sstep(0.5, 0.9, nz) * S.sstep(-0.1, 0.25, ny) * 0.55); // a lighter face
   // the face: soft pale blaze between the eyes, a small wobbly frown
   const F = [0, 0, 0.06];
   const mouth = S.paint(S.groove(hull, [[-0.2, -0.02], [-0.1, 0.03], [0, 0.0], [0.1, 0.03], [0.2, -0.02]], { from: F, radius: 0.0048, lift: -0.001 }), INK);
   // worried brows: inner ends raised
-  const brows = [1, -1].map((s) => S.paint(S.groove(hull, [[s * 0.2, 0.62], [s * 0.36, 0.56], [s * 0.52, 0.44]], { from: F, radius: 0.0055, lift: 0.001 }), INK));
+  const brows = [1, -1].map((s) => S.paint(S.groove(hull, [[s * 0.2, 0.74], [s * 0.38, 0.68], [s * 0.56, 0.55]], { from: F, radius: 0.006, lift: 0.001 }), INK));
   // little curled cephalic lobes either side of the face
   const lobes = [1, -1].map((s) => {
     const g = S.taper(0.06, 0.022, { r1: 0.008, curve: -0.8, radial: 7, rings: 5, sx: 0.65 });
@@ -54,25 +55,25 @@ export function build_nimbis(kit = kitDefault) {
   body.position.y = 0.26;
 
   const eyeOpts = { irisColor: 0x24304c, skinColor: TOP, glintSize: 0.016 };
-  const eyeL = S.seatEye(kit, body, hull, 0.037, 0.42, 0.32, eyeOpts, { sink: 0.4, front: 0.6, from: F });
-  const eyeR = S.seatEye(kit, body, hull, 0.037, -0.42, 0.32, eyeOpts, { sink: 0.4, front: 0.6, from: F });
+  const eyeL = S.seatEye(kit, body, hull, 0.043, 0.43, 0.36, eyeOpts, { sink: 0.42, front: 0.6, from: F });
+  const eyeR = S.seatEye(kit, body, hull, 0.043, -0.43, 0.36, eyeOpts, { sink: 0.42, front: 0.6, from: F });
 
   // --- The cumulus tuft riding its back (an accent: it billows). -----------
   const cloud = new THREE.Group(); cloud.name = 'cloudTuft';
-  const c1 = S.puff(0.07, { count: 6, spread: 0.95, seed: 101, sy: 0.78, radial: 9, rings: 6 });
-  const c2 = S.puff(0.05, { count: 4, spread: 0.8, seed: 102, sy: 0.9, radial: 8, rings: 6 });
-  c2.translate(-0.012, 0.05, -0.02);
+  const c1 = S.puff(0.085, { count: 7, spread: 0.95, seed: 101, sy: 0.75, radial: 9, rings: 6 });
+  const c2 = S.puff(0.062, { count: 5, spread: 0.8, seed: 102, sy: 0.88, radial: 8, rings: 6 });
+  c2.translate(-0.01, 0.06, -0.025);
   const cg = S.merge([c1, c2]);
   S.paint(cg, { from: CLOUD_LO, to: CLOUD_HI, axis: 'y', noise: 0.015, seed: 103 });
   cloud.add(new THREE.Mesh(cg, cloudMat));
-  const ca = S.surface(hull, [0, 1, 0], { from: [0, 0, -0.035], inset: 0.03 });
+  const ca = S.surface(hull, [0, 1, 0], { from: [0, 0, -0.045], inset: 0.035 });
   kit.at(body, cloud, ca[0], ca[1], ca[2]);
 
   // --- Soft thick wing-flaps, tips curling up, pale undersides. ------------
   const wings = [1, -1].map((side) => {
-    const len = 0.2, sweep = 0.5;
+    const len = 0.22, sweep = 0.5;
     const w = S.openWing(len, skin, {
-      width: 0.2, thick: 0.3, sweep, lift: 0.22, radial: 14, rings: 9,
+      width: 0.24, thick: 0.36, sweep, lift: 0.18, radial: 14, rings: 9,
       chord: (t) => Math.pow(Math.sin(Math.PI * Math.min(1, 0.5 + t * 0.52)), 0.7) * (1 - 0.2 * t),
       color: { root: TOP, tip: TOP_LO },
     });
