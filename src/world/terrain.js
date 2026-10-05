@@ -359,7 +359,14 @@ vec3 lfGround(vec3 wp, vec3 nrm, float fw, vec4 m, out float grassAmt, out vec3 
 #endif
   col = mix(col, bank, bankT * 0.8);
   grassAmt *= 1.0 - bankT * 0.6;
-  float rockT = smoothstep(uGP2.y + 0.1, uGP2.y + 0.16, slope + (n3 - 0.5) * 0.1 + (n4 - 0.5) * 0.04);
+  // Path embankments are a metre or two of soil, not cliffs: within a few
+  // metres of a path (outside the mountains, whose canyon walls ARE rock) the
+  // rock layer needs a much steeper face. Without this the strata — which run
+  // along height lines, i.e. parallel to the path — drew pale stripes on every
+  // path cut, right in front of the camera.
+  float cutK = (1.0 - uGP.w) * (1.0 - smoothstep(2.5, 5.0, m.r * 16.0 - 4.0));
+  float rockLo = uGP2.y + 0.1 + cutK * 0.32;
+  float rockT = smoothstep(rockLo, rockLo + 0.06, slope + (n3 - 0.5) * 0.1 + (n4 - 0.5) * 0.04);
   if (rockT > 0.0) {
 #ifdef LF_GROUND_LQ
     float rn = lfNoise(vec2(wp.x + wp.z, h) * 0.9);
