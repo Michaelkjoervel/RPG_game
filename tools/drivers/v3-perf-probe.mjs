@@ -87,7 +87,7 @@ export const KINDS = `(async () => {
   s.scene.traverse((o) => { if (o.name === 'props') roots.push(o); });
   for (const root of roots) root.traverse((o) => {
     if (!o.isInstancedMesh || !o.visible) return;
-    const kind = o.name.split(':')[0];
+    const kind = o.name.split(':')[0] + (o.name.includes(':far') ? '*far' : '');
     const geo = o.geometry;
     const tpi = (geo.index ? geo.index.count : geo.attributes.position.count) / 3;
     if (!geo.boundingSphere) geo.computeBoundingSphere();
@@ -170,9 +170,9 @@ export async function run(page, h) {
       const face = (process.env.PERF_ABS === '1' ? 0.3 : face0) + (k * Math.PI * 2) / yaws;
       await page.evaluate(FACE(face)); await h.sleep(900);
       if (shots) await h.shot(`${z}-${Q}-yaw${k}`);
-      if (k === 0 && detail) {
-        console.log(`PERF ${z} ${Q}: ${await page.evaluate(BREAKDOWN)}`);
-        if (process.env.PERF_KINDS !== '0') console.log(`KINDS ${z} ${Q}: ${await page.evaluate(KINDS)}`);
+      if ((k === 0 || process.env.PERF_KINDS_ALL === '1') && detail) {
+        if (k === 0) console.log(`PERF ${z} ${Q}: ${await page.evaluate(BREAKDOWN)}`);
+        if (process.env.PERF_KINDS !== '0') console.log(`KINDS ${z}-yaw${k} ${Q}: ${await page.evaluate(KINDS)}`);
       }
       console.log(`TOT ${z} ${Q} yaw${k}: ${await page.evaluate(TOTALS)}`);
     }
