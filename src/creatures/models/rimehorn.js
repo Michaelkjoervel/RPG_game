@@ -34,7 +34,7 @@ function lock(len, w, at, out, lean, from, to) {
 // ibex knobs ridge its front, so it reads ridged in silhouette.
 function hornGeo(pts, r0, r1) {
   const curve = new THREE.CatmullRomCurve3(pts.map((p) => new THREE.Vector3(...p)));
-  const tub = 20, rad = 8;
+  const tub = 18, rad = 8;
   const g = new THREE.TubeGeometry(curve, tub, 1, rad, false);
   g.deleteAttribute('uv');
   const pos = g.attributes.position, P = new THREE.Vector3();
@@ -70,10 +70,10 @@ export function build_rimehorn(kit = kitDefault) {
   S.pose(neck, [0, 0.12, 0.23], [-0.85, 0, 0]);
   S.paint(neck, { from: WOOL, to: WOOL_HI, axis: 'y', noise: 0.015, seed: 121 });
   // a woolly cape over the withers and a shaggy chest bib
-  const cape = S.puff(0.12, { count: 6, spread: 0.85, seed: 122, sy: 0.7, blend: 0.8, radial: 9, rings: 6 });
+  const cape = S.puff(0.12, { count: 5, spread: 0.85, seed: 122, sy: 0.7, blend: 0.8, radial: 9, rings: 6 });
   S.pose(cape, [0, 0.14, 0.12], [0, 0, 0], [1.4, 0.8, 1.15]);
   S.paint(cape, { from: WOOL, to: WOOL_HI, axis: 'y', noise: 0.02, seed: 123 });
-  const bib = S.puff(0.075, { count: 4, spread: 0.7, seed: 124, sy: 1.15, blend: 0.8, radial: 9, rings: 6 });
+  const bib = S.puff(0.08, { count: 3, spread: 0.65, seed: 124, sy: 1.15, blend: 0.8, radial: 9, rings: 6 });
   S.pose(bib, [0, -0.02, 0.28], [0.3, 0, 0], [1.2, 1.2, 0.75]);
   S.paint(bib, { from: WOOL_LO, to: WOOL_HI, axis: 'y', noise: 0.02, seed: 125 });
   // the fleece fringe: soft locks hanging off both flanks, frost at the tips
@@ -103,7 +103,7 @@ export function build_rimehorn(kit = kitDefault) {
   S.overlay(headGeo, WOOL, (x, y, z) => S.sstep(-0.02, -0.12, z) * S.sstep(0.0, 0.06, y) * 0.9); // fleecy crown/poll
   const SK = [0, 0.0, -0.03];
   const nose = S.pose(S.paint(S.ball(0.016, { sx: 1.4, sy: 0.75, radial: 7, rings: 5 }), 0x2a2e38), S.surface(headGeo, [0, 0.25, 1], { from: [0, -0.01, 0.06], inset: 0.004 }));
-  const mouth = S.paint(S.groove(headGeo, [[-0.3, -0.45], [-0.12, -0.5], [0, -0.5], [0.12, -0.5], [0.3, -0.45]], { from: [0, 0, 0.06], radius: 0.0045, lift: -0.001 }), 0x2a2e38);
+  const mouth = S.paint(S.groove(headGeo, [[-0.3, -0.45], [-0.12, -0.5], [0, -0.5], [0.12, -0.5], [0.3, -0.45]], { from: [0, 0, 0.06], radius: 0.0045, lift: -0.001, seg: 10, caps: false }), 0x2a2e38);
   // bushy white elder brows, sweeping out over the eyes
   const brows = [];
   for (const s of [1, -1]) for (let i = 0; i < 2; i++) {
@@ -156,7 +156,7 @@ export function build_rimehorn(kit = kitDefault) {
   const fore = { thighR: 0.08, shinR: 0.046, kneeR: 0.054, ankleR: 0.041, pawR: 0.05, pawLen: 1.1, pawH: 0.05, toes: 0, bend: -0.08, split: 0.5, bulge: 0.08 };
   const hind = { thighR: 0.092, shinR: 0.046, kneeR: 0.055, ankleR: 0.041, pawR: 0.05, pawLen: 1.1, pawH: 0.05, toes: 0, bend: 0.28, split: 0.47, bulge: 0.1 };
   const legs = [[0.095, -0.09, 0.17, fore], [-0.095, -0.09, 0.17, fore], [0.095, -0.07, -0.17, hind], [-0.095, -0.07, -0.17, hind]].map(([x, y, z, d]) => {
-    const l = S.softLeg(0.4 + y, wool, { ...d, color: WOOL_LO, shinColor: SLATE, pawColor: HOOF, radial: 7 });
+    const l = S.softLeg(0.4 + y, wool, { ...d, color: WOOL_LO, shinColor: SLATE, pawColor: HOOF, radial: 7, capSeg: 2 });
     kit.at(body, l, x, y, z);
     return l;
   });
@@ -164,7 +164,7 @@ export function build_rimehorn(kit = kitDefault) {
   // --- A short fluffy tail, flicked up. -------------------------------------
   const tail = S.softTail(2, wool, { segLen: 0.04, startR: 0.03, endR: 0.032, curl: 0.5, rootPitch: 0.7, radial: 8, color: WOOL_HI });
   kit.at(body, tail, 0, 0.11, -0.24);
-  const tuft = new THREE.Mesh(S.paint(S.puff(0.04, { count: 4, spread: 0.55, seed: 127, sy: 1.0, radial: 8, rings: 6 }), WOOL_HI), wool);
+  const tuft = new THREE.Mesh(S.paint(S.puff(0.042, { count: 3, spread: 0.5, seed: 127, sy: 1.0, radial: 8, rings: 6 }), WOOL_HI), wool);
   tuft.name = 'tailTuft';
   kit.at(tail.tipAnchor, tuft, 0, 0, -0.01);
 

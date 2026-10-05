@@ -173,10 +173,10 @@ export function build_charvane(kit = kitDefault) {
   // knee radii sit ON the straight line between thigh and ankle (no joint
   // bulge), the muscle swell is barely there, the paw is one step wider.
   const foreDef = { thighR: 0.088, kneeR: 0.062, shinR: 0.05, ankleR: 0.04, pawR: 0.06, pawLen: 1.25, bend: -0.08, split: 0.5, bulge: 0.04 };
-  const hindDef = { thighR: 0.1, kneeR: 0.064, shinR: 0.05, ankleR: 0.04, pawR: 0.06, pawLen: 1.25, bend: 0.3, split: 0.46, bulge: 0.04 };
+  const hindDef = { thighR: 0.092, kneeR: 0.062, shinR: 0.05, ankleR: 0.04, pawR: 0.06, pawLen: 1.25, bend: 0.3, split: 0.46, bulge: 0.02 };
   const legDefs = [
     [0.11, -0.07, 0.18, foreDef, 0.06], [-0.11, -0.07, 0.18, foreDef, -0.06],
-    [0.095, -0.04, -0.18, hindDef, 0.06], [-0.095, -0.04, -0.18, hindDef, -0.06],
+    [0.088, -0.03, -0.16, hindDef, 0.07], [-0.088, -0.03, -0.16, hindDef, -0.07],
   ];
   const legs = legDefs.map(([x, y, z, d, rz]) => {
     const l = S.softLeg(0.39 + y, fur, { ...d, color: COAL, shinColor: 0x2c2220, pawColor: SOCK, toes: 3, radial: 8 });

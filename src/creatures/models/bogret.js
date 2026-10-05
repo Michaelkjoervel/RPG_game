@@ -58,7 +58,7 @@ export function build_bogret(kit = kitDefault) {
   });
   S.paint(headGeo, { from: SKIN_LO, to: SKIN_HI, axis: 'y', noise: 0.012, seed: 97 });
   S.overlay(headGeo, THROAT, (x, y, z) => S.sstep(-0.01, -0.06, y) * 0.95);
-  const mouth = S.paint(S.groove(headGeo, [[-0.95, -0.36], [-0.65, -0.2], [-0.32, -0.12], [0, -0.1], [0.32, -0.12], [0.65, -0.2], [0.95, -0.36]], { radius: 0.0075, lift: -0.002, seg: 22 }), LIP);
+  const mouth = S.paint(S.groove(headGeo, [[-0.95, -0.36], [-0.65, -0.2], [-0.32, -0.12], [0, -0.1], [0.32, -0.12], [0.65, -0.2], [0.95, -0.36]], { radius: 0.0075, lift: -0.002, seg: 18 }), LIP);
   const nost = [0.12, -0.12].map((yw) => S.paint(S.pose(S.ball(0.007, { radial: 5, rings: 3 }), S.surface(headGeo, S.dirYP(yw, 0.12), { inset: 0.002 })), LIP));
   // eye mounds high on the head, heavy scowling lids over them
   const mounds = [], lids = [], eyeAt = [];
@@ -117,7 +117,7 @@ export function build_bogret(kit = kitDefault) {
     [0.19, -0.04, -0.06, 0.1, 0.55, 0.05, 0.05, 1.7], [-0.19, -0.04, -0.06, -0.1, -0.55, 0.05, 0.05, 1.7],
   ];
   const legs = legDefs.map(([x, y, z, rz, ry, thighR, pawR, pawLen]) => {
-    const l = S.softLeg(0.12 + y, skin, { stubby: true, thighR, kneeR: thighR * 0.75, pawR, pawLen, toes: 4, color: SKIN, shinColor: SKIN, pawColor: FOOT, radial: 8 });
+    const l = S.softLeg(0.12 + y, skin, { stubby: true, thighR, kneeR: thighR * 0.75, pawR, pawLen, toes: 4, color: SKIN, shinColor: SKIN, pawColor: FOOT, radial: 8, capSeg: 2 });
     kit.at(body, l, x, y, z, { rz, ry });
     return l;
   });
