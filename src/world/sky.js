@@ -54,6 +54,7 @@ import { settings } from '../core/settings.js';
 import * as MAT from '../gfx/materials.js';
 
 const INDOOR_BIOMES = new Set(['cave', 'spire']);
+const SHADOW_MAP_SIZE = { high: 2048, med: 1024, low: 1024 }; // per quality tier (low renders no shadows)
 const WHITE = new THREE.Color(0xffffff); // lerp target only — never mutated
 const DEG = Math.PI / 180;
 
@@ -1145,7 +1146,20 @@ export function createSky(zone, scene) {
   sunLight.position.set(20, 32, 20); // sane default until world.js's shadow-follow takes over
   sunLight.target.name = 'sunLightTarget';
   sunLight.castShadow = !indoor;
+  // Shadow map resolution per quality tier (perf v3): Med is the integrated-
+  // GPU tier — a 1024 map over the same 36 m box is a quarter of the depth
+  // fill and memory, at the price of slightly softer shadow edges. Re-applied
+  // live by update() when the tier changes (the map is re-created at the new size).
+  let shadowTier = null;
+  const applyShadowTier = () => {
+    shadowTier = settings.quality ?? 'high';
+    const sz = SHADOW_MAP_SIZE[shadowTier] ?? 2048;
+    if (sunLight.shadow.mapSize.x === sz) return;
+    sunLight.shadow.mapSize.set(sz, sz);
+    if (sunLight.shadow.map) { sunLight.shadow.map.dispose(); sunLight.shadow.map = null; }
+  };
   sunLight.shadow.mapSize.set(2048, 2048);
+  applyShadowTier();
   sunLight.shadow.camera.left = -18; sunLight.shadow.camera.right = 18;
   sunLight.shadow.camera.top = 18; sunLight.shadow.camera.bottom = -18;
   sunLight.shadow.camera.near = 1; sunLight.shadow.camera.far = 70;
@@ -1224,6 +1238,7 @@ export function createSky(zone, scene) {
   function update(dt, dayTime) {
     time += dt;
     const t = dayTime ?? 0.5;
+    if (settings.quality !== shadowTier) applyShadowTier();
 
     // lightning flash (weather.js pulses skyShared.flash) decays here
     const flash = skyShared.flash;
@@ -1425,7 +1440,7 @@ export function createSky(zone, scene) {
     for (const o of skyObjects) scene.remove(o);
     scene.remove(sunLight, sunLight.target, hemi);
     if (fillLight) scene.remove(fillLight);
-    sunLight.dispose(); // frees the 2048 shadow render target
+    sunLight.dispose(); // frees the shadow render target
     for (const d of disposables) { d.geo?.dispose(); d.mat?.dispose(); }
     scene.fog = null;
   }

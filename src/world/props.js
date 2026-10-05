@@ -47,6 +47,7 @@ const _vsTgt = new THREE.Vector3();
 const _vsView = new Float32Array(24);
 const _vsShadow = new Float32Array(24);
 const _vsBox = new Float32Array(6);
+const _vsBox2 = new Float32Array(6);
 
 const warned = new Set();
 const warnOnce = (msg) => { if (!warned.has(msg)) { warned.add(msg); console.warn('[props]', msg); } };
@@ -113,7 +114,7 @@ export function buildProps(zone, heightAt) {
   const QUALITY = settings.quality ?? 'high';
   const HI = QUALITY === 'high';
   const LOD = HI ? 2 : 1;                                  // canopy/rock icosphere detail
-  const SMALL_MUL = QUALITY === 'low' ? 0.55 : QUALITY === 'med' ? 0.8 : 1; // tiny-scatter density
+  const SMALL_MUL = QUALITY === 'low' ? 0.5 : QUALITY === 'med' ? 0.65 : 1; // tiny-scatter density
   const INDOOR = biome === 'cave' || biome === 'spire';
   // Far-LOD build pass (see "view sets"): while set, the shared form builders
   // make the same shapes from coarser primitives (detail-0 lobes, fewer trunk
@@ -128,16 +129,20 @@ export function buildProps(zone, heightAt) {
   };
 
   // ------------------------------------------------------------- geometry lib
-  const sphereG = (r, w = 7, h = 5) => geo(`sp${r}_${w}_${h}`, () => new THREE.SphereGeometry(r, w, h));
-  const coneG = (r, h, s = 7) => geo(`co${r}_${h}_${s}`, () => new THREE.ConeGeometry(r, h, s));
-  const cylG = (rt, rb, h, s = 7, hs = 1) => geo(`cy${rt}_${rb}_${h}_${s}_${hs}`, () => new THREE.CylinderGeometry(rt, rb, h, s, hs));
+  // (FAR_BUILD: the far-LOD pass gets half the segments — see "view sets")
+  const half2 = (n, min) => (FAR_BUILD ? Math.max(min, Math.ceil(n / 2)) : n);
+  const sphereG = (r, w = 7, h = 5) => { w = half2(w, 4); h = half2(h, 3); return geo(`sp${r}_${w}_${h}`, () => new THREE.SphereGeometry(r, w, h)); };
+  const coneG = (r, h, s = 7) => { s = half2(s, 4); return geo(`co${r}_${h}_${s}`, () => new THREE.ConeGeometry(r, h, s)); };
+  const cylG = (rt, rb, h, s = 7, hs = 1) => { s = half2(s, 4); if (FAR_BUILD) hs = 1; return geo(`cy${rt}_${rb}_${h}_${s}_${hs}`, () => new THREE.CylinderGeometry(rt, rb, h, s, hs)); };
   const boxG = (w, h, d) => geo(`bx${w}_${h}_${d}`, () => new THREE.BoxGeometry(w, h, d));
-  const icoG = (r, d = 0) => geo(`ic${r}_${d}`, () => new THREE.IcosahedronGeometry(r, d));
+  const icoG = (r, d = 0) => { if (FAR_BUILD) d = 0; return geo(`ic${r}_${d}`, () => new THREE.IcosahedronGeometry(r, d)); };
   const planeG = (w, h, sw = 1, sh = 1) => geo(`pl${w}_${h}_${sw}_${sh}`, () => new THREE.PlaneGeometry(w, h, sw, sh));
   const octaG = (r) => geo(`oc${r}`, () => new THREE.OctahedronGeometry(r, 0));
   // Rounded box: crisp silhouettes with soft bevelled edges — cut stone,
   // furniture, roof slabs (v2 "crisp but friendly" architecture).
-  const rboxG = (w, h, d, r = 0.05, seg = 1) => geo(`rb${w}_${h}_${d}_${r}_${seg}`, () => new RoundedBoxGeometry(w, h, d, seg, Math.min(r, w / 2, h / 2, d / 2) * 0.999));
+  // (FAR_BUILD: a plain box — a 3-8 cm bevel is sub-pixel at far-LOD range)
+  const rboxG = (w, h, d, r = 0.05, seg = 1) => (FAR_BUILD ? boxG(w, h, d)
+    : geo(`rb${w}_${h}_${d}_${r}_${seg}`, () => new RoundedBoxGeometry(w, h, d, seg, Math.min(r, w / 2, h / 2, d / 2) * 0.999)));
   // Organic blob — icosahedron displaced by a deterministic per-vertex hash.
   const blobG = (r, bseed, amp = 0.28) => geo(`bl${r}_${bseed}_${amp}`, () => {
     const g = new THREE.IcosahedronGeometry(r, 1);
@@ -429,7 +434,8 @@ export function buildProps(zone, heightAt) {
   }
   // Unit lobe: icosphere pushed radially by the wobble. Position-deterministic,
   // so duplicated corners move together (no cracks). Cached per shape seed.
-  const lobeG = (detail, ls, amp = 0.16) => geo(`lobe${detail}_${ls}_${amp}`, () => {
+  const lobeG = (detail, ls, amp = 0.16) => geo(`lobe${FAR_BUILD ? 0 : detail}_${ls}_${amp}`, () => {
+    if (FAR_BUILD) detail = 0;
     const g = new THREE.IcosahedronGeometry(1, detail);
     const p = g.attributes.position;
     for (let i = 0; i < p.count; i++) {
@@ -3640,22 +3646,27 @@ export function buildProps(zone, heightAt) {
 
   // Far LOD of one kind-variant: the same make() re-run in FAR_BUILD mode with
   // the same seed (identical layout, coarser primitives), minus the contact
-  // shadow discs (lost in the fog at that range). Its meshes start empty; the
-  // view sets hand them the in-view instances beyond the far distance.
-  // Skipped when it would not save at least ~35 % of the triangles.
+  // shadow disc (lost in the fog at that range). A part gets a far twin only
+  // when that saves >= 35 % of its triangles; otherwise its near mesh simply
+  // keeps drawing the far instances too (no extra draw call for nothing).
+  // Returns { fims, nearDrawsFar[] } or null. Far meshes start empty; the view
+  // sets hand them the in-view instances beyond the far distance.
   function buildFarMeshes(kind, def, v, singles, bucket, nearParts) {
     let fparts;
     FAR_BUILD = true;
     try { fparts = def.make(seededRandom(seed * 31 + hashStr(kind) + v * 977), v, singles); }
     catch (e) { warnOnce(`far LOD for ${kind} failed: ${e?.message ?? e}`); return null; }
     finally { FAR_BUILD = false; }
-    fparts = fparts.filter((p) => !p.ro);
+    fparts = fparts.filter((p) => p.m !== SHADOW);
+    const near = nearParts.filter((p) => p.m !== SHADOW);
+    if (fparts.length !== near.length) return null; // make() must mirror its near twin
     const tris = (g) => (g.index ? g.index.count : g.attributes.position.count) / 3;
-    let tn = 0, tf = 0;
-    for (const p of nearParts) if (!p.ro) tn += tris(p.g);
-    for (const p of fparts) tf += tris(p.g);
-    if (!fparts.length || tf > tn * 0.65) return null;
-    return fparts.map((part, pi) => {
+    const fims = [], nearDrawsFar = [];
+    for (let pi = 0; pi < near.length; pi++) {
+      const tn = tris(near[pi].g), tf = tris(fparts[pi].g);
+      if (fparts[pi].g === near[pi].g || tf > tn * 0.65 || tn - tf < 16) { nearDrawsFar.push(true); continue; }
+      nearDrawsFar.push(false);
+      const part = fparts[pi];
       const im = new THREE.InstancedMesh(part.g, part.m, bucket.length);
       im.name = `${kind}:${v}:far${pi}`;
       im.castShadow = false;
@@ -3664,8 +3675,9 @@ export function buildProps(zone, heightAt) {
       im.count = 0;
       im.visible = false;
       group.add(im);
-      return im;
-    });
+      fims.push(im);
+    }
+    return fims.length ? { fims, nearDrawsFar } : null;
   }
 
   function realize(kind, placements, entry, rngS, singles) {
@@ -3674,7 +3686,7 @@ export function buildProps(zone, heightAt) {
     if (!placements.length) return;
     const variants = def.variants ?? 1;
     const buckets = Array.from({ length: variants }, () => []);
-    placements.forEach((pl, i) => buckets[i % variants].push(pl));
+    placements.forEach((pl, i) => { if (!pl.thin) buckets[i % variants].push(pl); });
     const ctx = { count: 0, singles, yaw: 0 };
 
     for (let v = 0; v < buckets.length; v++) {
@@ -3697,8 +3709,8 @@ export function buildProps(zone, heightAt) {
         fillInstances(im, part, locals[pi], bucket);
         group.add(im);
       }
-      const fims = !ARENA && FAR_KINDS.has(kind) ? buildFarMeshes(kind, def, v, singles, bucket, parts) : null;
-      registerViewSet(kind, bucket, parts, locals, ims, fims);
+      const far = !ARENA && FAR_KINDS.has(kind) ? buildFarMeshes(kind, def, v, singles, bucket, parts) : null;
+      registerViewSet(kind, bucket, parts, locals, ims, far);
       // (the bucket's spheres include its disc, so the disc never outlives its prop's view)
       // Colliders + effects per placement.
       for (const pl of bucket) {
@@ -3765,12 +3777,26 @@ export function buildProps(zone, heightAt) {
   const COS_TURN = Math.cos(VIEW_ANG * 0.6);
   // small ground dressing: fog-culled, and on Med/Low capped at a distance
   const SMALL_KINDS = new Set(['flower_patch', 'mushroom_cluster', 'fern', 'glowfern', 'grass_tuft', 'reeds', 'lilypad', 'snow_pile', 'hangmoss']);
-  const SMALL_D = { high: Infinity, med: 70, low: 45 };
+  const SMALL_D = { high: Infinity, med: 60, low: 40 };
   // kinds with a far LOD; FAR_D = where it takes over, scaled per tier
+  // (buildings too: the far pass swaps rounded boxes for boxes and halves
+  // sphere/cylinder segments; kinds that would not save >= 35 % keep none)
   const FAR_KINDS = new Set(['tree_oak', 'tree_pine', 'tree_birch', 'tree_willow', 'tree_dead', 'tree_glow', 'tree_cluster',
     'pine_cluster', 'bush', 'berry_bush', 'rock', 'rock_mossy', 'rock_crystal', 'crystal_cluster', 'lava_rock', 'mushroom_giant',
-    'mushroom_cluster', 'fern', 'glowfern']);
-  const FAR_MUL = { high: 1, med: 0.7, low: 0.55 };
+    'mushroom_cluster', 'fern', 'glowfern', 'townhouse', 'house_small', 'house_stilt', 'house_large', 'shop_stall', 'well',
+    'cart', 'crate', 'barrel', 'tent', 'ruin_pillar', 'ruin_arch', 'ruin_wall', 'statue_warden', 'shrine_stone', 'fence',
+    'lamp_post', 'bridge', 'stump', 'log', 'hedge', 'planter', 'flower_bed', 'signpost', 'bunting', 'path_lantern', 'bench',
+    'woodpile', 'cliff_wall', 'boardwalk', 'deck', 'dock', 'beacon', 'windmill', 'stalagmite', 'stalactite', 'spire_wall',
+    'snow_pile', 'flower_patch', 'reeds', 'hangmoss', 'banner', 'ember_vent', 'ice_spike', 'grass_tuft', 'lilypad']);
+  // far-LOD distance: the fog-based range (High) scaled per tier, with a floor
+  const FAR_MUL = { high: [1, 45], med: [0.55, 40], low: [0.4, 30] };
+  // Built kinds (rounded boxes, small spheres/cylinders) lose nothing visible
+  // much earlier: at 60 m a 3-8 cm bevel or a flower-box bead is ~1 px. Their
+  // far twin takes over at min(far distance, ARCH_D[tier]).
+  const ARCH_KINDS = new Set(['townhouse', 'house_small', 'house_stilt', 'house_large', 'shop_stall', 'well', 'cart', 'crate',
+    'barrel', 'tent', 'ruin_pillar', 'ruin_arch', 'ruin_wall', 'statue_warden', 'shrine_stone', 'fence', 'lamp_post', 'bridge',
+    'hedge', 'planter', 'signpost', 'bunting', 'path_lantern', 'bench', 'woodpile', 'boardwalk', 'deck', 'dock', 'beacon', 'windmill']);
+  const ARCH_D = { high: 60, med: 32, low: 24 };
   const RING = [8, 16, 26, 40, 60, 90, 130]; // near-to-far ordering rings (m)
   const VIEW = {
     cam: null, scene: null, light: null, lightTry: 0, ready: false, valid: false,
@@ -3783,7 +3809,7 @@ export function buildProps(zone, heightAt) {
     if (camera && camera.isPerspectiveCamera) { VIEW.cam = camera; VIEW.scene = scene; }
   }
 
-  function registerViewSet(kind, bucket, parts, locals, ims, fims) {
+  function registerViewSet(kind, bucket, parts, locals, ims, far) {
     const n = bucket.length;
     // local bounding sphere of one whole placement: the union of its parts
     const ls = new THREE.Sphere(), tmp = new THREE.Sphere();
@@ -3803,18 +3829,22 @@ export function buildProps(zone, heightAt) {
       sph[i * 4 + 2] = pl.z - lx * sn + lz * c;
       sph[i * 4 + 3] = ls.radius * Math.max(pl.s, sy) + 0.3; // + wind sway slack
     }
-    addViewSet(kind, n, sph, ims, fims);
+    addViewSet(kind, n, sph, ims, far);
   }
-  function addViewSet(kind, n, sph, ims, fims) {
+  // ims: near meshes (one per non-disc part, in part order); far: { fims, nearDrawsFar }
+  function addViewSet(kind, n, sph, ims, far) {
+    const fims = far ? far.fims : null;
     for (const im of ims) im.onBeforeRender = captureView;
     if (fims) for (const im of fims) im.onBeforeRender = captureView;
     viewSets.push({
-      kind, n, sph, ims, fims, small: SMALL_KINDS.has(kind), src: null, fsrc: null, cast: false,
-      order: new Int32Array(n), drawn: n, n0: n, forder: fims ? new Int32Array(n) : null, fdrawn: 0,
+      kind, n, sph, ims, fims, small: SMALL_KINDS.has(kind), arch: ARCH_KINDS.has(kind), src: null, fsrc: null, cast: false,
+      // per near mesh: does it also draw the far instances (no far twin)?
+      nearFar: ims.map((im, k) => (far ? far.nearDrawsFar[k] : true)),
+      order: new Int32Array(n), drawn: n, n0: n, n2: 0, forder: fims ? new Int32Array(n) : null, fdrawn: 0,
     });
   }
 
-  let vsMark = null, vsRing = null, vsTmp = null, vsFTmp = null;
+  let vsMark = null, vsRing = null, vsTmp = null;
   const vsCnt = new Int32Array(RING.length + 1);
   function snapshot(im, n) {
     return {
@@ -3840,7 +3870,6 @@ export function buildProps(zone, heightAt) {
     vsMark = new Uint8Array(maxN);
     vsRing = new Uint8Array(maxN);
     vsTmp = new Int32Array(maxN);
-    vsFTmp = new Int32Array(maxN);
     VIEW.ready = true;
   }
 
@@ -3976,12 +4005,15 @@ export function buildProps(zone, heightAt) {
     // by the trigger angle and move by the trigger distance first)
     const fogDepth = fogK > 0 ? 1.98 / fogK : Infinity;
     const slackA = VIEW_ANG * 0.6 + 0.05, slackD = VIEW_PAD * 0.6;
-    // far LOD: where FogExp2 reaches ~89 %, between 45 and 110 m, per tier
-    const farD = (fogK > 0 ? clamp(1.5 / fogK, 45, 110) : 110) * (FAR_MUL[tier] ?? 1);
+    // far LOD: where FogExp2 reaches ~89 %, between 45 and 110 m (High);
+    // Med / Low bring it in (to a floor)
+    const fm = FAR_MUL[tier] ?? FAR_MUL.high;
+    const farD = Math.max(fm[1], (fogK > 0 ? clamp(1.5 / fogK, 45, 110) : 110) * fm[0]);
     for (let si = 0; si < viewSets.length; si++) {
       const s = viewSets[si], sph = s.sph, n = s.n;
       const capD = s.small ? smallD : Infinity;
       const hasFar = !!s.fims && viewOn;
+      const fD = s.arch ? Math.min(farD, ARCH_D[tier] ?? ARCH_D.high) : farD;
       // classify: 1 = shadow caster (near mesh, always), 2 = in view (near), 3 = in view (far), 0 = not drawn
       let n0 = 0;
       for (let i = 0; i < n; i++) {
@@ -4000,33 +4032,35 @@ export function buildProps(zone, heightAt) {
             const a = Math.min(Math.PI / 2, Math.acos(clamp(cosA, -1, 1)) + slackA);
             if ((d - slackD) * Math.cos(a) - r > fogDepth) c = 0;
           }
-          if (c === 2 && hasFar && d - r > farD) c = 3;
+          if (c === 2 && hasFar && d - r > fD) c = 3;
         }
         vsMark[i] = c;
       }
       // no known shadow light: every drawn near instance casts, as before
       if (!shadowOn) { n0 = 0; for (let i = 0; i < n; i++) if (vsMark[i] === 2) { vsMark[i] = 1; n0++; } }
-      const w = ringSort(n, 2, vsTmp, ringSort(n, 1, vsTmp, 0));
-      const fw = hasFar ? ringSort(n, 3, vsFTmp, 0) : 0;
+      // near meshes: [casters | in view near | in view far]; a near mesh draws
+      // the far tail only when its part has no far twin. Far meshes: [far].
+      const w2 = ringSort(n, 2, vsTmp, ringSort(n, 1, vsTmp, 0));
+      const w = hasFar ? ringSort(n, 3, vsTmp, w2) : w2;
       // unchanged? (same split, same order) — then nothing to upload
-      let same = w === s.drawn && n0 === s.n0;
+      let same = w === s.drawn && n0 === s.n0 && w2 === s.n2;
       for (let j = 0; same && j < w; j++) if (vsTmp[j] !== s.order[j]) same = false;
-      if (s.fims) {
-        same = same && fw === s.fdrawn;
-        for (let j = 0; same && j < fw; j++) if (vsFTmp[j] !== s.forder[j]) same = false;
-      }
       if (same) continue;
       for (let j = 0; j < w; j++) s.order[j] = vsTmp[j];
-      s.drawn = w; s.n0 = n0;
-      boxOf(sph, s.order, w);
+      s.drawn = w; s.n0 = n0; s.n2 = w2;
+      boxOf(sph, s.order, w2);
+      _vsBox2.set(_vsBox);
+      if (w > w2) boxOf(sph, s.order, w);
       for (let k = 0; k < s.ims.length; k++) {
-        const im = s.ims[k], src = s.src[k];
-        writeSet(im, src, s.order, w, _vsBox[0], _vsBox[1], _vsBox[2], _vsBox[3], _vsBox[4], _vsBox[5]);
-        src.mainN = w; src.shadowN = n0;
+        const im = s.ims[k], src = s.src[k], all = s.nearFar[k];
+        const b = all ? _vsBox : _vsBox2, cnt = all ? w : w2;
+        writeSet(im, src, s.order, cnt, b[0], b[1], b[2], b[3], b[4], b[5]);
+        src.mainN = cnt; src.shadowN = n0;
         im.castShadow = src.cast && n0 > 0;
       }
       if (s.fims) {
-        for (let j = 0; j < fw; j++) s.forder[j] = vsFTmp[j];
+        const fw = w - w2;
+        for (let j = 0; j < fw; j++) s.forder[j] = s.order[w2 + j];
         s.fdrawn = fw;
         boxOf(sph, s.forder, fw);
         for (let k = 0; k < s.fims.length; k++) {
@@ -4155,9 +4189,11 @@ export function buildProps(zone, heightAt) {
     else if (entry.ring) pts = ringPositions(entry);
     else {
       pts = scatterPositions(entry, def, eRng);
-      // tiny ground dressing thins on lower quality tiers
-      if (SMALL_MUL < 1 && !def.collider) pts = pts.filter(() => eRng() < SMALL_MUL);
     }
+    // tiny ground dressing thins on lower quality tiers — by a position hash
+    // AFTER every random draw, so Med/Low keep a strict subset of the High
+    // layout (same spots, same sizes and turns), never a reshuffle
+    const thin = SMALL_MUL < 1 && !def.collider && !entry.border && !entry.line && !entry.ring;
     const list = byKindScatter.get(entry.kind) ?? [];
     const sVar = entry.scaleVar ?? (entry.line || entry.ring ? 0.12 : 0.5);
     for (const p of pts) {
@@ -4169,11 +4205,14 @@ export function buildProps(zone, heightAt) {
       if (entry.align && lineYaw != null) yaw = lineYaw + (entry.rot ?? 0) + (eRng() - 0.5) * 0.08;
       else if (entry.align === 'center' && entry.ring) yaw = Math.atan2(entry.ring[0] - x, entry.ring[1] - z) + (entry.rot ?? 0);
       else yaw = yawFor(entry, def, x, z, eRng);
-      list.push({
+      const pl = {
         x, z, y: placementY(entry.kind, def, x, z, eRng), yaw, s,
         sy: s * (1 + (eRng() - 0.5) * 0.14),
         hueJ: (eRng() - 0.5) * 2, lumJ: (eRng() - 0.5) * 2,
-      });
+      };
+      // (kept in the list, flagged: variant assignment goes by list index)
+      if (thin && (hashN(x, 0.37, z, 11) + 1) * 0.5 >= SMALL_MUL) pl.thin = true;
+      list.push(pl);
     }
     byKindScatter.set(entry.kind, list);
   }

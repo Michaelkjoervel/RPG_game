@@ -38,7 +38,7 @@ const BLK = 32;               // blades per buffer block (packing granularity)
 
 const TIERS = {
   high: { budget: 60000, radius: 28, segs: 3, widthMul: 1.0 },
-  med: { budget: 25000, radius: 20, segs: 3, widthMul: 1.15 },
+  med: { budget: 25000, radius: 20, segs: 2, widthMul: 1.15 }, // 2 segments: 3 tris a blade (perf v3)
   low: { budget: 8000, radius: 13, segs: 2, widthMul: 1.4 },
 };
 
