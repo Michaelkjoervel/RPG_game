@@ -3802,14 +3802,14 @@ export function buildProps(zone, heightAt) {
   const ARCH_D = { high: 35, med: 22, low: 16 };
   const RING = [8, 16, 26, 40, 60, 90, 130]; // near-to-far ordering rings (m)
   const VIEW = {
-    cam: null, scene: null, light: null, lightTry: 0, ready: false, valid: false,
+    cam: null, scene: null, renderer: null, light: null, lightTry: 0, ready: false, valid: false, shOn: true,
     px: 0, py: 0, pz: 0, fx: 0, fy: 0, fz: 0, lx: 0, ly: 0, lz: 0,
     fov: 0, aspect: 0, near: 0, far: 0, fogK: 0, tier: '', lightRef: null,
   };
   // the main-pass camera (and the scene being drawn) — remembered from any
   // managed mesh's onBeforeRender; only a reference is stored
   function captureView(renderer, scene, camera) {
-    if (camera && camera.isPerspectiveCamera) { VIEW.cam = camera; VIEW.scene = scene; }
+    if (camera && camera.isPerspectiveCamera) { VIEW.cam = camera; VIEW.scene = scene; VIEW.renderer = renderer; }
   }
 
   function registerViewSet(kind, bucket, parts, locals, ims, far) {
@@ -3911,8 +3911,9 @@ export function buildProps(zone, heightAt) {
     const fog = VIEW.scene?.fog;
     const fogK = !ARENA && fog && fog.isFogExp2 ? fog.density : 0; // FogExp2 density (0 = no fog culling)
     const tier = settings.quality ?? 'high';
+    const shOn = !VIEW.renderer || VIEW.renderer.shadowMap.enabled !== false; // Low renders no shadows
     const V = VIEW;
-    if (V.valid
+    if (V.valid && shOn === V.shOn
       && (px - V.px) ** 2 + (py - V.py) ** 2 + (pz - V.pz) ** 2 < (VIEW_PAD * 0.6) ** 2
       && fx * V.fx + fy * V.fy + fz * V.fz > COS_TURN
       && (lx - V.lx) ** 2 + (ly - V.ly) ** 2 + (lz - V.lz) ** 2 < (SHADOW_PAD * 0.5) ** 2
@@ -3923,14 +3924,14 @@ export function buildProps(zone, heightAt) {
       && tier === V.tier && L === V.lightRef) return;
     V.px = px; V.py = py; V.pz = pz; V.fx = fx; V.fy = fy; V.fz = fz; V.lx = lx; V.ly = ly; V.lz = lz;
     V.fov = cam.fov; V.aspect = cam.aspect; V.near = cam.near; V.far = cam.far;
-    V.fogK = fogK; V.tier = tier; V.lightRef = L; V.valid = true;
+    V.fogK = fogK; V.tier = tier; V.lightRef = L; V.shOn = shOn; V.valid = true;
     // instance spheres live in the props group's space (the zone origin in
     // the overworld; the arena group in battle)
     group.updateWorldMatrix(true, false);
     _vsM1.copy(group.matrixWorld).invert();
     _vsEye.set(px, py, pz).applyMatrix4(_vsM1);
     _vsTgt.set(fx, fy, fz).transformDirection(_vsM1);
-    viewRebuild(cam, L, _vsEye.x, _vsEye.y, _vsEye.z, _vsTgt.x, _vsTgt.y, _vsTgt.z, fogK, tier);
+    viewRebuild(cam, L, _vsEye.x, _vsEye.y, _vsEye.z, _vsTgt.x, _vsTgt.y, _vsTgt.z, fogK, tier, shOn);
   }
 
   // copy the instances listed in order[0..w) from a snapshot into a mesh
@@ -3982,7 +3983,7 @@ export function buildProps(zone, heightAt) {
     return acc;
   }
 
-  function viewRebuild(cam, L, px, py, pz, fx, fy, fz, fogK, tier) {
+  function viewRebuild(cam, L, px, py, pz, fx, fy, fz, fogK, tier, shOn) {
     const viewOn = !ARENA;
     if (viewOn) {
       const n = cam.near, f = cam.far, hf = THREE.MathUtils.degToRad(cam.fov) / 2;
@@ -3993,7 +3994,7 @@ export function buildProps(zone, heightAt) {
       _vsM2.multiplyMatrices(_vsM1, cam.matrixWorldInverse).multiply(group.matrixWorld); // -> props-local planes
       planesOf(_vsM2, _vsView);
     }
-    const shadowOn = !!(L && L.shadow);
+    const shadowOn = shOn && !!(L && L.shadow);
     if (shadowOn) {
       const sc = L.shadow.camera;
       _vsEye.setFromMatrixPosition(L.matrixWorld);
@@ -4041,8 +4042,8 @@ export function buildProps(zone, heightAt) {
         }
         vsMark[i] = c;
       }
-      // no known shadow light: every drawn near instance casts, as before
-      if (!shadowOn) { n0 = 0; for (let i = 0; i < n; i++) if (vsMark[i] === 2) { vsMark[i] = 1; n0++; } }
+      // shadows on but no known sun light: every drawn near instance casts, as before
+      if (shOn && !shadowOn) { n0 = 0; for (let i = 0; i < n; i++) if (vsMark[i] === 2) { vsMark[i] = 1; n0++; } }
       // near meshes: [casters | in view near | in view far]; a near mesh draws
       // the far tail only when its part has no far twin. Far meshes: [far].
       const w2 = ringSort(n, 2, vsTmp, ringSort(n, 1, vsTmp, 0));
@@ -4306,7 +4307,7 @@ export function buildProps(zone, heightAt) {
     updaters.length = 0;
     surfacePatches.length = 0;
     viewSets.length = 0;
-    VIEW.cam = VIEW.scene = VIEW.light = VIEW.lightRef = null;
+    VIEW.cam = VIEW.scene = VIEW.renderer = VIEW.light = VIEW.lightRef = null;
     group.clear();
   }
 
