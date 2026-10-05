@@ -50,8 +50,13 @@ export function build_zephyra(kit = kitDefault) {
   const headGeo = S.ball(0.052, { sx: 1.08, sy: 0.96, radial: 16, rings: 12 });
   S.paint(headGeo, { from: 0x7a6aa8, to: 0xcabfe2, axis: 'y', noise: 0.015, seed: 87 });
   S.blush(headGeo, S.surface(headGeo, S.dirYP(0, 0.6)), 0.026, 0xffe2b0, 0.85);
+  // a little tiara: three gold-glowing beads across the brow (the queen)
+  const tiara = [-1, 0, 1].map((k) => S.pose(S.ball(k ? 0.0075 : 0.011, { sy: k ? 1 : 1.3, radial: 8, rings: 6 }), S.surface(headGeo, S.dirYP(k * 0.32, 0.72 + (k ? 0 : 0.08)), { inset: -0.002 })));
   const head = S.bake([headGeo], fuzz, 'head');
   kit.at(body, head, 0, 0.065, 0.075, { rx: -0.12 });
+  const tiaraMesh = new THREE.Mesh(S.merge(tiara.map((g) => S.paint(g, 0xffffff))), kit.mat(GOLD, { unlit: true }));
+  tiaraMesh.name = 'tiara';
+  head.add(tiaraMesh);
   const eyeOpts = { irisColor: 0x1c1428, pupilColor: 0x0c0a12, skinColor: 0x8a7ea8, glintSize: 0.01, irisScale: 1.3 };
   const eyeL = S.seatEye(kit, head, headGeo, 0.026, 0.55, 0.08, eyeOpts, { sink: 0.35, front: 0.5 });
   const eyeR = S.seatEye(kit, head, headGeo, 0.026, -0.55, 0.08, eyeOpts, { sink: 0.35, front: 0.5 });
@@ -82,17 +87,17 @@ export function build_zephyra(kit = kitDefault) {
   });
 
   // --- FOUR wings: broad forewings, long ribbon-tailed hindwings. ----------
-  const foreSpots = [{ t: 0.58, v: 0.06, r: 0.044, ring: 0x2e1e4a, core: GOLD }];
+  const foreSpots = [{ t: 0.58, v: 0.06, r: 0.055, ring: 0x2e1e4a, core: GOLD }];
   const hindSpots = [{ t: 0.2, v: 0.05, r: 0.026, ring: 0x3e2a5a, core: 0xffc0a0 }];
   const fore = (side) => {
-    const w = S.openWing(0.3, fuzz, {
-      width: 0.23, thick: 0.065, sweep: 0.22, color: { root: WING_R, tip: WING_T }, spots: foreSpots, radial: 14, rings: 12,
+    const w = S.openWing(0.34, fuzz, {
+      width: 0.26, thick: 0.06, sweep: 0.22, color: { root: WING_R, tip: WING_T }, spots: foreSpots, radial: 14, rings: 12,
       chord: (t) => Math.pow(Math.sin(Math.PI * Math.min(1, 0.14 + t * 0.9)), 0.6) * (0.62 + 0.38 * t),
     });
     // a pale cream border band round the outer edge, gold veins of light
     const g = w.group.children[0].geometry;
     S.overlay(g, EDGE, (x, y, z) => {
-      const t = x / 0.3, cz = -0.22 * 0.3 * t * t, half = 0.115 * Math.pow(Math.sin(Math.PI * Math.min(1, 0.14 + t * 0.9)), 0.6) * (0.62 + 0.38 * t);
+      const t = x / 0.34, cz = -0.22 * 0.34 * t * t, half = 0.13 * Math.pow(Math.sin(Math.PI * Math.min(1, 0.14 + t * 0.9)), 0.6) * (0.62 + 0.38 * t);
       const e = Math.abs(z - cz) / Math.max(1e-3, half);
       return S.sstep(0.74, 0.9, Math.max(e, S.sstep(0.84, 0.98, t))) * S.sstep(0.3, 0.5, t);
     });
@@ -118,8 +123,8 @@ export function build_zephyra(kit = kitDefault) {
     // [side, builder, y, z, raise(rz), back(ry)]
     [1, fore, 0.035, 0.0, 0.62, 0.3],
     [-1, fore, 0.035, 0.0, 0.62, 0.3],
-    [1, hind, 0.0, -0.035, -0.62, 0.5],
-    [-1, hind, 0.0, -0.035, -0.62, 0.5],
+    [1, hind, 0.0, -0.035, -0.22, 1.0],
+    [-1, hind, 0.0, -0.035, -0.22, 1.0],
   ];
   const wingParts = wingDefs.map(([side, mk, y, z, up, back]) => {
     const w = mk(side);

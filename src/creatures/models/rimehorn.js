@@ -137,7 +137,7 @@ export function build_rimehorn(kit = kitDefault) {
   // --- THE ICE HORNS: ridged ibex crescents of glacier glass. --------------
   const horns = [1, -1].map((s) => {
     const base = S.surface(headGeo, S.dirYP(s * 0.32, 1.0), { from: SK, inset: 0.018 });
-    const pts = [[0, -0.015, 0.005], [s * 0.03, 0.075, -0.03], [s * 0.075, 0.135, -0.1], [s * 0.125, 0.16, -0.2], [s * 0.17, 0.14, -0.3], [s * 0.2, 0.08, -0.36], [s * 0.21, 0.0, -0.37]];
+    const pts = [[0, -0.015, 0.01], [s * 0.035, 0.06, -0.035], [s * 0.08, 0.105, -0.115], [s * 0.13, 0.12, -0.215], [s * 0.175, 0.095, -0.31], [s * 0.2, 0.035, -0.365], [s * 0.205, -0.04, -0.37]];
     const g = hornGeo(pts, 0.05, 0.009);
     // glacier blue at the root, clear pale ice to a white tip, frost rings
     S.paint(g, { fn: (x, y, z) => S.clamp01(Math.hypot(x, y, z) / 0.42), from: ICE_LO, to: ICE_HI, exp: 0.8 });
@@ -149,7 +149,7 @@ export function build_rimehorn(kit = kitDefault) {
     return m;
   });
   const hornGlow = S.glow(0x9fd8ff, 0.34, 0.25);
-  hornGlow.position.set(0, 0.2, -0.2);
+  hornGlow.position.set(0, 0.15, -0.2);
   head.add(hornGlow);
 
   // --- Legs: sturdy, slate below the fleece, dark hooves. -----------------
