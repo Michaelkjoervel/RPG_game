@@ -22,7 +22,7 @@ const WOOL_LO = 0x9aa6bc, WOOL = 0xdfe6f0, WOOL_HI = 0xfbfdff, FROST = 0xb4d6f2,
 
 // A hanging lock of wool (tip down), rooted at `at`, flared out by `out`.
 function lock(len, w, at, out, lean, from, to) {
-  const g = S.taper(len, w, { r1: w * 0.42, curve: 0.3, radial: 6, rings: 4, capSeg: 1, sx: 1.35, sz: 0.7 });
+  const g = S.taper(len, w, { r1: w * 0.6, curve: 0.3, radial: 6, rings: 4, capSeg: 1, sx: 1.45, sz: 0.7 });
   S.paint(g, { from, to, axis: 'y', noise: 0.015 });
   g.rotateX(Math.PI); // hang down (curve now sweeps back)
   g.rotateZ(out);
@@ -82,7 +82,7 @@ export function build_rimehorn(kit = kitDefault) {
     for (let i = 0; i < 5; i++) {
       const z = 0.18 - i * 0.085;
       const at = S.surface(torso, S.dirYP(s * 1.3, -0.4), { from: [0, 0, z], inset: 0.026 });
-      locks.push(lock(0.085 + 0.015 * Math.sin(i * 2.1), 0.046, at, s * 0.28, 0.1, WOOL_HI, FROST));
+      locks.push(lock(0.07 + 0.012 * Math.sin(i * 2.1), 0.054, at, s * 0.24, 0.1, WOOL_HI, 0xd2e4f4));
     }
   }
   // two belly locks at the front, between the forelegs

@@ -38,6 +38,15 @@ const _col = new THREE.Color();
 const _c1 = new THREE.Color();
 const _c2 = new THREE.Color();
 
+// view-set scratch (props.js "view sets"; used synchronously, never per frame)
+const _vsFr = new THREE.Frustum();
+const _vsM1 = new THREE.Matrix4();
+const _vsM2 = new THREE.Matrix4();
+const _vsEye = new THREE.Vector3();
+const _vsTgt = new THREE.Vector3();
+const _vsView = new Float32Array(24);
+const _vsShadow = new Float32Array(24);
+
 const warned = new Set();
 const warnOnce = (msg) => { if (!warned.has(msg)) { warned.add(msg); console.warn('[props]', msg); } };
 
@@ -3566,9 +3575,11 @@ export function buildProps(zone, heightAt) {
           _scl.set(sc[0], sc[1], sc[2]),
         );
       });
+      const ims = [];
       for (let pi = 0; pi < parts.length; pi++) {
         const part = parts[pi];
         const im = new THREE.InstancedMesh(part.g, part.m, bucket.length);
+        ims.push(im);
         im.name = `${kind}:${v}:${pi}`;
         im.castShadow = part.shadow !== false && !def.noShadow;
         im.receiveShadow = !part.ro;
@@ -3599,6 +3610,7 @@ export function buildProps(zone, heightAt) {
         if (im.instanceColor) im.instanceColor.needsUpdate = true;
         group.add(im);
       }
+      registerViewSet(kind, bucket, parts, locals, ims);
       // Colliders + effects per placement.
       for (const pl of bucket) {
         if (def.collider) colliders.push({ x: pl.x, z: pl.z, r: def.collider * pl.s });
@@ -3622,6 +3634,253 @@ export function buildProps(zone, heightAt) {
           ctx.yaw = pl.yaw;
           const up = def.effect(pl.x, pl.y, pl.z, pl.s, seededRandom(hashStr(kind) + Math.round(pl.x * 10) * 31 + Math.round(pl.z * 10)), ctx);
           if (up) updaters.push(up);
+        }
+      }
+    }
+  }
+
+  // ------------------------------------------------------------- view sets
+  // Each kind-variant part is ONE InstancedMesh holding every placement in the
+  // zone, so its bounding sphere spans the zone and three.js can never cull
+  // it: every tree was drawn in the main pass even behind the camera, and in
+  // the sun's shadow pass even 150 m outside its 36 m shadow box. Now each
+  // bucket keeps its instances partitioned in the instance buffers as
+  //     [ shadow casters | in view | not drawn ]
+  // and its meshes draw `count = casters + inView` — only the casters in the
+  // shadow pass (count is swapped in onBeforeShadow / restored after). Both
+  // sets are conservative supersets of what the GPU would actually keep:
+  //   casters — the placement's bounding sphere, grown by SHADOW_PAD, touches
+  //             the sun's shadow frustum (the same light-space box three uses);
+  //   in view — its sphere, grown by VIEW_PAD, touches the camera frustum
+  //             widened by VIEW_ANG on every side, and it is nearer than the
+  //             distance where the scene fog is ~99 % opaque (small dressing
+  //             also stops at a per-tier distance on Med/Low).
+  // The partition is rebuilt only when the camera has turned / moved / the
+  // light moved past a fraction of those margins (or fov, fog, tier changed)
+  // — not per frame — from a snapshot of the instance buffers taken once at
+  // the first update (so the battle arena's floor clearing survives), and only
+  // the drawn prefix is re-uploaded. Instances are ordered near-to-far within
+  // each set (coarse rings) so the GPU's early depth test rejects more of the
+  // hidden canopy fragments. Draw calls, colliders and geometry are unchanged.
+  // In battle arenas (camera director moves after the arena update, with hard
+  // cuts) only the shadow set is used: everything stays drawn in the main pass.
+  const viewSets = [];
+  const ARENA = String(zone.id ?? '').startsWith('arena_');
+  const VIEW_ANG = 0.35;       // rad of slack around the camera frustum on every side
+  const VIEW_PAD = 5;          // m the camera may move before the view set is stale
+  const SHADOW_PAD = 3;        // m the sun's shadow box may move before the caster set is stale
+  const COS_TURN = Math.cos(VIEW_ANG * 0.6);
+  // small ground dressing also ends at a per-tier distance (beyond fog culling)
+  const SMALL_KINDS = new Set(['flower_patch', 'mushroom_cluster', 'fern', 'glowfern', 'grass_tuft', 'reeds', 'lilypad', 'snow_pile', 'hangmoss']);
+  const SMALL_D = { high: Infinity, med: 70, low: 45 };
+  const RING = [8, 16, 26, 40, 60, 90, 130]; // near-to-far ordering rings (m)
+  const VIEW = {
+    cam: null, scene: null, light: null, lightTry: 0, ready: false, valid: false,
+    px: 0, py: 0, pz: 0, fx: 0, fy: 0, fz: 0, lx: 0, ly: 0, lz: 0,
+    fov: 0, aspect: 0, near: 0, far: 0, fogD: Infinity, tier: '', lightRef: null,
+  };
+  // the main-pass camera (and the scene being drawn) — remembered from any
+  // managed mesh's onBeforeRender; only a reference is stored, never per-frame work
+  function captureView(renderer, scene, camera) {
+    if (camera && camera.isPerspectiveCamera) { VIEW.cam = camera; VIEW.scene = scene; }
+  }
+
+  function registerViewSet(kind, bucket, parts, locals, ims) {
+    const n = bucket.length;
+    // local bounding sphere of one whole placement: the union of its parts
+    const ls = new THREE.Sphere(), tmp = new THREE.Sphere();
+    for (let pi = 0; pi < parts.length; pi++) {
+      const g = parts[pi].g;
+      if (!g.boundingSphere) g.computeBoundingSphere();
+      tmp.copy(g.boundingSphere).applyMatrix4(locals[pi]);
+      if (pi === 0) ls.copy(tmp); else ls.union(tmp);
+    }
+    const sph = new Float32Array(n * 4);
+    for (let i = 0; i < n; i++) {
+      const pl = bucket[i], sy = pl.sy ?? pl.s;
+      const c = Math.cos(pl.yaw), sn = Math.sin(pl.yaw);
+      const lx = ls.center.x * pl.s, lz = ls.center.z * pl.s;
+      sph[i * 4] = pl.x + lx * c + lz * sn;
+      sph[i * 4 + 1] = pl.y + ls.center.y * sy;
+      sph[i * 4 + 2] = pl.z - lx * sn + lz * c;
+      sph[i * 4 + 3] = ls.radius * Math.max(pl.s, sy) + 0.3; // + wind sway slack
+    }
+    for (const im of ims) im.onBeforeRender = captureView;
+    viewSets.push({ kind, n, sph, ims, small: SMALL_KINDS.has(kind), src: null, cast: false, order: new Int32Array(n), drawn: n, n0: n });
+  }
+
+  let vsMark = null, vsRing = null, vsTmp = null, vsCnt = new Int32Array(RING.length + 1);
+  function viewInit() {
+    let maxN = 1;
+    for (const s of viewSets) {
+      maxN = Math.max(maxN, s.n);
+      s.src = s.ims.map((im) => {
+        if (!im.boundingSphere) im.computeBoundingSphere(); // over every instance, before any partition
+        const e = {
+          m: im.instanceMatrix.array.slice(0, s.n * 16),
+          c: im.instanceColor ? im.instanceColor.array.slice(0, s.n * 3) : null,
+          cast: im.castShadow, shadowN: s.n, mainN: s.n,
+        };
+        im.onBeforeShadow = function () { this.count = e.shadowN; };
+        im.onAfterShadow = function () { this.count = e.mainN; };
+        return e;
+      });
+      s.cast = s.src.some((e) => e.cast);
+      for (let i = 0; i < s.n; i++) s.order[i] = i;
+    }
+    vsMark = new Uint8Array(maxN);
+    vsRing = new Uint8Array(maxN);
+    vsTmp = new Int32Array(maxN);
+    VIEW.ready = true;
+  }
+
+  function findShadowLight(root) {
+    let found = null;
+    root.traverse((o) => { if (!found && o.isDirectionalLight && o.castShadow) found = o; });
+    return found;
+  }
+
+  // frustum planes of a view-projection matrix -> flat [nx, ny, nz, d] x 6
+  function planesOf(m, out) {
+    _vsFr.setFromProjectionMatrix(m);
+    for (let k = 0; k < 6; k++) {
+      const p = _vsFr.planes[k];
+      out[k * 4] = p.normal.x; out[k * 4 + 1] = p.normal.y; out[k * 4 + 2] = p.normal.z; out[k * 4 + 3] = p.constant;
+    }
+  }
+  function sphereIn(pl, x, y, z, r) {
+    for (let k = 0; k < 24; k += 4) if (pl[k] * x + pl[k + 1] * y + pl[k + 2] * z + pl[k + 3] < -r) return false;
+    return true;
+  }
+
+  function viewUpdate() {
+    const cam = VIEW.cam;
+    if (!cam || !viewSets.length) return;
+    if (!VIEW.ready) viewInit();
+    cam.updateMatrixWorld();
+    const e = cam.matrixWorld.elements;
+    const px = e[12], py = e[13], pz = e[14];
+    let fx = -e[8], fy = -e[9], fz = -e[10];
+    const fl = Math.hypot(fx, fy, fz) || 1; fx /= fl; fy /= fl; fz /= fl;
+    if (!VIEW.light && VIEW.scene && (VIEW.lightTry++ % 60) === 0) VIEW.light = findShadowLight(VIEW.scene);
+    const L = VIEW.light;
+    let lx = 0, ly = 0, lz = 0;
+    if (L) { const le = L.matrixWorld.elements; lx = le[12]; ly = le[13]; lz = le[14]; }
+    const fog = VIEW.scene?.fog;
+    const fogD = ARENA || !fog ? Infinity : fog.isFogExp2 ? 2.3 / Math.max(1e-4, fog.density) : (fog.far ?? Infinity);
+    const tier = settings.quality ?? 'high';
+    const V = VIEW;
+    if (V.valid
+      && (px - V.px) ** 2 + (py - V.py) ** 2 + (pz - V.pz) ** 2 < (VIEW_PAD * 0.6) ** 2
+      && fx * V.fx + fy * V.fy + fz * V.fz > COS_TURN
+      && (lx - V.lx) ** 2 + (ly - V.ly) ** 2 + (lz - V.lz) ** 2 < (SHADOW_PAD * 0.5) ** 2
+      && cam.fov === V.fov && cam.aspect === V.aspect && cam.near === V.near && cam.far === V.far
+      && (fogD === V.fogD || Math.abs(fogD - V.fogD) < V.fogD * 0.03)
+      && tier === V.tier && L === V.lightRef) return;
+    V.px = px; V.py = py; V.pz = pz; V.fx = fx; V.fy = fy; V.fz = fz; V.lx = lx; V.ly = ly; V.lz = lz;
+    V.fov = cam.fov; V.aspect = cam.aspect; V.near = cam.near; V.far = cam.far;
+    V.fogD = fogD; V.tier = tier; V.lightRef = L; V.valid = true;
+    // instance spheres live in the props group's space (the zone origin in
+    // the overworld; the arena group in battle)
+    group.updateWorldMatrix(true, false);
+    _vsEye.set(px, py, pz).applyMatrix4(_vsM1.copy(group.matrixWorld).invert());
+    viewRebuild(cam, L, _vsEye.x, _vsEye.y, _vsEye.z, fogD, tier);
+  }
+
+  function viewRebuild(cam, L, px, py, pz, fogD, tier) {
+    const viewOn = !ARENA;
+    if (viewOn) {
+      const n = cam.near, f = cam.far, hf = THREE.MathUtils.degToRad(cam.fov) / 2;
+      const hv = Math.min(1.45, hf + VIEW_ANG);
+      const hh = Math.min(1.45, Math.atan(Math.tan(hf) * cam.aspect) + VIEW_ANG);
+      const tv = Math.tan(hv) * n, th = Math.tan(hh) * n;
+      _vsM1.makePerspective(-th, th, tv, -tv, n, f);
+      _vsM2.multiplyMatrices(_vsM1, cam.matrixWorldInverse).multiply(group.matrixWorld); // -> props-local planes
+      planesOf(_vsM2, _vsView);
+    }
+    const shadowOn = !!(L && L.shadow);
+    if (shadowOn) {
+      const sc = L.shadow.camera;
+      _vsEye.setFromMatrixPosition(L.matrixWorld);
+      _vsTgt.setFromMatrixPosition(L.target.matrixWorld);
+      _vsM1.identity().lookAt(_vsEye, _vsTgt, sc.up); // the shadow camera three builds (DirectionalLightShadow.updateMatrices)
+      _vsM1.setPosition(_vsEye);
+      _vsM1.invert();
+      _vsM2.multiplyMatrices(sc.projectionMatrix, _vsM1).multiply(group.matrixWorld);
+      planesOf(_vsM2, _vsShadow);
+    }
+    const smallD = SMALL_D[tier] ?? Infinity;
+    for (let si = 0; si < viewSets.length; si++) {
+      const s = viewSets[si], sph = s.sph, n = s.n;
+      const maxD = s.small ? Math.min(fogD, smallD) : fogD;
+      // classify: 1 = shadow caster (always drawn), 2 = in view, 0 = not drawn
+      let n0 = 0, nd = 0;
+      for (let i = 0; i < n; i++) {
+        const x = sph[i * 4], y = sph[i * 4 + 1], z = sph[i * 4 + 2], r = sph[i * 4 + 3];
+        const d = Math.sqrt((x - px) ** 2 + (y - py) ** 2 + (z - pz) ** 2);
+        let ring = 0;
+        while (ring < RING.length && d - r > RING[ring]) ring++;
+        vsRing[i] = ring;
+        let c = 0;
+        if (shadowOn && s.cast && sphereIn(_vsShadow, x, y, z, r + SHADOW_PAD)) c = 1;
+        else if (d - r < maxD && (!viewOn || sphereIn(_vsView, x, y, z, r + VIEW_PAD))) c = 2;
+        vsMark[i] = c;
+        if (c) nd++;
+        if (c === 1) n0++;
+      }
+      // no known shadow light: every drawn instance casts, as before
+      if (!shadowOn) { for (let i = 0; i < n; i++) if (vsMark[i]) vsMark[i] = 1; n0 = nd; }
+      // order: casters then in-view, each near-to-far by ring (counting sort)
+      let w = 0;
+      for (let cls = 1; cls <= 2; cls++) {
+        vsCnt.fill(0);
+        for (let i = 0; i < n; i++) if (vsMark[i] === cls) vsCnt[vsRing[i]]++;
+        let acc = w;
+        for (let k = 0; k < vsCnt.length; k++) { const t = vsCnt[k]; vsCnt[k] = acc; acc += t; }
+        for (let i = 0; i < n; i++) if (vsMark[i] === cls) vsTmp[vsCnt[vsRing[i]]++] = i;
+        w = acc;
+      }
+      // unchanged? (same split, same order) — then nothing to upload
+      let same = w === s.drawn && n0 === s.n0;
+      for (let j = 0; same && j < w; j++) if (vsTmp[j] !== s.order[j]) same = false;
+      if (same) continue;
+      for (let j = 0; j < w; j++) s.order[j] = vsTmp[j];
+      s.drawn = w; s.n0 = n0;
+      // bounding sphere of what is drawn (three's own culling / sorting use it)
+      let ax = Infinity, ay = Infinity, az = Infinity, bx = -Infinity, by = -Infinity, bz = -Infinity;
+      for (let j = 0; j < w; j++) {
+        const i = s.order[j] * 4, r = sph[i + 3];
+        ax = Math.min(ax, sph[i] - r); ay = Math.min(ay, sph[i + 1] - r); az = Math.min(az, sph[i + 2] - r);
+        bx = Math.max(bx, sph[i] + r); by = Math.max(by, sph[i + 1] + r); bz = Math.max(bz, sph[i + 2] + r);
+      }
+      for (let k = 0; k < s.ims.length; k++) {
+        const im = s.ims[k], src = s.src[k];
+        const dm = im.instanceMatrix.array, sm = src.m;
+        for (let j = 0; j < w; j++) {
+          const o = s.order[j] * 16, d = j * 16;
+          for (let q = 0; q < 16; q++) dm[d + q] = sm[o + q];
+        }
+        im.instanceMatrix.clearUpdateRanges();
+        im.instanceMatrix.addUpdateRange(0, Math.max(1, w) * 16);
+        im.instanceMatrix.needsUpdate = true;
+        if (src.c && im.instanceColor) {
+          const dc = im.instanceColor.array, sc = src.c;
+          for (let j = 0; j < w; j++) {
+            const o = s.order[j] * 3, d = j * 3;
+            dc[d] = sc[o]; dc[d + 1] = sc[o + 1]; dc[d + 2] = sc[o + 2];
+          }
+          im.instanceColor.clearUpdateRanges();
+          im.instanceColor.addUpdateRange(0, Math.max(1, w) * 3);
+          im.instanceColor.needsUpdate = true;
+        }
+        src.mainN = w; src.shadowN = n0;
+        im.count = w;
+        im.visible = w > 0;
+        im.castShadow = src.cast && n0 > 0;
+        if (w > 0 && im.boundingSphere) {
+          // instance spheres are world-space; the props group sits at the origin
+          im.boundingSphere.center.set((ax + bx) / 2, (ay + by) / 2, (az + bz) / 2);
+          im.boundingSphere.radius = Math.hypot(bx - ax, by - ay, bz - az) / 2;
         }
       }
     }
@@ -3798,6 +4057,7 @@ export function buildProps(zone, heightAt) {
   let T = Math.random() * 100;
   updaters.push((dt) => {
     T += dt;
+    viewUpdate();
     for (let i = 0; i < pulseMats.length; i++) {
       const p = pulseMats[i];
       p.m.emissiveIntensity = p.base + Math.sin(T * p.speed + p.phase) * p.amp * p.base;
@@ -3837,6 +4097,8 @@ export function buildProps(zone, heightAt) {
     pulseMats.length = nightMats.length = nightLights.length = pulseLights.length = liftSets.length = 0;
     updaters.length = 0;
     surfacePatches.length = 0;
+    viewSets.length = 0;
+    VIEW.cam = VIEW.scene = VIEW.light = VIEW.lightRef = null;
     group.clear();
   }
 

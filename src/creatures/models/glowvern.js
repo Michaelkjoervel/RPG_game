@@ -47,7 +47,7 @@ export function build_glowvern(kit = kitDefault) {
   S.paint(torso, { from: TEAL_LO, to: TEAL_HI, axis: 'y', noise: 0.012, seed: 190 });
   S.overlay(torso, BELLY, (x, y, z) => S.sstep(-0.035, -0.07, y) * (1 - S.sstep(0.045, 0.075, Math.abs(x))));
   for (let i = 0; i < 5; i++) S.overlay(torso, BELLY_LO, (x, y, z) => (y < -0.05 ? S.bump(z, -0.12 + i * 0.06, 0.006) * 0.7 : 0));
-  const neck = S.tubeAlong([[0, 0.02, 0.13], [0, 0.08, 0.19], [0, 0.14, 0.22], [0, 0.18, 0.25]], (t) => S.lerp(0.068, 0.05, t), { radial: 10, tubular: 10 });
+  const neck = S.tubeAlong([[0, 0.02, 0.13], [0, 0.08, 0.19], [0, 0.14, 0.22], [0, 0.18, 0.25]], (t) => S.lerp(0.068, 0.05, t), { radial: 10, tubular: 10, caps: false }); // ends buried in torso / head
   S.paint(neck, { from: TEAL, to: TEAL_HI, axis: 'y', noise: 0.012 });
   S.overlayN(neck, BELLY, (nx, ny, nz) => S.sstep(0.35, 0.75, nz - ny * 0.2) * 0.9);
   const spines = [];
@@ -115,7 +115,7 @@ export function build_glowvern(kit = kitDefault) {
 
   // --- Four small, agile legs. -------------------------------------------------------
   const legs = [[0.06, -0.05, 0.1, -0.08, 0.042], [-0.06, -0.05, 0.1, -0.08, 0.042], [0.062, -0.04, -0.11, 0.35, 0.052], [-0.062, -0.04, -0.11, 0.35, 0.052]].map(([x, y, z, bend, thighR]) => {
-    const l = S.softLeg(0.25 + y, skin, { thighR, shinR: 0.022, kneeR: 0.026, ankleR: 0.02, pawR: 0.03, pawLen: 1.3, toes: 3, bend, split: 0.5, bulge: 0.35, color: TEAL, shinColor: TEAL_LO, pawColor: 0x3a5048, radial: 7 });
+    const l = S.softLeg(0.25 + y, skin, { thighR, shinR: 0.022, kneeR: 0.026, ankleR: 0.02, pawR: 0.03, pawLen: 1.3, toes: 3, bend, split: 0.5, bulge: 0.35, color: TEAL, shinColor: TEAL_LO, pawColor: 0x3a5048, radial: 7, capSeg: 2 });
     kit.at(body, l, x, y, z);
     return l;
   });
@@ -123,7 +123,7 @@ export function build_glowvern(kit = kitDefault) {
   // --- The tail arcs up and over; the glass bell lantern hangs from its tip. ---
   const curls = [0.3, 0.35, 0.4, 0.35, 0.25, 0.1, -0.15];
   const tail = S.softTail(7, skin, {
-    segLen: 0.065, startR: 0.036, endR: 0.014, curl: (i) => curls[i], rootPitch: 0.35, radial: 8,
+    segLen: 0.065, startR: 0.036, endR: 0.014, curl: (i) => curls[i], rootPitch: 0.35, radial: 8, capSeg: 2,
     color: (t) => S.mixHex(TEAL, TEAL_LO, t),
   });
   kit.at(body, tail, 0, 0.01, -0.16);

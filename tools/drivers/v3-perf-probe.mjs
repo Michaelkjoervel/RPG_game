@@ -116,6 +116,35 @@ export const KINDS = `(async () => {
   return JSON.stringify({ tot, viewBands_lt30_60_100_140_more: BAND.map(Math.round), fog: s.scene.fog ? s.scene.fog.density : null, rows: rows.slice(0, 40).map(([k, K]) => [k, K.meshes, K.inst, Math.round(K.tris), Math.round(K.shadowTris), Math.round(K.viewTris), Math.round(K.shadowInTris), K.inView, K.inShadow, K.far50, K.far80, K.band.map(Math.round).join('/')]) });
 })()`;
 
+// Whole-frame totals only (main+shadow and main-only), plus props/grass shares.
+export const TOTALS = `(() => {
+  const g = window.LF.game, r = g.renderer, s = g.activeScene;
+  const auto = r.info.autoReset, sAuto = r.shadowMap.autoUpdate;
+  r.info.autoReset = false;
+  const measure = (shadows) => {
+    r.shadowMap.autoUpdate = shadows; if (shadows) r.shadowMap.needsUpdate = true;
+    r.info.reset(); r.render(s.scene, s.camera);
+    return [r.info.render.calls, r.info.render.triangles];
+  };
+  const hide = (re, fn) => { const l = []; s.scene.traverse((o) => { if (re.test(o.name) && o.visible) l.push(o); }); l.forEach((o) => { o.visible = false; }); const v = fn(); l.forEach((o) => { o.visible = true; }); return v; };
+  const [calls, tris] = measure(true);
+  const [mc, mt] = measure(false);
+  const [pc, pt] = hide(/^props$/, () => measure(true));
+  const [gc, gt] = hide(/^grass$/, () => measure(true));
+  r.shadowMap.autoUpdate = sAuto; r.info.autoReset = auto;
+  return JSON.stringify({ calls, tris, mainCalls: mc, mainTris: mt, shadowCalls: calls - mc, shadowTris: tris - mt, propsCalls: calls - pc, propsTris: tris - pt, grassTris: tris - gt });
+})()`;
+
+// Face the player (and the recentred camera) along `face`, then step the
+// game's own per-frame update a few times so every camera-driven system
+// (props view sets, grass field) settles exactly as in play.
+const FACE = (face) => `(() => {
+  const L = window.LF, w = L.game.overworld, p = w.player;
+  p.teleport(p.pos.x, p.pos.z, ${face}); w.cameraRig.recenter?.();
+  for (let i = 0; i < 12; i++) w.update(1 / 30);
+  return true;
+})()`;
+
 export async function run(page, h) {
   await h.waitFor(`!!window.LF`, 25000);
   await page.evaluate((q) => {
@@ -129,12 +158,24 @@ export async function run(page, h) {
   await page.evaluate(`(() => { const g = window.LF.game; if (g._qg) g._qg.enabled = false; })()`);
   console.log('QUALITY:', await page.evaluate(`import('/src/core/settings.js').then((m) => m.settings.quality)`));
   const shots = process.env.PERF_SHOTS === '1';
+  const yaws = +(process.env.PERF_YAWS ?? 1);
+  const detail = process.env.PERF_DETAIL !== '0';
   for (const z of ZONES) {
     await goZone(page, h, z, `${z}-${Q}`, T[z] ?? 0.5);
-    await h.sleep(1500);
-    if (shots) await h.shot(`${z}-${Q}-b`);
-    console.log(`PERF ${z} ${Q}: ${await page.evaluate(BREAKDOWN)}`);
-    if (process.env.PERF_KINDS !== '0') console.log(`KINDS ${z} ${Q}: ${await page.evaluate(KINDS)}`);
+    await h.sleep(1200);
+    const face0 = await page.evaluate(`window.LF.game.overworld.player.face ?? 0`);
+    for (let k = 0; k < yaws; k++) {
+      // PERF_ABS=1: absolute headings (comparable across runs whatever the
+      // arrival facing); default: relative to the arrival facing (screenshots)
+      const face = (process.env.PERF_ABS === '1' ? 0.3 : face0) + (k * Math.PI * 2) / yaws;
+      await page.evaluate(FACE(face)); await h.sleep(900);
+      if (shots) await h.shot(`${z}-${Q}-yaw${k}`);
+      if (k === 0 && detail) {
+        console.log(`PERF ${z} ${Q}: ${await page.evaluate(BREAKDOWN)}`);
+        if (process.env.PERF_KINDS !== '0') console.log(`KINDS ${z} ${Q}: ${await page.evaluate(KINDS)}`);
+      }
+      console.log(`TOT ${z} ${Q} yaw${k}: ${await page.evaluate(TOTALS)}`);
+    }
   }
   if (process.env.PERF_BATTLE !== '0') {
     await goZone(page, h, 'dawnmeadow', `battle-zone-${Q}`, 0.5);
@@ -146,7 +187,9 @@ export async function run(page, h) {
     await h.sleep(1500);
     await h.shot(`battle-${Q}`);
     console.log('BATTLE READY:', !!ready);
-    console.log(`PERF battle ${Q}: ${await page.evaluate(BREAKDOWN)}`);
-    if (process.env.PERF_KINDS !== '0') console.log(`KINDS battle ${Q}: ${await page.evaluate(KINDS)}`);
+    if (detail) {
+      console.log(`PERF battle ${Q}: ${await page.evaluate(BREAKDOWN)}`);
+      if (process.env.PERF_KINDS !== '0') console.log(`KINDS battle ${Q}: ${await page.evaluate(KINDS)}`);
+    }
   }
 }

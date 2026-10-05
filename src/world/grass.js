@@ -19,6 +19,13 @@
 //
 // Density follows settings.quality (≤60k blades high / 25k med / 8k low) and
 // rebuilds on 'settings:changed'. Cave/spire biomes get no grass.
+//
+// Perf (v3): a chunk's blades are packed into fixed-size BLOCKS of the
+// instance buffers (allocated lowest-free-first), and the draw covers only up
+// to the highest block in use — so the GPU is handed the blades that were
+// actually planted, not the tier's whole budget (a snowfield or a lake zone
+// used to submit all 60k slots, mostly empty). Empty / faded blades also skip
+// the vertex shader's ground evaluation entirely.
 // ============================================================================
 import * as THREE from 'three';
 import { bus } from '../core/events.js';
@@ -27,6 +34,7 @@ import { seededRandom, hashStr } from '../core/rng.js';
 
 const CS = 6;                 // chunk size, meters
 const REFRESH = CS * 0.25;    // chunk-set recenter step (keeps the keep-margin small)
+const BLK = 32;               // blades per buffer block (packing granularity)
 
 const TIERS = {
   high: { budget: 60000, radius: 28, segs: 3, widthMul: 1.0 },
@@ -120,6 +128,12 @@ varying vec3 vBladeW;
 varying vec3 vBladeInfo; // x: across-blade side, y: fern frond flag, z: bloom
 `;
 const VERT_BODY = /* glsl */ `
+  // empty block tail / beyond the field's fade radius: nothing to draw — skip
+  // the ground evaluation and drop the vertex outside the clip volume
+  if (iShape.x <= 0.0 || distance(iRoot.xz, uGField.xy) >= uGField.w) {
+    gl_Position = vec4(0.0, 0.0, -2.0, 1.0);
+    return;
+  }
   float bT = position.y;
   float bSide = position.x;
   vec3 bRoot = iRoot.xyz;
@@ -265,6 +279,10 @@ export function createGrass(zone, world) {
   // ---------------------------------------------------------- per-tier buffers
   let tier, R, keepR, perChunk, maxChunks, grid, order, capacity, bladeTris;
   let geo = null, mesh = null, aRoot = null, aShape = null, rootArr = null, shapeArr = null;
+  // block packing: a filled chunk takes ceil(blades / BLK) blocks (lowest free
+  // first); the draw ends at the highest block in use (see header)
+  let nBlocks = 0, maxBPC = 0, hiBlock = 0, freeHint = 0;
+  let blockUsed = null, slotBlocks = null, slotNB = null, stR = null, stS = null;
   const holder = new THREE.Group(); // stable object for world.js to add/remove across rebuilds
   holder.name = 'grass';
 
@@ -278,7 +296,15 @@ export function createGrass(zone, world) {
     }
     maxChunks += 2;
     perChunk = Math.floor(tier.budget / maxChunks);
-    capacity = maxChunks * perChunk;
+    maxBPC = Math.ceil(perChunk / BLK);
+    nBlocks = Math.ceil((maxChunks * perChunk) / BLK) + maxChunks; // room for every chunk's rounded-up tail
+    capacity = nBlocks * BLK;
+    blockUsed = new Uint8Array(nBlocks);
+    slotBlocks = new Int32Array(maxChunks * maxBPC);
+    slotNB = new Int32Array(maxChunks);
+    stR = new Float32Array(perChunk * 4);
+    stS = new Float32Array(perChunk * 4);
+    hiBlock = 0; freeHint = 0;
     // oversampled jittered grid, visited in a shuffled order so a chunk that
     // hits its capacity early still spreads its blades evenly
     grid = Math.max(4, Math.min(255, Math.floor(Math.sqrt(perChunk * 1.7))));
@@ -303,7 +329,7 @@ export function createGrass(zone, world) {
     aShape.setUsage(THREE.DynamicDrawUsage);
     geo.setAttribute('iRoot', aRoot);
     geo.setAttribute('iShape', aShape);
-    geo.instanceCount = capacity;
+    geo.instanceCount = 0; // grows with the blocks in use
     geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), half * 2);
 
     mesh = new THREE.Mesh(geo, material);
@@ -345,7 +371,7 @@ export function createGrass(zone, world) {
   function fillChunk(slot, ci) {
     const cx = (ci % nC) + cMin, cz = Math.floor(ci / nC) + cMin;
     const x0 = cx * CS, z0 = cz * CS;
-    const base = slot * perChunk;
+    const base = 0; // blades are staged, then packed into blocks (commitChunk)
     // gather colliders / building floors overlapping this chunk
     let nCol = 0;
     const cols = world.colliders ?? [];
@@ -425,31 +451,90 @@ export function createGrass(zone, world) {
         for (let f = 0; f < fronds; f++) {
           const a = r3 * Math.PI * 2 + (f / fronds) * Math.PI * 2 + (rng() - 0.5) * 0.5;
           const of = (base + n) * 4;
-          rootArr[of] = x + Math.sin(a) * 0.04; rootArr[of + 1] = y - 0.02; rootArr[of + 2] = z + Math.cos(a) * 0.04;
-          rootArr[of + 3] = a;
-          shapeArr[of] = fh * (0.85 + rng() * 0.3);
-          shapeArr[of + 1] = -(0.17 + r2 * 0.06) * tier.widthMul; // negative = fern frond
-          shapeArr[of + 2] = 0.95 + rng() * 0.35;
-          shapeArr[of + 3] = ny;
+          stR[of] = x + Math.sin(a) * 0.04; stR[of + 1] = y - 0.02; stR[of + 2] = z + Math.cos(a) * 0.04;
+          stR[of + 3] = a;
+          stS[of] = fh * (0.85 + rng() * 0.3);
+          stS[of + 1] = -(0.17 + r2 * 0.06) * tier.widthMul; // negative = fern frond
+          stS[of + 2] = 0.95 + rng() * 0.35;
+          stS[of + 3] = ny;
           n++;
         }
         continue;
       }
       const o = (base + n) * 4;
-      rootArr[o] = x; rootArr[o + 1] = y - 0.03; rootArr[o + 2] = z; rootArr[o + 3] = r3 * Math.PI * 2;
-      shapeArr[o] = h;
-      shapeArr[o + 1] = w;
-      shapeArr[o + 2] = lean;
-      shapeArr[o + 3] = ny;
+      stR[o] = x; stR[o + 1] = y - 0.03; stR[o + 2] = z; stR[o + 3] = r3 * Math.PI * 2;
+      stS[o] = h;
+      stS[o + 1] = w;
+      stS[o + 2] = lean;
+      stS[o + 3] = ny;
       n++;
     }
-    for (let k = n; k < perChunk; k++) { shapeArr[(base + k) * 4] = 0; shapeArr[(base + k) * 4 + 1] = 0; } // hide unused tail
     slotFill[slot] = n;
-    aRoot.addUpdateRange(base * 4, perChunk * 4);
-    aShape.addUpdateRange(base * 4, perChunk * 4);
-    aRoot.needsUpdate = true;
-    aShape.needsUpdate = true;
+    commitChunk(slot, n);
   }
+
+  // ---------------------------------------------------------- block packing
+  function allocBlock() {
+    for (let b = freeHint; b < nBlocks; b++) {
+      if (blockUsed[b]) continue;
+      blockUsed[b] = 1; freeHint = b + 1;
+      if (b + 1 > hiBlock) hiBlock = b + 1;
+      return b;
+    }
+    return -1;
+  }
+  // upload ranges, merged while consecutive blocks are touched
+  let runA = -1, runB = -1, runRoot = false;
+  function touch(b, root) {
+    if (runA >= 0 && b === runB && root === runRoot) { runB++; return; }
+    flushRun();
+    runA = b; runB = b + 1; runRoot = root;
+  }
+  function flushRun() {
+    if (runA < 0) return;
+    const st = runA * BLK * 4, cnt = (runB - runA) * BLK * 4;
+    aShape.addUpdateRange(st, cnt); aShape.needsUpdate = true;
+    if (runRoot) { aRoot.addUpdateRange(st, cnt); aRoot.needsUpdate = true; }
+    runA = runB = -1;
+  }
+  function commitChunk(slot, n) {
+    const nb = Math.ceil(n / BLK);
+    let k = 0;
+    slotNB[slot] = 0;
+    for (let j = 0; j < nb; j++) {
+      const b = allocBlock();
+      if (b < 0) break; // cannot happen (nBlocks covers every chunk's tail)
+      slotBlocks[slot * maxBPC + j] = b; slotNB[slot] = j + 1;
+      const dst = b * BLK * 4, cnt = Math.min(BLK, n - k);
+      const src = k * 4, len = cnt * 4;
+      for (let q = 0; q < len; q++) { rootArr[dst + q] = stR[src + q]; shapeArr[dst + q] = stS[src + q]; }
+      for (let q = len; q < BLK * 4; q += 4) shapeArr[dst + q] = 0; // block tail: height 0 = skipped
+      k += cnt;
+      touch(b, true);
+    }
+    flushRun();
+    geo.instanceCount = hiBlock * BLK;
+  }
+  function releaseSlot(s) {
+    const nb = slotNB[s];
+    for (let j = 0; j < nb; j++) {
+      const b = slotBlocks[s * maxBPC + j];
+      blockUsed[b] = 0;
+      if (b < freeHint) freeHint = b;
+    }
+    while (hiBlock > 0 && !blockUsed[hiBlock - 1]) hiBlock--;
+    // freed blocks still under the draw end must stop drawing their blades
+    for (let j = 0; j < nb; j++) {
+      const b = slotBlocks[s * maxBPC + j];
+      if (b >= hiBlock) continue;
+      for (let q = 0; q < BLK * 4; q += 4) shapeArr[b * BLK * 4 + q] = 0;
+      touch(b, false);
+    }
+    flushRun();
+    slotNB[s] = 0;
+    geo.instanceCount = hiBlock * BLK;
+  }
+
 
   // ---------------------------------------------------------- chunk window
   function refreshWanted(px, pz) {
@@ -480,6 +565,7 @@ export function createGrass(zone, world) {
       const ci = slotChunk[s];
       if (ci >= 0 && wantStamp[ci] !== stamp) {
         chunkSlot[ci] = -1; slotChunk[s] = -1; slotFill[s] = 0;
+        releaseSlot(s);
         freeSlots[freeTop++] = s;
       }
     }
@@ -562,10 +648,13 @@ export function createGrass(zone, world) {
   function stats() {
     let blades = 0;
     for (let s = 0; s < maxChunks; s++) blades += slotFill[s];
+    let used = 0;
+    for (let b = 0; b < nBlocks; b++) used += blockUsed[b];
     return {
       tier: settings.quality, radius: R, capacity, perChunk, maxChunks,
       activeChunks: maxChunks - freeTop, bladesPlaced: blades,
-      trisPerBlade: bladeTris, trisSubmitted: capacity * bladeTris, drawCalls: 1,
+      blocksUsed: used, blocksDrawn: hiBlock, instancesDrawn: geo ? geo.instanceCount : 0,
+      trisPerBlade: bladeTris, trisSubmitted: (geo ? geo.instanceCount : 0) * bladeTris, drawCalls: 1,
     };
   }
 

@@ -79,6 +79,7 @@ export function build_stormane(kit = kitDefault) {
     const u = i / 4;
     const from = [0, 0.13 + (u - 0.45) * 0.24 * AX[1], 0.3 + (u - 0.45) * 0.24 * AX[2]];
     for (let k = -2; k <= 2; k++) {
+      if (i % 2 && k === 2) continue; // odd rings: 4 spikes, staggered (budget)
       const phi = k * 0.62 + (i % 2 ? 0.3 : 0);
       const d = [Math.sin(phi), Math.cos(phi) * UPP[1], Math.cos(phi) * UPP[2]];
       const at = S.surface(neckAll, d, { from, inset: 0.014 });
@@ -133,14 +134,14 @@ export function build_stormane(kit = kitDefault) {
   const foreDef = { thighR: 0.078, shinR: 0.036, kneeR: 0.045, ankleR: 0.03, pawR: 0.048, pawLen: 1.3, bend: -0.12, split: 0.52, bulge: 0.28 };
   const hindDef = { thighR: 0.1, shinR: 0.036, kneeR: 0.046, ankleR: 0.03, pawR: 0.048, pawLen: 1.3, bend: 0.4, split: 0.45, bulge: 0.35 };
   const legs = [[0.085, -0.06, 0.2, foreDef], [-0.085, -0.06, 0.2, foreDef], [0.08, -0.04, -0.21, hindDef], [-0.08, -0.04, -0.21, hindDef]].map(([x, y, z, d]) => {
-    const l = S.softLeg(0.47 + y, fur, { ...d, color: FUR, shinColor: FUR_LO, pawColor: SOCK, toes: 3, radial: 7 });
+    const l = S.softLeg(0.47 + y, fur, { ...d, color: FUR, shinColor: FUR_LO, pawColor: SOCK, toes: 3, radial: 7, capSeg: 2 });
     kit.at(body, l, x, y, z);
     return l;
   });
 
   // --- Bushy storm tail, static-gold tip --------------------------------------
   const tail = S.softTail(4, fur, {
-    segLen: 0.1, curl: 0.16, rootPitch: 0.35, radial: 8,
+    segLen: 0.1, curl: 0.16, rootPitch: 0.35, radial: 8, capSeg: 2,
     radiusFn: (t) => 0.042 + 0.038 * Math.sin(Math.PI * Math.min(1, t * 0.95 + 0.05)) - 0.012 * t,
     color: (t) => (t < 0.7 ? S.mixHex(FUR, FUR_HI, t) : S.mixHex(FUR_HI, MANE, S.sstep(0.7, 0.9, t))),
   });
