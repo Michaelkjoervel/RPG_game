@@ -16,6 +16,7 @@ import * as THREE from 'three';
 import * as kitDefault from '../kit.js';
 import * as S from './soft.js';
 
+const WING_TWIST = -0.75;
 const TEAL_LO = 0x1c4448, TEAL = 0x2e7472, TEAL_HI = 0x62ae9e, BELLY = 0xf0e0b4, BELLY_LO = 0xc8b484, SPINE = 0xe8c070, BRONZE = 0x8a6a34;
 
 // A glass bell (opening down), top at the origin.
@@ -100,7 +101,15 @@ export function build_glowvern(kit = kitDefault) {
       side, chord: 0.22, color: { root: 0xf0b860, tip: 0xffe2a8 }, edge: 0xe89a48, spar: TEAL, claw: SPINE, billow: 0.06,
     });
     const at = S.surface(torso, [side * 0.6, 1, 0], { from: [0, 0, 0.08], inset: 0.02 });
-    kit.at(body, w, at[0], at[1], at[2], { rz: side * 0.95, ry: -side * 0.55, rx: 0.35 });
+    // The holder places the wing (raised, swept); the wing root itself is
+    // twisted about its own span so the membrane FACE turns toward the
+    // front/battle cameras instead of going edge-on. The flap (rotation about
+    // each bone's local Z) rides the twist, so it still beats across the
+    // membrane.
+    const holder = new THREE.Group(); holder.name = 'wingMount';
+    kit.at(body, holder, at[0], at[1], at[2], { rz: side * 0.95, ry: -side * 0.4, rx: 0.2 });
+    w.group.rotation.x = WING_TWIST;
+    holder.add(w.group);
     return w;
   });
 

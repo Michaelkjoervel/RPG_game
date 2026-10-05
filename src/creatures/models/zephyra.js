@@ -66,7 +66,7 @@ export function build_zephyra(kit = kitDefault) {
     const vane = S.spindle({ len: L * 0.8, r: 0.016, sx: 1.0, sy: 0.22, radial: 10, rings: 8, profile: (t) => Math.pow(Math.sin(Math.PI * t), 0.6) * (0.7 + 0.3 * t) });
     vane.rotateX(-Math.PI / 2 + 0.5);
     S.pose(vane, [0, L * 0.5, L * 0.2]);
-    S.paint(vane, { from: 0xa496c8, to: 0xf0e6f8, axis: 'y' });
+    S.paint(vane, { from: 0x5e4e8e, to: 0xc4b2e6, axis: 'y' });
     g.add(S.bake([stalk, vane], fuzz, 'antennaStalk'));
     const tipAt = [0, L * 0.98, L * 0.5 * 0.96];
     const tip = new THREE.Mesh(S.ball(0.012, { radial: 8, rings: 6 }), glowMat);
@@ -85,14 +85,14 @@ export function build_zephyra(kit = kitDefault) {
   const foreSpots = [{ t: 0.58, v: 0.06, r: 0.044, ring: 0x2e1e4a, core: GOLD }];
   const hindSpots = [{ t: 0.2, v: 0.05, r: 0.026, ring: 0x3e2a5a, core: 0xffc0a0 }];
   const fore = (side) => {
-    const w = S.openWing(0.27, fuzz, {
-      width: 0.2, thick: 0.065, sweep: 0.22, color: { root: WING_R, tip: WING_T }, spots: foreSpots, radial: 14, rings: 12,
+    const w = S.openWing(0.3, fuzz, {
+      width: 0.23, thick: 0.065, sweep: 0.22, color: { root: WING_R, tip: WING_T }, spots: foreSpots, radial: 14, rings: 12,
       chord: (t) => Math.pow(Math.sin(Math.PI * Math.min(1, 0.14 + t * 0.9)), 0.6) * (0.62 + 0.38 * t),
     });
     // a pale cream border band round the outer edge, gold veins of light
     const g = w.group.children[0].geometry;
     S.overlay(g, EDGE, (x, y, z) => {
-      const t = x / 0.27, cz = -0.22 * 0.27 * t * t, half = 0.1 * Math.pow(Math.sin(Math.PI * Math.min(1, 0.14 + t * 0.9)), 0.6) * (0.62 + 0.38 * t);
+      const t = x / 0.3, cz = -0.22 * 0.3 * t * t, half = 0.115 * Math.pow(Math.sin(Math.PI * Math.min(1, 0.14 + t * 0.9)), 0.6) * (0.62 + 0.38 * t);
       const e = Math.abs(z - cz) / Math.max(1e-3, half);
       return S.sstep(0.74, 0.9, Math.max(e, S.sstep(0.84, 0.98, t))) * S.sstep(0.3, 0.5, t);
     });
@@ -100,17 +100,17 @@ export function build_zephyra(kit = kitDefault) {
   };
   const ribbon = (t) => {
     const lobe = t < 0.5 ? Math.pow(Math.sin(Math.PI * (0.14 + t * 1.72)), 0.6) : 0;
-    return Math.max(lobe, 0.3 + 0.32 * S.bump(t, 0.88, 0.09));
+    return Math.max(lobe, 0.36 + 0.3 * S.bump(t, 0.86, 0.1));
   };
   const hind = (side) => {
     const w = S.openWing(0.32, fuzz, {
-      width: 0.15, thick: 0.08, sweep: 0.35, lift: -0.2, chord: ribbon, color: { root: WING_R, tip: 0xe0b8e4 }, spots: hindSpots, radial: 12, rings: 16,
+      width: 0.16, thick: 0.075, sweep: 0.3, lift: 0.3, chord: ribbon, color: { root: 0xf2e4f4, tip: 0xd2aee6 }, spots: hindSpots, radial: 12, rings: 16,
     });
     // the ribbon's tail end warms to glowing comet-gold
     S.overlay(w.group.children[0].geometry, GOLD, (x) => S.sstep(0.22, 0.3, x));
-    const tipX = 0.32 * 0.9, tipZ = -0.35 * 0.32 * 0.81;
+    const tipX = 0.32 * 0.9, tipZ = -0.3 * 0.32 * 0.81;
     const halo = S.glow(GOLD, 0.07, 0.65);
-    halo.position.set(tipX, -0.2 * 0.32 * 0.81, tipZ);
+    halo.position.set(tipX, 0.3 * 0.32 * 0.81, tipZ);
     w.group.add(halo);
     return w;
   };
@@ -118,14 +118,14 @@ export function build_zephyra(kit = kitDefault) {
     // [side, builder, y, z, raise(rz), back(ry)]
     [1, fore, 0.035, 0.0, 0.62, 0.3],
     [-1, fore, 0.035, 0.0, 0.62, 0.3],
-    [1, hind, 0.0, -0.035, -0.4, 1.05],
-    [-1, hind, 0.0, -0.035, -0.4, 1.05],
+    [1, hind, 0.0, -0.035, -0.62, 0.5],
+    [-1, hind, 0.0, -0.035, -0.62, 0.5],
   ];
   const wingParts = wingDefs.map(([side, mk, y, z, up, back]) => {
     const w = mk(side);
     // tip each wing's leading edge up about its own span so its painted
     // face reads from the front/battle cameras instead of going edge-on
-    w.group.children[0].rotation.x = mk === fore ? -0.55 : -0.35;
+    w.group.children[0].rotation.x = mk === fore ? -0.55 : -0.8;
     kit.at(body, w, side * 0.04, y, z, { rz: side * up, ry: side * back });
     w.group.scale.x = side;
     return w;

@@ -60,13 +60,13 @@ export function build_nimbis(kit = kitDefault) {
 
   // --- The cumulus tuft riding its back (an accent: it billows). -----------
   const cloud = new THREE.Group(); cloud.name = 'cloudTuft';
-  const c1 = S.puff(0.085, { count: 7, spread: 0.95, seed: 101, sy: 0.75, radial: 9, rings: 6 });
-  const c2 = S.puff(0.062, { count: 5, spread: 0.8, seed: 102, sy: 0.88, radial: 8, rings: 6 });
-  c2.translate(-0.01, 0.06, -0.025);
+  const c1 = S.puff(0.064, { count: 6, spread: 0.9, seed: 101, sy: 0.75, radial: 9, rings: 6 });
+  const c2 = S.puff(0.046, { count: 4, spread: 0.8, seed: 102, sy: 0.88, radial: 8, rings: 6 });
+  c2.translate(-0.008, 0.045, -0.02);
   const cg = S.merge([c1, c2]);
   S.paint(cg, { from: CLOUD_LO, to: CLOUD_HI, axis: 'y', noise: 0.015, seed: 103 });
   cloud.add(new THREE.Mesh(cg, cloudMat));
-  const ca = S.surface(hull, [0, 1, 0], { from: [0, 0, -0.045], inset: 0.035 });
+  const ca = S.surface(hull, [0, 1, 0], { from: [0, 0, -0.06], inset: 0.03 });
   kit.at(body, cloud, ca[0], ca[1], ca[2]);
 
   // --- Soft thick wing-flaps, tips curling up, pale undersides. ------------
@@ -79,7 +79,6 @@ export function build_nimbis(kit = kitDefault) {
     });
     const wm = w.group.children[0];
     S.overlayN(wm.geometry, BELLY, (nx, ny) => S.sstep(-0.1, -0.6, ny));
-    S.overlay(wm.geometry, TOP_HI, (x, y) => (y > 0 ? S.bump(x / len, 0.2, 0.22) * 0.5 : 0));
     const at = S.surface(hull, [side, 0.05, 0], { from: [0, 0, -0.005], inset: 0.045 });
     kit.at(body, w, at[0], at[1], at[2], { rz: side * 0.1, sx: side < 0 ? -1 : 1 });
     return w;

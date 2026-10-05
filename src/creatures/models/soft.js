@@ -205,8 +205,10 @@ export function grooveTop(geo, pts, { radius = 0.008, lift = 0, radial = 4, seg 
  * A smooth tube swept along a Catmull-Rom curve through `pts` ([x,y,z]
  * list), radius following radiusFn(t) (t 0..1 along the curve), with round
  * end caps — static necks, arms of smoke, coils. Smooth normals, no uv.
+ * `caps: false` leaves both ends open (budget: only when both ends are
+ * buried inside other forms, e.g. a neck running from torso into head).
  */
-export function tubeAlong(pts, radiusFn, { radial = 14, tubular = 32, sy = 1 } = {}) {
+export function tubeAlong(pts, radiusFn, { radial = 14, tubular = 32, sy = 1, caps = true } = {}) {
   const curve = new THREE.CatmullRomCurve3(pts.map((p) => new THREE.Vector3(p[0], p[1], p[2])));
   const g = new THREE.TubeGeometry(curve, tubular, 1, radial, false);
   g.deleteAttribute('uv');
@@ -221,6 +223,7 @@ export function tubeAlong(pts, radiusFn, { radial = 14, tubular = 32, sy = 1 } =
       pos.setXYZ(k, P.x + (pos.getX(k) - P.x) * r, P.y + (pos.getY(k) - P.y) * r * sy, P.z + (pos.getZ(k) - P.z) * r);
     }
   }
+  if (!caps) { g.deleteAttribute('normal'); smoothGeometry(g); return g; }
   const a = curve.getPointAt(0), b = curve.getPointAt(1);
   const capA = ball(radiusFn(0) * 0.98, { radial, rings: 8, sy }).translate(a.x, a.y, a.z);
   const capB = ball(radiusFn(1) * 0.98, { radial, rings: 8, sy }).translate(b.x, b.y, b.z);
@@ -783,12 +786,13 @@ export function bendArc(geo, L, phi) {
  *   split : share of the leg's height taken by the thigh.
  *   stubby: toddler legs — one fat tapered segment, knee right above the paw.
  * The sole lands `len` below the hip.
+ *   capSeg: profile steps per joint cap (default 3; 2 trims ~50 tris a leg).
  */
 export function softLeg(len, material, {
   thighR = len * 0.2, shinR = len * 0.12, kneeR = null, ankleR = null,
   pawR = null, pawLen = 1.3, toes = 3, pawH = null,
   bend = 0, split = 0.5, bulge = 0.22, stubby = false, sx = 1, sz = 1,
-  color = 0x888888, shinColor = null, pawColor = null, radial = 8,
+  color = 0x888888, shinColor = null, pawColor = null, radial = 8, capSeg = 3,
 } = {}) {
   const hip = new THREE.Group(); hip.name = 'legHip';
   const knee = new THREE.Group(); knee.name = 'legKnee';
@@ -800,7 +804,7 @@ export function softLeg(len, material, {
     // One fat, tapered segment; the knee is a tiny joint just above the paw.
     const kr = kneeR ?? thighR * 0.72;
     const Lt = Math.max(len - ph - kr * 0.3, len * 0.25);
-    const tg = limb(Lt, thighR, kr, { radial, capSeg: 3, shaftSeg: 3, bulge: bulge * 0.5, bulgeAt: 0.3, sx, sz });
+    const tg = limb(Lt, thighR, kr, { radial, capSeg, shaftSeg: 3, bulge: bulge * 0.5, bulgeAt: 0.3, sx, sz });
     paint(tg, { from: sh, to: color, axis: 'y', noise: 0.012, seed: 11 });
     const thigh = new THREE.Mesh(tg, material); thigh.name = 'legThigh';
     hip.add(thigh);
@@ -818,13 +822,13 @@ export function softLeg(len, material, {
   const Lt = Math.hypot(Dt, F), Ls = Math.hypot(Ds, F);
   const kr = kneeR ?? lerp(thighR, shinR, 0.6);
   const ar = ankleR ?? shinR * 0.82;
-  const tg = limb(Lt, thighR, kr * 0.96, { radial, capSeg: 3, shaftSeg: 4, bulge, bulgeAt: 0.3, sx, sz });
+  const tg = limb(Lt, thighR, kr * 0.96, { radial, capSeg, shaftSeg: 4, bulge, bulgeAt: 0.3, sx, sz });
   tg.rotateX(-a); // point toward the knee: (0,-Dt, F)
   paint(tg, { from: lerp01hex(color, sh, 0.35), to: color, axis: 'y', noise: 0.012, seed: 12 });
   const thigh = new THREE.Mesh(tg, material); thigh.name = 'legThigh';
   hip.add(thigh);
   knee.position.set(0, -Dt, F);
-  const sg = limb(Ls, kr, ar, { radial, capSeg: 3, shaftSeg: 3, bulge: bulge * 0.35, bulgeAt: 0.25, sx, sz });
+  const sg = limb(Ls, kr, ar, { radial, capSeg, shaftSeg: 3, bulge: bulge * 0.35, bulgeAt: 0.25, sx, sz });
   sg.rotateX(b); // toward the ankle: (0,-Ds,-F)
   paint(sg, { from: sh, to: lerp01hex(color, sh, 0.35), axis: 'y', noise: 0.012, seed: 13 });
   const pg = paw(pr, { len: pawLen, h: ph, toes, radial: 9, rings: 5 });
