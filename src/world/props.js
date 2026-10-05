@@ -3791,12 +3791,15 @@ export function buildProps(zone, heightAt) {
   // far-LOD distance: the fog-based range (High) scaled per tier, with a floor
   const FAR_MUL = { high: [1, 45], med: [0.55, 40], low: [0.4, 30] };
   // Built kinds (rounded boxes, small spheres/cylinders) lose nothing visible
-  // much earlier: at 60 m a 3-8 cm bevel or a flower-box bead is ~1 px. Their
-  // far twin takes over at min(far distance, ARCH_D[tier]).
+  // much earlier: at 35 m a 3-8 cm bevel or a flower-box bead is 1-2 px (side
+  // by side renders of every house/stall forced to its twin were
+  // indistinguishable at 20-40 m). Their twin takes over at
+  // min(far distance, ARCH_D[tier]). Foliage keeps the fog-based distance —
+  // detail-0 canopy lobes DO read faceted inside ~40 m.
   const ARCH_KINDS = new Set(['townhouse', 'house_small', 'house_stilt', 'house_large', 'shop_stall', 'well', 'cart', 'crate',
     'barrel', 'tent', 'ruin_pillar', 'ruin_arch', 'ruin_wall', 'statue_warden', 'shrine_stone', 'fence', 'lamp_post', 'bridge',
     'hedge', 'planter', 'signpost', 'bunting', 'path_lantern', 'bench', 'woodpile', 'boardwalk', 'deck', 'dock', 'beacon', 'windmill']);
-  const ARCH_D = { high: 60, med: 32, low: 24 };
+  const ARCH_D = { high: 35, med: 22, low: 16 };
   const RING = [8, 16, 26, 40, 60, 90, 130]; // near-to-far ordering rings (m)
   const VIEW = {
     cam: null, scene: null, light: null, lightTry: 0, ready: false, valid: false,
@@ -3913,7 +3916,9 @@ export function buildProps(zone, heightAt) {
       && (px - V.px) ** 2 + (py - V.py) ** 2 + (pz - V.pz) ** 2 < (VIEW_PAD * 0.6) ** 2
       && fx * V.fx + fy * V.fy + fz * V.fz > COS_TURN
       && (lx - V.lx) ** 2 + (ly - V.ly) ** 2 + (lz - V.lz) ** 2 < (SHADOW_PAD * 0.5) ** 2
-      && cam.fov === V.fov && cam.aspect === V.aspect && cam.near === V.near && cam.far === V.far
+      // (the run fov kick animates fov for ~0.5 s: only a few degrees matter)
+      && Math.abs(cam.fov - V.fov) < 3 && Math.abs(cam.aspect - V.aspect) < V.aspect * 0.02
+      && cam.near === V.near && cam.far === V.far
       && Math.abs(fogK - V.fogK) <= V.fogK * 0.03
       && tier === V.tier && L === V.lightRef) return;
     V.px = px; V.py = py; V.pz = pz; V.fx = fx; V.fy = fy; V.fz = fz; V.lx = lx; V.ly = ly; V.lz = lz;
@@ -4221,6 +4226,18 @@ export function buildProps(zone, heightAt) {
   buildDiscs();
   group.userData.dressing = { dropped, keepOut: keepOut.length, lights: 6 - lightBudget, pools: poolPts.length };
   group.userData.viewSets = viewSets; // read-only, for perf probes
+  // perf probes: mean ms of `k` forced view-set rebuilds (never called in play)
+  // (full: also rewrite every buffer, the cost of a big camera swing)
+  group.userData.viewBench = (k = 20, full = false) => {
+    if (!VIEW.cam) return null;
+    const t0 = performance.now();
+    for (let i = 0; i < k; i++) {
+      VIEW.valid = false;
+      if (full) for (const st of viewSets) st.drawn = -1;
+      viewUpdate();
+    }
+    return (performance.now() - t0) / k;
+  };
 
   // Warm pools of lamplight on the ground after dusk: additive discs, one draw.
   let pools = null;
