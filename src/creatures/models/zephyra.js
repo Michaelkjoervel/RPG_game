@@ -107,9 +107,9 @@ export function build_zephyra(kit = kitDefault) {
   const thorax = S.puff(0.062, { count: 5, spread: 0.45, seed: 83, sy: 1.25, blend: 0.8, radial: 10, rings: 7 });
   S.paint(thorax, { from: FUZZ_LO, to: FUZZ_HI, axis: 'y', noise: 0.02, seed: 83 });
   const abdomen = S.spindle({
-    len: 0.27, r: 0.05, sx: 0.92, sy: 1.0, p: 0.9, pTail: 1.35, radial: 14, rings: 14,
-    profile: (t) => 0.1 + 0.9 * Math.pow(S.sstep(0, 0.88, t), 0.75),
-    arch: (t) => 0.05 * Math.pow(1 - t, 2.2),
+    len: 0.27, r: 0.05, sx: 0.92, sy: 1.0, p: 0.9, pTail: 1.1, radial: 14, rings: 14,
+    profile: (t) => 0.2 + 0.8 * Math.pow(S.sstep(0, 0.88, t), 0.75),
+    arch: (t) => 0.075 * Math.pow(1 - t, 2.2),
   });
   S.paint(abdomen, { from: FUZZ_LO, to: FUZZ_HI, axis: 'y', noise: 0.015, seed: 84 });
   // soft dark bands down the gown, warming to a glowing gold comet tip
@@ -154,12 +154,12 @@ export function build_zephyra(kit = kitDefault) {
   kit.at(body, head, 0, 0.085, 0.05, { rx: -0.08 });
 
   // --- The GOLD CORONET: a band across the brow, five points, a gale-gem. --
-  const band = S.groove(headGeo, [[-1.1, 0.5], [-0.55, 0.66], [0, 0.72], [0.55, 0.66], [1.1, 0.5]], { radius: 0.0058, lift: 0.001, seg: 14, radial: 4, caps: false });
+  const band = S.groove(headGeo, [[-1.1, 0.5], [-0.55, 0.66], [0, 0.72], [0.55, 0.66], [1.1, 0.5]], { radius: 0.0068, lift: 0.001, seg: 14, radial: 4, caps: false });
   S.paint(band, GOLD_DK);
-  const points = [[-0.82, 0.022], [-0.42, 0.031], [0, 0.044], [0.42, 0.031], [0.82, 0.022]].map(([yaw, L]) => {
+  const points = [[-0.82, 0.028], [-0.42, 0.04], [0, 0.058], [0.42, 0.04], [0.82, 0.028]].map(([yaw, L]) => {
     const pitch = 0.72 - Math.abs(yaw) * 0.2;
     const at = S.surface(headGeo, S.dirYP(yaw, pitch), { inset: 0.001 });
-    const g = S.taper(L, 0.0062, { r1: 0.0012, radial: 5, rings: 4, capSeg: 1 });
+    const g = S.taper(L, 0.0078, { r1: 0.0014, radial: 5, rings: 4, capSeg: 1 });
     S.paint(g, { from: GOLD_DK, to: 0xffe08a, axis: 'y' });
     const out = S.dirYP(yaw, pitch);
     S.aim(g, [out[0] * 0.35, 1, out[2] * 0.45]);
@@ -169,7 +169,7 @@ export function build_zephyra(kit = kitDefault) {
   coronet.name = 'coronet';
   head.add(coronet);
   const gemAt = S.surface(headGeo, S.dirYP(0, 0.62), { inset: -0.005 });
-  const gem = new THREE.Mesh(S.brilliant(0.011, 0.011, 0.007, [GEM, 0x9ff4e6, 0x2fb5a8, 0xe0fffa], { facets: 6 }), kit.mat(0xffffff, { flat: true, vertexColors: true, rough: 0.2, emissive: 0x2a8f84, emissiveIntensity: 0.6 }));
+  const gem = new THREE.Mesh(S.brilliant(0.013, 0.012, 0.008, [GEM, 0x9ff4e6, 0x2fb5a8, 0xe0fffa], { facets: 6 }), kit.mat(0xffffff, { flat: true, vertexColors: true, rough: 0.2, emissive: 0x2a8f84, emissiveIntensity: 0.6 }));
   gem.name = 'gem';
   gem.position.set(gemAt[0], gemAt[1], gemAt[2]);
   gem.rotation.x = Math.PI / 2 - 0.62;
@@ -246,14 +246,14 @@ export function build_zephyra(kit = kitDefault) {
   };
   const hind = () => {
     const w = S.openWing(0.34, fuzz, {
-      width: 0.15, thick: 0.075, sweep: 0.32, lift: 0.25, chord: ribbon, color: { root: 0xeadcf2, tip: 0xc6a2e2 },
+      width: 0.15, thick: 0.075, sweep: 0.32, lift: 0.4, chord: ribbon, color: { root: 0xd8c4ee, tip: 0xb48ad8 },
       spots: [{ t: 0.18, v: 0.05, r: 0.024, ring: 0x3e2a5a, core: 0xffc0a0 }], radial: 12, rings: 16,
     });
     // the ribbon's tail end warms to glowing comet-gold
     S.overlay(w.group.children[0].geometry, GOLD, (x) => S.sstep(0.24, 0.31, x));
     const tipX = 0.34 * 0.9, tipZ = -0.32 * 0.34 * 0.81;
     const halo = S.glow(GOLD, 0.07, 0.65);
-    halo.position.set(tipX, 0.25 * 0.34 * 0.81, tipZ);
+    halo.position.set(tipX, 0.4 * 0.34 * 0.81, tipZ);
     w.group.add(halo);
     return w;
   };
@@ -261,8 +261,8 @@ export function build_zephyra(kit = kitDefault) {
     // [side, builder, y, z, raise(rz), back(ry), face(rx on the wing mesh)]
     [1, fore, 0.045, -0.02, 0.5, 0.16, -1.22],
     [-1, fore, 0.045, -0.02, 0.5, 0.16, -1.22],
-    [1, hind, 0.0, -0.04, -0.3, 1.0, -0.9],
-    [-1, hind, 0.0, -0.04, -0.3, 1.0, -0.9],
+    [1, hind, 0.0, -0.045, -0.08, 1.12, -0.7],
+    [-1, hind, 0.0, -0.045, -0.08, 1.12, -0.7],
   ];
   const wingParts = wingDefs.map(([side, mk, y, z, up, back, face]) => {
     const w = mk();
