@@ -75,8 +75,10 @@ class Game {
   _resize() {
     const w = window.innerWidth, h = window.innerHeight;
     // Pixel count is the biggest single cost on high-DPI laptops, so each
-    // quality tier caps the render scale as well as the effects.
-    const cap = settings.quality === 'low' ? 1 : settings.quality === 'med' ? 1.5 : 2;
+    // quality tier caps the render scale as well as the effects. 1.5x on High
+    // is ~44% fewer pixels than 2x on a retina laptop and, with the scene's
+    // multisampling and soft shading, reads the same at play distance.
+    const cap = settings.quality === 'low' ? 1 : settings.quality === 'med' ? 1.25 : 1.5;
     const ratio = Math.min(window.devicePixelRatio || 1, cap);
     this.renderer.setPixelRatio(ratio);
     this.renderer.setSize(w, h);
