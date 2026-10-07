@@ -118,7 +118,12 @@
 .zt-name {
   font-family: var(--font-display); font-size: 40px; color: var(--gold);
   text-shadow: 0 2px 24px rgba(255,233,176,.35), 0 1px 0 rgba(0,0,0,.6);
-  letter-spacing: .05em; opacity: 0;
+  /* Resting state = the END of the reveal: when .show is removed the name
+     stays put and fades out with the card. (Resting at opacity 0 made the
+     name vanish instantly while the gold rule faded alone — a stray line
+     hanging in the sky after every zone entry.) The card itself is
+     opacity 0 until shown, so this never peeks early. */
+  letter-spacing: .34em; opacity: 1;
 }
 .hud-zone-title.show .zt-name { animation: zt-letters 1.6s cubic-bezier(.2,.7,.2,1) forwards; }
 @keyframes zt-letters { 0% { letter-spacing: -.05em; opacity: 0; transform: scale(1.04); } 55% { opacity: 1; } 100% { letter-spacing: .34em; opacity: 1; transform: scale(1); } }
