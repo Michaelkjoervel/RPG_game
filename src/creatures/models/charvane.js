@@ -24,7 +24,7 @@ import * as kitDefault from '../kit.js';
 import * as S from './soft.js';
 
 const COAL_LO = 0x221916, COAL = 0x3b2d27, COAL_HI = 0x6c5547, SMOKE = 0x84695a, CRUST = 0x2a1b15,
-  FLANK = 0x7a6152, SADDLE = 0x4f3e35,
+  FLANK = 0x7a6152, SADDLE = 0x45362f, HEAT = 0x8c3a1a,
   EMBER_LO = 0x7a2e16, EMBER = 0xc4521e, EMBER_HI = 0xf08a3a, SOCK = 0x1c1412, INNER = 0xb0502a;
 
 // THE EMBER RUFF as ONE soft form: a sphere round the neck base whose
@@ -34,7 +34,7 @@ const COAL_LO = 0x221916, COAL = 0x3b2d27, COAL_HI = 0x6c5547, SMOKE = 0x84695a,
 // +Y = the neck axis, +Z = the breast; pose it onto the neck.
 function ruffGeo() {
   const R = 0.135;
-  const g = S.ball(R, { radial: 30, rings: 14 });
+  const g = S.ball(R, { radial: 30, rings: 12 });
   const pos = g.attributes.position;
   const amp = new Float32Array(pos.count);
   for (let i = 0; i < pos.count; i++) {
@@ -143,9 +143,12 @@ function sweep(nodes, { radial = 8, sub = 0, capTop = 2, capBot = 2, sx = 1 } = 
 // A soft fur tuft: a short curved leaf of fur (base buried at `at`), wide
 // across and thin through, curling toward -Z of its own frame, aimed along
 // `dir`. Coat colour at the root, `to` only on the last stretch (`exp`).
-// ~30 triangles (a 5-sided sweep), so a fringe of them is affordable.
-function tuft(at, dir, len, w, from, to, { curl = 0.35, flat = 1.5, exp = 1.6 } = {}) {
-  const g = sweep([[0, 0, w], [-len * 0.45, curl * len * 0.22, w * 0.78], [-len, curl * len, w * 0.1]], { radial: 5, capTop: 1, capBot: 1, sx: flat });
+// 30-40 triangles (a 5-sided sweep), so a fringe of them is affordable.
+function tuft(at, dir, len, w, from, to, { curl = 0.35, flat = 1.5, exp = 1.6, radial = 5, fine = true } = {}) {
+  const nodes = fine
+    ? [[0, 0, w], [-len * 0.35, curl * len * 0.13, w * 0.86], [-len * 0.7, curl * len * 0.5, w * 0.55], [-len, curl * len, w * 0.08]]
+    : [[0, 0, w], [-len * 0.45, curl * len * 0.22, w * 0.78], [-len, curl * len, w * 0.1]];
+  const g = sweep(nodes, { radial, capTop: 1, capBot: 1, sx: flat });
   g.rotateX(Math.PI); // grow +Y, curl toward -Z
   S.paint(g, { from, to, axis: 'y', lo: 0, hi: len, exp, noise: 0.015 });
   S.aim(g, dir);
@@ -157,6 +160,23 @@ function seamTube(pts, radius, seg = 8) {
   const g = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts.map((p) => new THREE.Vector3(p[0], p[1], p[2]))), seg, radius, 3, false);
   g.deleteAttribute('uv');
   return S.paint(S.smooth(g), 0xffffff);
+}
+
+// Warm the coat around glowing seams: blend `color` into `geo`'s vertex
+// colours by distance to the nearest seam vertex (heat bleeding into the fur
+// round each crack, so the magma pattern reads from battle distance).
+function heatAround(geo, seamGeos, color, radius, strength = 0.7) {
+  const pts = [];
+  for (const g of seamGeos) { const p = g.attributes.position; for (let i = 0; i < p.count; i += 2) pts.push(p.getX(i), p.getY(i), p.getZ(i)); }
+  return S.overlay(geo, color, (x, y, z) => {
+    let d2 = Infinity;
+    for (let i = 0; i < pts.length; i += 3) {
+      const dx = x - pts[i], dy = y - pts[i + 1], dz = z - pts[i + 2], d = dx * dx + dy * dy + dz * dz;
+      if (d < d2) d2 = d;
+    }
+    const d = Math.sqrt(d2) / radius;
+    return d >= 1 ? 0 : strength * (1 - d * d);
+  });
 }
 
 export function build_charvane(kit = kitDefault) {
@@ -190,14 +210,6 @@ export function build_charvane(kit = kitDefault) {
   const collar = ruffGeo();
   const RC = [0, 0.1, 0.26];
   S.pose(collar, RC, [0.72, 0, 0]); // local +Y -> up the neck, local +Z -> the breast
-  // where the tail sets on, ringed by a fluffy collar of fur tufts
-  const tr = S.surface(torsoGeo, [0, 0.45, -1], { from: [0, 0.03, -0.12], inset: 0.035 });
-  const tailFluff = [[0.62, 0.4, 0.07], [-0.62, 0.4, 0.07], [0.0, 0.75, 0.06], [0.45, -0.25, 0.06], [-0.45, -0.25, 0.06]].map(([x, y, L]) => tuft(
-    [tr[0] + x * 0.03, tr[1] + y * 0.03, tr[2] + 0.012], [x, y, -1], L, 0.03, FLANK, SMOKE, { curl: 0.3, flat: 1.4, exp: 1.5 }));
-  const body = S.bake([torsoGeo, neckGeo, collar, ...tailFluff], fur, 'body');
-  root.add(body);
-  body.position.y = 0.39;
-
   // --- Magma seams: spine, shoulders, and on over both haunches. ----------
   const seams = [
     S.grooveTop(torsoGeo, [[0.0, 0.14], [0.012, 0.07], [-0.008, -0.01], [0.008, -0.09], [0.0, -0.17], [0.0, -0.235]], { radius: 0.015, lift: 0.001, seg: 14, radial: 3, caps: false }),
@@ -206,8 +218,17 @@ export function build_charvane(kit = kitDefault) {
   ];
   // haunch seams: fork off the spine over the croup and run down each haunch
   for (const sd of [1, -1]) {
-    seams.push(S.groove(torsoGeo, [[sd * 0.25, 1.25], [sd * 0.9, 1.05], [sd * 1.25, 0.7], [sd * 1.4, 0.3]], { from: [0, -0.02, -0.15], radius: 0.01, lift: 0.001, seg: 9, radial: 3, caps: false }));
+    seams.push(S.groove(torsoGeo, [[sd * 0.25, 1.25], [sd * 0.9, 1.05], [sd * 1.25, 0.7], [sd * 1.4, 0.3]], { from: [0, -0.02, -0.15], radius: 0.01, lift: 0.001, seg: 7, radial: 3, caps: false }));
   }
+  heatAround(torsoGeo, seams, HEAT, 0.05, 0.6);
+  // where the tail sets on, ringed by a fluffy collar of fur tufts
+  const tr = S.surface(torsoGeo, [0, 0.45, -1], { from: [0, 0.03, -0.12], inset: 0.035 });
+  const tailFluff = [[0.95, 0.35, 0.095], [-0.95, 0.35, 0.095], [0.0, 1.0, 0.08], [0.7, -0.45, 0.085], [-0.7, -0.45, 0.085]].map(([x, y, L]) => tuft(
+    [tr[0] + x * 0.035, tr[1] + y * 0.035, tr[2] + 0.01], [x, y, -0.8], L, 0.034, SADDLE, SMOKE, { curl: 0.5, flat: 1.4, exp: 1.2 }));
+  const body = S.bake([torsoGeo, neckGeo, collar, ...tailFluff], fur, 'body');
+  root.add(body);
+  body.position.y = 0.39;
+
   const seamMesh = new THREE.Mesh(S.merge(seams.map((g) => S.paint(g, 0xffffff))), magma);
   seamMesh.name = 'magmaSeams';
   body.add(seamMesh);
@@ -236,9 +257,9 @@ export function build_charvane(kit = kitDefault) {
   const cheeks = [];
   for (const sd of [1, -1]) for (let i = 0; i < 3; i++) {
     const at = S.surface(headGeo, [sd, -0.35 + i * 0.25, -0.2], { from: [0, -0.02, -0.03 - i * 0.03], inset: 0.012 });
-    cheeks.push(tuft(at, [sd * 0.85, -0.3 + i * 0.22, -1], 0.085 - i * 0.01, 0.028, COAL_HI, i === 0 ? EMBER : 0x8a5a44, { exp: 1 }));
+    cheeks.push(tuft(at, [sd * 0.85, -0.3 + i * 0.22, -1], 0.085 - i * 0.01, 0.028, COAL_HI, i === 0 ? EMBER : 0x8a5a44, { exp: 1, fine: false }));
   }
-  const brows = [1, -1].map((sd) => S.paint(S.groove(headGeo, [[sd * 0.25, 0.5], [sd * 0.45, 0.53], [sd * 0.65, 0.42]], { from: SK, radius: 0.008, lift: 0.001, seg: 8, radial: 3, caps: false }), 0x140e0d));
+  const brows = [1, -1].map((sd) => S.paint(S.groove(headGeo, [[sd * 0.25, 0.5], [sd * 0.45, 0.53], [sd * 0.65, 0.42]], { from: SK, radius: 0.008, lift: 0.001, seg: 6, radial: 3, caps: false }), 0x140e0d));
   const mouth = S.paint(S.groove(headGeo, [[-0.5, -0.32], [-0.25, -0.42], [0, -0.44], [0.25, -0.42], [0.5, -0.32]], { from: [0, -0.01, 0.06], radius: 0.0055, lift: -0.001, seg: 10, radial: 3, caps: false }), 0x120d0c);
   const head = S.bake([headGeo, noseGeo, ...cheeks, ...brows, mouth], fur, 'head');
   kit.at(body, head, 0, 0.35, 0.49, { rx: 0.04, ry: 0.1 });
@@ -290,7 +311,7 @@ export function build_charvane(kit = kitDefault) {
     hip.add(knee);
     const pr = 0.056, ankle = -(len - pr * 0.78);
     const E = [-0.12, -0.022];
-    const up = sweep([[0, 0, 0.08], [-0.06, -0.012, 0.064], [E[0], E[1], 0.049]], { radial: 8, sx: 0.82, capTop: 2, capBot: 2 });
+    const up = sweep([[0, 0, 0.08], [-0.06, -0.012, 0.064], [E[0], E[1], 0.049]], { radial: 8, sx: 0.82, capTop: 1, capBot: 2 });
     legPaint(up, 0.02, E[0] - 0.04, COAL_HI, COAL);
     const thigh = new THREE.Mesh(up, fur); thigh.name = 'legThigh';
     hip.add(thigh);
@@ -316,15 +337,19 @@ export function build_charvane(kit = kitDefault) {
     const ham = sweep([[0.01, -0.005, 0.088, 1.25], [-0.07, 0.012, 0.072, 1.3], [K[0], K[1], 0.046]], { radial: 8, sx: 0.64, capTop: 2, capBot: 2 });
     legPaint(ham, 0.06, K[0], FLANK, COAL);
     S.overlay(ham, SMOKE, (x, y, z) => S.sstep(-0.08, 0.0, y) * S.sstep(0.0, -0.06, z) * 0.5); // lit round of the ham
-    // britches: a fringe of fur hanging from the back of the ham (a husky's
-    // "trousers"), smoke-brown, warming to ember only at the very tips
-    const fluff = [[-0.035, 0.075, 0.6], [-0.075, 0.07, 0.25], [-0.11, 0.055, -0.1]].map(([y, L, out], i) => tuft(
-      S.surface(ham, [sd * out * 0.4, 0, -1], { from: [0, y, 0.01], inset: 0.012 }), [sd * out * 0.5, -1, -0.55], L, 0.02, SMOKE, i === 1 ? EMBER_HI : EMBER, { curl: 0.4, flat: 1.25, exp: 2.6 }));
-    const thigh = new THREE.Mesh(S.merge([ham, ...fluff]), fur); thigh.name = 'legThigh';
-    hip.add(thigh);
+    // britches: a soft fan of fur flaring out of the back of the ham (out,
+    // down and back, so it shows from the battle camera behind), coat
+    // coloured, warming to ember only at the tips
+    const bAt = S.surface(ham, [sd * 0.5, -0.2, -1], { from: [0, -0.075, 0.015], inset: 0.014 });
+    const fluff = [[0.95, -0.45, -0.5, 0.066], [0.5, -0.85, -0.65, 0.074], [0.15, -0.4, -1, 0.06]].map(([o, dn, bk, L], i) => tuft(
+      bAt, [sd * o, dn, bk], L, 0.026, SMOKE, i === 1 ? EMBER_HI : EMBER, { curl: 0.4, flat: 1.5, exp: 2.2, radial: 6 }));
     // the haunch seam continues down the outside of the ham
     const seamPts = [[-0.0, -0.035], [-0.035, -0.02], [-0.07, 0.0], [-0.1, 0.02]].map(([y, z]) => S.surface(ham, [sd, 0, 0], { from: [0, y, z], inset: -0.0015 }));
-    const hamSeam = new THREE.Mesh(seamTube(seamPts, 0.0085, 7), magma); hamSeam.name = 'magmaSeams';
+    const hamSeamGeo = seamTube(seamPts, 0.0085, 7);
+    heatAround(ham, [hamSeamGeo], HEAT, 0.04, 0.6);
+    const thigh = new THREE.Mesh(S.merge([ham, ...fluff]), fur); thigh.name = 'legThigh';
+    hip.add(thigh);
+    const hamSeam = new THREE.Mesh(hamSeamGeo, magma); hamSeam.name = 'magmaSeams';
     hip.add(hamSeam);
     knee.position.set(0, K[0], K[1]);
     const ay = ankle - K[0];
