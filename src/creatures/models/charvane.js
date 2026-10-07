@@ -221,11 +221,9 @@ export function build_charvane(kit = kitDefault) {
     seams.push(S.groove(torsoGeo, [[sd * 0.25, 1.25], [sd * 0.9, 1.05], [sd * 1.25, 0.7], [sd * 1.4, 0.3]], { from: [0, -0.02, -0.15], radius: 0.01, lift: 0.001, seg: 7, radial: 3, caps: false }));
   }
   heatAround(torsoGeo, seams, HEAT, 0.05, 0.6);
-  // where the tail sets on, ringed by a fluffy collar of fur tufts
+  // where the tail sets on
   const tr = S.surface(torsoGeo, [0, 0.45, -1], { from: [0, 0.03, -0.12], inset: 0.035 });
-  const tailFluff = [[0.95, 0.35, 0.095], [-0.95, 0.35, 0.095], [0.0, 1.0, 0.08], [0.7, -0.45, 0.085], [-0.7, -0.45, 0.085]].map(([x, y, L]) => tuft(
-    [tr[0] + x * 0.035, tr[1] + y * 0.035, tr[2] + 0.01], [x, y, -0.8], L, 0.034, SADDLE, SMOKE, { curl: 0.5, flat: 1.4, exp: 1.2 }));
-  const body = S.bake([torsoGeo, neckGeo, collar, ...tailFluff], fur, 'body');
+  const body = S.bake([torsoGeo, neckGeo, collar], fur, 'body');
   root.add(body);
   body.position.y = 0.39;
 
@@ -374,7 +372,7 @@ export function build_charvane(kit = kitDefault) {
   // --- Tail: a bushy smoke-brown brush lifting into a live flame. ----------
   const tail = S.softTail(4, fur, {
     segLen: 0.1, curl: 0.32, rootPitch: -0.12, radial: 10, capSeg: 2,
-    radiusFn: (t) => 0.036 + 0.03 * Math.sin(Math.PI * Math.min(1, t * 0.9 + 0.12)) - 0.006 * t,
+    radiusFn: (t) => 0.04 + 0.034 * Math.sin(Math.PI * Math.min(1, t * 0.85 + 0.22)) - 0.01 * t,
     color: (t) => (t < 0.7 ? S.mixHex(FLANK, SADDLE, t / 0.7) : t < 0.88 ? S.mixHex(SADDLE, EMBER_LO, (t - 0.7) / 0.18) : S.mixHex(EMBER_LO, EMBER, (t - 0.88) / 0.12)),
   });
   kit.at(body, tail, tr[0], tr[1], tr[2]);
