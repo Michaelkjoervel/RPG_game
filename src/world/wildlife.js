@@ -6,6 +6,7 @@
 //   createWildlife(zone, world) -> { update(dt), dispose() }
 import * as THREE from 'three';
 import { G } from '../core/state.js';
+import { bus } from '../core/events.js';
 import { settings } from '../core/settings.js';
 import { clamp, clamp01, damp, dampAngle, lerp, TAU } from '../core/math.js';
 import { hashStr, seededRandom, randInt, pick } from '../core/rng.js';
@@ -16,6 +17,21 @@ const warned = new Set();
 const warnOnce = (msg) => { if (!warned.has(msg)) { warned.add(msg); console.warn('[wildlife]', msg); } };
 
 const _resolved = [0, 0]; // scratch — resolveRoamCollision runs per roamer per frame
+
+// Roaming wild Kindred (see the ROAMING section below).
+const ROAD_SPACING = 24;              // metres of zone size per roadside Kindred
+const ROAD_MIN = 6, ROAD_MAX = 11;
+const DRAW_R2 = 75 * 75;              // drawn within this distance of the Warden
+const ANIM_R2 = 48 * 48;              // animated within this one
+const RESPAWN_MIN = 45, RESPAWN_MAX = 75; // seconds before a beaten/caught one is replaced
+const ARRIVAL_GRACE = 3;              // seconds after zone entry before anything engages
+const BATTLE_GRACE = 2.5;             // ...and after any battle ends
+const LOSE_INTEREST = 9;              // after you flee (or lose) it leaves you be this long
+const CHASE_SPEED = 2.4;              // x wander speed: catches a walking Warden, not a running one
+const SHY_SPEED = 2.0;
+const OVERWORLD_MIN_H = 0.85;         // small Kindred are shown at least this tall out in the world...
+const OVERWORLD_MAX_UP = 2.4;         // ...scaled up by no more than this
+const TEMPERAMENT = { eager: 'bold', regal: 'bold', skittish: 'shy', calm: 'calm', heavy: 'calm', sleepy: 'calm' };
 
 // Day factor: 0 = full night, 1 = full day (matches props.js's convention).
 function daylight(t) {
@@ -442,53 +458,172 @@ export function createWildlife(zone, world) {
   // =================================================================
   // ROAMING WILD KINDRED — the showpiece
   // =================================================================
+  // Two sources: the zone's authored `encounters.roaming` herds, and a
+  // roadside population drawn from its encounter table, so a walk through any
+  // wild zone meets Kindred you can see and fight. Bodies are built lazily
+  // (one per frame, nearest first) and are only drawn and animated near the
+  // Warden. Temperament follows each creature's personality: bold ones spot
+  // you ('!') and give chase — faster than a walk, slower than a run — shy
+  // ones bolt, calm ones only close in at arm's length. A Kindred you beat or
+  // catch is gone; another turns up somewhere out of sight a minute later.
   const roamers = [];
-  let registryP = null;
+  const pending = [];          // bodies still to build: {speciesId, level, x, z, area, road?}
+  const respawns = [];         // {t, spec}
+  let registry = null;
   let battleBusy = false;
+  let graceT = ARRIVAL_GRACE;
+  // a breather after every battle (patch, roamer or story): no back-to-back pounce
+  const offBattleEnd = bus.on('battle:end', () => { graceT = Math.max(graceT, BATTLE_GRACE); });
   const ALERT_R = 6.5, ALERT_R2 = ALERT_R * ALERT_R;
   const CONTACT_R = 1.35, CONTACT_R2 = CONTACT_R * CONTACT_R;
+  const CLOSE_R2 = 3.2 * 3.2;  // calm Kindred only close in this near
   const CHASE_GIVEUP = 7;
 
-  function levelFor(speciesId) {
-    const entry = (zone.encounters?.table ?? []).find((e) => e.speciesId === speciesId);
-    if (entry?.lv) return randInt(entry.lv[0], entry.lv[1], rng);
-    return 5;
+  const table = (zone.encounters?.table ?? []).filter((e) => (e.w ?? 0) > 0);
+  const totalW = table.reduce((sum, e) => sum + e.w, 0);
+  const roads = (zone.paths ?? []).filter((p) => p.from && p.to);
+  const roadLen = roads.map((p) => Math.hypot(p.to[0] - p.from[0], p.to[1] - p.from[1]));
+  const roadTotal = roadLen.reduce((sum, l) => sum + l, 0);
+  const keepClear = [ // [x, z, r] — arrivals, gates and people get breathing room
+    ...(zone.spawn ? [[zone.spawn[0], zone.spawn[1], 18]] : []),
+    ...(zone.portals ?? []).map((p) => [p.at[0], p.at[1], 18]),
+    ...(zone.npcs ?? []).filter((n) => n.at).map((n) => [n.at[0], n.at[1], 10]),
+  ];
+
+  function pickEntry() {
+    let u = rng() * totalW;
+    for (const e of table) { u -= e.w; if (u <= 0) return e; }
+    return table[table.length - 1];
+  }
+  const levelIn = (entry) => (entry?.lv ? randInt(entry.lv[0], entry.lv[1], rng) : 5);
+
+  function spotOk(x, z, awayFrom, awayR) {
+    if (Math.abs(x) > half - 4 || Math.abs(z) > half - 4) return false;
+    const w = zone.water;
+    if (w) {
+      const wh = (w.size ?? 0) / 2;
+      if (Math.abs(x - (w.pos?.[0] ?? 0)) < wh && Math.abs(z - (w.pos?.[1] ?? 0)) < wh && heightAt(x, z) < (w.level ?? 0) + 0.12) return false;
+    }
+    // no ledges: a steep spot reads as a creature glued to a cliff
+    if (Math.abs(heightAt(x + 1, z) - heightAt(x - 1, z)) + Math.abs(heightAt(x, z + 1) - heightAt(x, z - 1)) > 1.5) return false;
+    for (const [cx, cz, r] of keepClear) if ((x - cx) ** 2 + (z - cz) ** 2 < r * r) return false;
+    for (const c of world.colliders ?? []) { const rr = (c.r ?? 0) + 1.1; if ((x - c.x) ** 2 + (z - c.z) ** 2 < rr * rr) return false; }
+    for (const r of roamers) if (!r.dead && (x - r.home.x) ** 2 + (z - r.home.z) ** 2 < 144) return false;
+    for (const q of pending) if ((x - q.x) ** 2 + (z - q.z) ** 2 < 144) return false;
+    if (awayFrom && (x - awayFrom.x) ** 2 + (z - awayFrom.z) ** 2 < awayR * awayR) return false;
+    return true;
   }
 
-  async function loadRoamers() {
-    const roamData = zone.encounters?.roaming ?? [];
-    if (!roamData.length) return;
-    registryP = registryP || import('../creatures/registry.js');
-    let registry;
-    try { registry = await registryP; }
-    catch (e) { warnOnce('creatures/registry.js unavailable — roaming Kindred disabled: ' + (e?.message ?? e)); return; }
+  // A spot a few steps off a road: a path picked by length, a point along it,
+  // then a sideways step past the verge.
+  function roadSpot(awayFrom, awayR) {
+    if (!roadTotal) return null;
+    for (let tries = 0; tries < 40; tries++) {
+      let u = rng() * roadTotal, k = 0;
+      while (k < roads.length - 1 && u > roadLen[k]) { u -= roadLen[k]; k++; }
+      const p = roads[k], len = roadLen[k] || 1, t = rng();
+      const [ax, az] = p.from, [bx, bz] = p.to;
+      const off = ((p.width ?? 3) / 2 + 2.5 + rng() * 8) * (rng() < 0.5 ? -1 : 1);
+      const x = ax + (bx - ax) * t - ((bz - az) / len) * off;
+      const z = az + (bz - az) * t + ((bx - ax) / len) * off;
+      if (spotOk(x, z, awayFrom, awayR)) return { x, z };
+    }
+    return null;
+  }
+  function areaSpot(area, awayFrom, awayR) {
+    for (let tries = 0; tries < 24; tries++) {
+      const a = rng() * TAU, r = Math.sqrt(rng()) * area.r;
+      const x = clamp(area.x + Math.cos(a) * r, -half, half), z = clamp(area.z + Math.sin(a) * r, -half, half);
+      if (spotOk(x, z, awayFrom, awayR)) return { x, z };
+    }
+    return null;
+  }
 
-    for (const spec of roamData) {
-      const count = spec.count ?? 1;
+  function populate() {
+    for (const spec of zone.encounters?.roaming ?? []) {
       const [ax, az, ar] = spec.area ?? [0, 0, half * 0.6];
-      for (let i = 0; i < count; i++) {
-        let built;
-        try { built = registry.buildCreature(spec.speciesId, {}); }
-        catch (e) { console.error(`[wildlife] buildCreature(${spec.speciesId}) failed`, e); continue; }
-        if (!built?.group) continue;
-        const a = rng() * TAU, r = Math.sqrt(rng()) * ar;
-        const x = clamp(ax + Math.cos(a) * r, -half, half), z = clamp(az + Math.sin(a) * r, -half, half);
-        const y = heightAt(x, z);
-        built.group.position.set(x, y, z);
-        const face = rng() * TAU;
-        built.group.rotation.y = face;
-        scene.add(built.group);
-        try { built.animator?.play?.('idle'); } catch (e) { /* tolerate animator drift */ }
-        roamers.push({
-          speciesId: spec.speciesId, level: levelFor(spec.speciesId), group: built.group, animator: built.animator,
-          x, z, y, face, home: { x: ax, z: az }, area: { x: ax, z: az, r: ar },
-          state: 'wander', wanderTarget: null, idleT: 1 + rng() * 3, speed: 1.5 + rng() * 0.4,
-          chaseT: 0, cooldown: 0, collider: { x, z, r: 0.4 },
-        });
+      const area = { x: ax, z: az, r: ar };
+      const entry = table.find((e) => e.speciesId === spec.speciesId);
+      for (let i = 0; i < (spec.count ?? 1); i++) {
+        const at = areaSpot(area) ?? { x: ax, z: az };
+        pending.push({ speciesId: spec.speciesId, level: levelIn(entry), x: at.x, z: at.z, area });
       }
     }
+    if (!table.length || !roadTotal) return;
+    const lively = clamp(totalW / 150, 0.4, 1); // rare-only tables stay sparse
+    const n = Math.round(clamp(Math.round(size / ROAD_SPACING), ROAD_MIN, ROAD_MAX) * lively) - Math.floor(pending.length / 2);
+    for (let i = 0; i < n; i++) {
+      const at = roadSpot();
+      if (!at) continue;
+      const entry = pickEntry();
+      pending.push({ speciesId: entry.speciesId, level: levelIn(entry), x: at.x, z: at.z, area: { x: at.x, z: at.z, r: 7 }, road: true });
+    }
   }
-  loadRoamers();
+  populate();
+  if (pending.length) {
+    import('../creatures/registry.js')
+      .then((m) => { registry = m; })
+      .catch((e) => warnOnce('creatures/registry.js unavailable — roaming Kindred disabled: ' + (e?.message ?? e)));
+  }
+
+  // '!' over a Kindred that has spotted you
+  let alertTex = null;
+  function alertSprite() {
+    if (!alertTex) {
+      const c = document.createElement('canvas');
+      c.width = c.height = 64;
+      const g = c.getContext('2d');
+      g.beginPath(); g.arc(32, 32, 24, 0, TAU);
+      g.fillStyle = '#ffe08a'; g.fill();
+      g.lineWidth = 5; g.strokeStyle = '#3a2410'; g.stroke();
+      g.fillStyle = '#3a2410'; g.font = 'bold 38px Georgia, serif';
+      g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('!', 32, 34);
+      alertTex = new THREE.CanvasTexture(c);
+      alertTex.colorSpace = THREE.SRGBColorSpace;
+    }
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: alertTex, depthTest: false, transparent: true, toneMapped: false }));
+    sp.name = 'kindredAlert';
+    sp.renderOrder = 20;
+    sp.visible = false;
+    scene.add(sp);
+    return sp;
+  }
+
+  function buildOne(spec) {
+    let built;
+    try { built = registry.buildCreature(spec.speciesId, {}); }
+    catch (e) { console.error(`[wildlife] buildCreature(${spec.speciesId}) failed`, e); return; }
+    if (!built?.group) return;
+    // Knee-high Kindred vanish into tall grass a few steps off the road: out
+    // here the small ones stand a little larger than life so they read from
+    // the path (battles still show them at true size).
+    const top = new THREE.Box3().setFromObject(built.group).max.y;
+    const up = Number.isFinite(top) && top > 0 ? clamp(OVERWORLD_MIN_H / top, 1, OVERWORLD_MAX_UP) : 1;
+    built.group.scale.multiplyScalar(up);
+    const { x, z } = spec;
+    const y = heightAt(x, z);
+    const face = rng() * TAU;
+    built.group.position.set(x, y, z);
+    built.group.rotation.y = face;
+    scene.add(built.group);
+    try { built.animator?.play?.('idle'); } catch (e) { /* tolerate animator drift */ }
+    const personality = built.animator?.hints?.personality ?? 'calm';
+    roamers.push({
+      spec, speciesId: spec.speciesId, level: spec.level, group: built.group, animator: built.animator,
+      x, z, y, face, h: Number.isFinite(top) ? Math.max(0.4, top * up) : 1,
+      temper: TEMPERAMENT[personality] ?? 'calm', home: { x, z }, area: spec.area,
+      state: 'wander', wanderTarget: null, idleT: 1 + rng() * 3, speed: 1.5 + rng() * 0.4,
+      chaseT: 0, cooldown: 0, alertT: 0, alert: null, shimmerT: rng(), collider: { x, z, r: 0.4 },
+    });
+  }
+
+  function retire(rec) {
+    rec.dead = true;
+    scene.remove(rec.group);
+    disposeGroup(rec.group); // registry builds are per-call, safe to free
+    if (rec.alert) { scene.remove(rec.alert); rec.alert.material.dispose(); rec.alert = null; }
+    respawns.push({ t: RESPAWN_MIN + rng() * (RESPAWN_MAX - RESPAWN_MIN), spec: rec.spec });
+  }
 
   function resolveRoamCollision(rec, x, z) {
     let px = x, pz = z;
@@ -509,6 +644,12 @@ export function createWildlife(zone, world) {
     const step = Math.min(dist, rec.speed * speedMul * dt);
     let nx = rec.x + (dx / dist) * step, nz = rec.z + (dz / dist) * step;
     nx = clamp(nx, -half, half); nz = clamp(nz, -half, half);
+    // never wade into deep water after the Warden
+    const w = zone.water;
+    if (w && heightAt(nx, nz) < (w.level ?? 0) - 0.25) {
+      const wh = (w.size ?? 0) / 2;
+      if (Math.abs(nx - (w.pos?.[0] ?? 0)) < wh && Math.abs(nz - (w.pos?.[1] ?? 0)) < wh) return 0;
+    }
     [nx, nz] = resolveRoamCollision(rec, nx, nz);
     rec.x = nx; rec.z = nz;
     rec.collider.x = nx; rec.collider.z = nz;
@@ -516,74 +657,137 @@ export function createWildlife(zone, world) {
     return dist;
   }
 
+  function play(rec, name) { try { rec.animator?.play?.(name); } catch (e) { /* tolerate animator drift */ } }
+
   function triggerContact(rec) {
     if (battleBusy || rec.state === 'locked') return;
     battleBusy = true;
     rec.state = 'locked';
     rec.cooldown = 999; // cleared explicitly once the battle resolves
-    try { rec.animator?.play?.('attack'); } catch (e) { /* tolerate */ }
+    play(rec, 'attack');
     Promise.resolve(world.startWildBattle?.(rec.speciesId, rec.level))
       .catch((e) => { console.error('[wildlife] startWildBattle failed', e); return null; })
       .then((result) => {
         battleBusy = false;
-        if (result?.outcome === 'caught') {
-          scene.remove(rec.group);
-          disposeGroup(rec.group); // registry builds are per-call, safe to free
-          rec.dead = true;
-          return;
-        }
-        // reset with a short grace window so it doesn't instantly re-trigger
+        if (rec.dead) return;
+        if (result?.outcome === 'caught' || result?.outcome === 'win') { retire(rec); return; }
+        // fled, lost, or no battle after all: it leaves you be for a while
         rec.state = 'wander';
-        rec.cooldown = 2.5;
+        rec.cooldown = LOSE_INTEREST;
         rec.chaseT = 0;
-        const a = rng() * TAU;
-        rec.wanderTarget = { x: rec.x + Math.cos(a) * 3, z: rec.z + Math.sin(a) * 3 };
-        try { rec.animator?.play?.('idle'); } catch (e) { /* tolerate */ }
+        const p = world.player?.pos;
+        const away = p ? Math.atan2(rec.x - p.x, rec.z - p.z) : rng() * TAU;
+        rec.wanderTarget = { x: rec.x + Math.sin(away) * 5, z: rec.z + Math.cos(away) * 5 };
+        play(rec, 'walk');
       });
   }
 
-  function updateRoamer(rec, dt, playerPos) {
+  function updateRoamer(rec, dt, playerPos, holdOff) {
     if (rec.dead) return;
-    if (rec.cooldown > 0) rec.cooldown -= dt;
-    if (rec.state === 'locked') { try { rec.animator?.update?.(dt); } catch (e) { /* tolerate */ } return; }
-
     const dx = rec.x - playerPos.x, dz = rec.z - playerPos.z;
     const d2 = dx * dx + dz * dz;
+    // far off: not drawn, not animated, not thinking
+    const drawn = d2 < DRAW_R2;
+    rec.group.visible = drawn;
+    if (!drawn) { if (rec.alert) rec.alert.visible = false; return; }
+    if (rec.cooldown > 0) rec.cooldown -= dt;
+    if (rec.state === 'locked') { animate(rec, dt, d2); return; }
+    const engage = !holdOff && rec.cooldown <= 0;
 
-    if (rec.cooldown <= 0 && d2 < CONTACT_R2) {
+    if (engage && d2 < CONTACT_R2) {
       triggerContact(rec);
-      rec.group.position.set(rec.x, rec.y, rec.z);
-      rec.group.rotation.y = rec.face;
-      try { rec.animator?.update?.(dt); } catch (e) { /* tolerate */ }
+      animate(rec, dt, d2);
       return;
     }
 
-    if (rec.cooldown <= 0 && d2 < ALERT_R2) {
-      if (rec.state !== 'alert') { rec.state = 'alert'; rec.chaseT = 0; try { rec.animator?.play?.('walk'); } catch (e) { /* tolerate */ } }
+    const noticed = engage && d2 < ALERT_R2 && (rec.temper !== 'calm' || d2 < CLOSE_R2);
+    if (noticed) {
+      if (rec.state !== 'alert') {
+        rec.state = 'alert'; rec.chaseT = 0; play(rec, 'walk');
+        if (rec.temper !== 'calm') rec.alertT = 1.4; // the '!' pops
+      }
       rec.chaseT += dt;
-      moveRoamer(rec, playerPos.x, playerPos.z, dt, 0.82); // slower than a running player — escapable
-      if (rec.chaseT > CHASE_GIVEUP) { rec.state = 'wander'; rec.wanderTarget = null; try { rec.animator?.play?.('idle'); } catch (e) { /* tolerate */ } }
+      if (rec.temper === 'shy') {
+        const d = Math.sqrt(d2) || 1;
+        moveRoamer(rec, rec.x + (dx / d) * 4, rec.z + (dz / d) * 4, dt, SHY_SPEED);
+      } else moveRoamer(rec, playerPos.x, playerPos.z, dt, rec.temper === 'bold' ? CHASE_SPEED : 1);
+      if (rec.chaseT > CHASE_GIVEUP) { rec.state = 'wander'; rec.cooldown = 4; rec.wanderTarget = null; play(rec, 'idle'); }
     } else {
-      if (rec.state === 'alert') { rec.state = 'wander'; try { rec.animator?.play?.('idle'); } catch (e) { /* tolerate */ } }
-      if (rec.state === 'wander') {
-        if (!rec.wanderTarget) {
-          rec.idleT -= dt;
-          if (rec.idleT <= 0) {
-            const a = rng() * TAU, r = rng() * rec.area.r * 0.7;
-            rec.wanderTarget = { x: clamp(rec.area.x + Math.cos(a) * r, -half, half), z: clamp(rec.area.z + Math.sin(a) * r, -half, half) };
-            try { rec.animator?.play?.('walk'); } catch (e) { /* tolerate */ }
-          }
-        } else {
-          const remaining = moveRoamer(rec, rec.wanderTarget.x, rec.wanderTarget.z, dt);
-          if (remaining < 0.15) { rec.wanderTarget = null; rec.idleT = 2 + rng() * 4; try { rec.animator?.play?.('idle'); } catch (e) { /* tolerate */ } }
-        }
+      if (rec.state === 'alert') { rec.state = 'wander'; rec.wanderTarget = null; play(rec, 'idle'); }
+      if (rec.wanderTarget) {
+        const remaining = moveRoamer(rec, rec.wanderTarget.x, rec.wanderTarget.z, dt);
+        if (remaining < 0.15) { rec.wanderTarget = null; rec.idleT = 2 + rng() * 4; play(rec, 'idle'); }
+      } else if (!holdOff && d2 < ALERT_R2 * 2.2) {
+        // a calm one (or one that just lost interest) turns to watch you pass
+        rec.face = dampAngle(rec.face, Math.atan2(-dx, -dz), 3, dt);
+      } else if ((rec.idleT -= dt) <= 0) {
+        const a = rng() * TAU, r = rng() * rec.area.r * 0.7;
+        rec.wanderTarget = { x: clamp(rec.area.x + Math.cos(a) * r, -half, half), z: clamp(rec.area.z + Math.sin(a) * r, -half, half) };
+        play(rec, 'walk');
       }
     }
+    animate(rec, dt, d2);
+  }
 
+  function animate(rec, dt, d2) {
     rec.y = damp(rec.y, heightAt(rec.x, rec.z), 12, dt);
     rec.group.position.set(rec.x, rec.y, rec.z);
     rec.group.rotation.y = rec.face;
-    try { rec.animator?.update?.(dt); } catch (e) { /* tolerate */ }
+    if (d2 < ANIM_R2) {
+      try { rec.animator?.update?.(dt); } catch (e) { /* tolerate */ }
+      // the wild shimmer: a faint mote now and then drifts up off every wild
+      // Kindred — the same tell as the encounter patches, and what catches the
+      // eye in tall grass
+      if ((rec.shimmerT -= dt) <= 0 && rec.state !== 'locked') {
+        rec.shimmerT = 0.3 + rng() * 0.45;
+        fx.emitBurst({
+          at: { x: rec.x + (rng() - 0.5) * 0.5, y: rec.y + rec.h * (0.4 + rng() * 0.45), z: rec.z + (rng() - 0.5) * 0.5 },
+          count: 1, speed: 0.3, up: 2.4, gravity: -0.2, drag: 0.7, life: 1.6, size: 0.08, sizeEnd: 0.02,
+          color: 0xfff0c0, color2: 0xd6f2ff, flicker: true, sway: 0.35,
+        });
+      }
+    }
+    if (rec.alertT > 0) {
+      rec.alertT -= dt;
+      rec.alert ??= alertSprite();
+      const age = 1.4 - rec.alertT, u = Math.min(1, age / 0.3) - 1;
+      const pop = 1 + 2.70158 * u * u * u + 1.70158 * u * u; // ease-out-back: pops past full size, settles
+      rec.alert.visible = rec.alertT > 0;
+      rec.alert.scale.setScalar(0.62 * pop);
+      rec.alert.material.opacity = Math.min(1, rec.alertT / 0.3);
+      rec.alert.position.set(rec.x, rec.y + rec.h + 0.45 + Math.min(age, 0.16) * 0.8, rec.z);
+    } else if (rec.alert?.visible) rec.alert.visible = false;
+  }
+
+  function updateRoamers(dt, ppos) {
+    if (graceT > 0) graceT -= dt;
+    // build one queued body a frame, nearest first — but never right on top of
+    // the Warden (a load or arrival next to one shouldn't start a fight)
+    if (registry && pending.length) {
+      let bi = -1, bd = Infinity;
+      for (let i = 0; i < pending.length; i++) {
+        const d = (pending[i].x - ppos.x) ** 2 + (pending[i].z - ppos.z) ** 2;
+        if (d > 14 * 14 && d < bd) { bd = d; bi = i; }
+      }
+      if (bi >= 0) buildOne(pending.splice(bi, 1)[0]);
+    }
+    // replacements for the beaten and the caught turn up out of sight
+    for (let i = respawns.length - 1; i >= 0; i--) {
+      const r = respawns[i];
+      if ((r.t -= dt) > 0) continue;
+      const at = r.spec.road ? roadSpot(ppos, 35) : areaSpot(r.spec.area, ppos, 35);
+      if (!at) { r.t = 5; continue; }
+      respawns.splice(i, 1);
+      const entry = r.spec.road ? pickEntry() : table.find((e) => e.speciesId === r.spec.speciesId);
+      pending.push({
+        ...r.spec, speciesId: entry?.speciesId ?? r.spec.speciesId, level: levelIn(entry), x: at.x, z: at.z,
+        area: r.spec.road ? { x: at.x, z: at.z, r: 7 } : r.spec.area,
+      });
+    }
+    // nobody pounces mid-dialogue, mid-cutscene or mid-portal
+    const holdOff = graceT > 0 || !!world.player?.isFrozen?.() || !!world._transferring;
+    for (const rec of roamers) updateRoamer(rec, dt, ppos, holdOff);
+    for (let i = roamers.length - 1; i >= 0; i--) if (roamers[i].dead) roamers.splice(i, 1);
   }
 
   // =================================================================
@@ -616,23 +820,33 @@ export function createWildlife(zone, world) {
     if (amb.bats) updateBats(dt);
     for (const u of updaters) u(dt, T);
 
-    if (ppos && roamers.length) {
-      for (const rec of roamers) updateRoamer(rec, dt, ppos);
-    }
+    if (ppos && (roamers.length || pending.length || respawns.length)) updateRoamers(dt, ppos);
   }
 
   function dispose() {
+    offBattleEnd();
     fx.dispose();
     for (const b of birds) scene.remove(b.group);
     for (const f of disposeFns) { try { f(); } catch (e) { /* ignore */ } }
     for (const b of bats) scene.remove(b.group);
-    for (const rec of roamers) if (!rec.dead) { scene.remove(rec.group); disposeGroup(rec.group); }
+    for (const rec of roamers) {
+      if (!rec.dead) { scene.remove(rec.group); disposeGroup(rec.group); }
+      if (rec.alert) { scene.remove(rec.alert); rec.alert.material.dispose(); }
+    }
+    alertTex?.dispose();
     for (const d of disposables) { d.geo?.dispose?.(); d.mat?.dispose?.(); }
     geoCache.clear();
-    roamers.length = 0;
+    roamers.length = 0; pending.length = 0; respawns.length = 0;
   }
 
-  return { update, dispose };
+  // test/debug view of the wild population
+  const census = () => ({
+    built: roamers.filter((r) => !r.dead).length, pending: pending.length, respawning: respawns.length,
+    drawn: roamers.filter((r) => !r.dead && r.group.visible).length,
+    list: roamers.filter((r) => !r.dead).map((r) => ({ id: r.speciesId, lv: r.level, x: Math.round(r.x), z: Math.round(r.z), temper: r.temper, state: r.state, road: !!r.spec.road })),
+  });
+
+  return { update, dispose, census };
 }
 
 function mergeTwo(a, b) {

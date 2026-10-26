@@ -266,7 +266,7 @@ const SCENES = {};
 
 SCENES.dawnmeadowTip = async () => {
   setFlag('dm_tip_shown');
-  notify('Shimmering patches hide wild Kindred — walk into one to meet them.', '✦');
+  notify('Wild Kindred roam beside the roads — walk into one to battle it, or hold Shift to run past. Shimmering patches in the grass hide more.', '✦', 8000);
 };
 
 SCENES.wwHollowedReveal = async (world) => {
