@@ -2,7 +2,8 @@
 // world/world.js — the overworld scene owner: loads/disposes zones, ties
 // together terrain/sky/water/props/weather/wildlife/encounters/interactables/
 // npcs/player/cameraRig, routes interaction + portal travel, starts wild
-// battles, and drives the per-frame shadow-follow + wind clock.
+// battles, and drives the per-frame shadow-follow + wind clock. Owns the
+// quest guide (world/guide.js) across zones and polls spot-based story beats.
 //
 // Contract (docs/CONTRACTS_ADDENDUM.md — "World class API"):
 //   class World {
@@ -200,8 +201,19 @@ export class World {
 
     try {
       const story = await import('../game/story.js');
+      this._story = story;
       await story.onZoneEnter?.(zoneId, this);
     } catch (e) { warnOnce('game/story.js', e?.message ?? e); }
+
+    // The quest guide lives across zones (it owns the H key); each zone gets
+    // a fresh route.
+    try {
+      if (!this.guide) {
+        const { createGuide } = await import('./guide.js');
+        this.guide = createGuide(this);
+      }
+      this.guide.onZone();
+    } catch (e) { warnOnce('guide.js', e?.message ?? e); }
 
     bus.emit('zone:title', { name: zone.name });
   }
@@ -349,6 +361,14 @@ export class World {
     this._sub('encounters', () => this.encounters?.update(dt));
     this._sub('npcs', () => this.npcs?.update(dt));
     this._sub('interactables', () => this.interactables?.update(dt));
+    this._sub('guide', () => this.guide?.update(dt));
+
+    // story beats set at a spot (data/story.js `near`) fire when walked into
+    this._nearT = (this._nearT ?? 0) + dt;
+    if (this._nearT > 1 && this._story?.checkNearTriggers) {
+      this._nearT = 0;
+      this._story.checkNearTriggers(this).catch((e) => warnOnce('near triggers', e?.message ?? e));
+    }
 
     this._sub('shadow', () => this._updateShadowFollow());
   }

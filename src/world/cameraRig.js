@@ -363,21 +363,6 @@ export function createCameraRig(world) {
     if (_current === api) _current = null;
   }
 
-  function recenter() {
-    const p = world.player;
-    const px = p?.pos?.x ?? 0, pz = p?.pos?.z ?? 0;
-    const gy = world.heightAt ? world.heightAt(px, pz) : 0;
-    yaw = (p?.face ?? 0) + Math.PI;
-    pitch = DEFAULT_PITCH;
-    curDist = zoomTarget = DEFAULT_DIST;
-    badCamT = 0;
-    camera.position.set(
-      px + Math.sin(yaw) * Math.cos(pitch) * curDist,
-      gy + EYE_HEIGHT + Math.sin(pitch) * curDist,
-      pz + Math.cos(yaw) * Math.cos(pitch) * curDist,
-    );
-  }
-
   // Explicit re-seat behind the Warden — used by the pause menu's rescue action.
   function recenter() {
     const p = world.player;

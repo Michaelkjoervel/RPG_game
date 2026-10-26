@@ -4,7 +4,7 @@ const KEYMAP = {
   KeyA: 'left', ArrowLeft: 'left', KeyD: 'right', ArrowRight: 'right',
   KeyE: 'interact', Enter: 'confirm', Space: 'confirm',
   Escape: 'menu', Tab: 'menu', KeyC: 'codex', KeyQ: 'cancel', Backspace: 'cancel',
-  ShiftLeft: 'run', ShiftRight: 'run',
+  KeyH: 'hint', ShiftLeft: 'run', ShiftRight: 'run',
 };
 
 class Input {
@@ -84,7 +84,7 @@ class Input {
       // D-pad (12-15) rides the same edge-trigger path as the face buttons so
       // menus receive up/down/left/right action events from a pad.
       const map = {
-        0: 'confirm', 1: 'cancel', 2: 'interact', 9: 'menu',
+        0: 'confirm', 1: 'cancel', 2: 'interact', 3: 'hint', 9: 'menu',
         12: 'up', 13: 'down', 14: 'left', 15: 'right',
       };
       for (const [btn, action] of Object.entries(map)) {

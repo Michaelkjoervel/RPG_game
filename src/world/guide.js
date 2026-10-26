@@ -27,7 +27,7 @@ const CELL = 1;            // nav grid resolution, metres
 const ON_PATH = 1, OFF_PATH = 2.2; // the route hugs roads like a person would
 const ORB_SPACING = 2.2;   // metres between trail lights
 const MAX_ORBS = 46;       // ~100 m of trail ahead
-const ARRIVE_R = 3.2;
+const ARRIVE_R = 4.5;     // "they're right here" — a step or two short of talk range
 const REPLAN_DIST = 5;     // strayed this far from the trail -> plan again
 const GOLD = 0xffdf96;
 
@@ -83,7 +83,7 @@ const zoneName = (id) => ZONES[id]?.name ?? id;
 const npcName = (id) => NPCS[id]?.name ?? 'them';
 
 // ------------------------------------------------------------------- nav grid
-function buildNav(world) {
+export function buildNav(world) {
   const zone = world.zone;
   const half = (zone.size ?? 200) / 2 - 1;
   const n = Math.floor((half * 2) / CELL) + 1;
@@ -141,7 +141,7 @@ function nearestOpen(nav, idx, maxR = 8) {
 }
 
 // A* over the grid, 8-connected, no corner cutting. Returns world points.
-function findPath(nav, sx, sz, gx, gz) {
+export function findPath(nav, sx, sz, gx, gz) {
   const { n, blocked, cost, toI, toW } = nav;
   const start = nearestOpen(nav, toI(sz) * n + toI(sx));
   const goal = nearestOpen(nav, toI(gz) * n + toI(gx));
@@ -225,16 +225,47 @@ function resample(pts, step) {
 }
 
 // ------------------------------------------------------------------- visuals
+// The trail: soft camera-facing motes — a bright core in a wide faint halo,
+// fireflies leading the way rather than beads on a string.
+function moteMaterial() {
+  return new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false,
+    uniforms: { uColor: { value: new THREE.Color(GOLD) }, uScale: { value: 500 } },
+    vertexShader: `attribute float aSize; attribute float aAlpha; uniform float uScale; varying float vAlpha;
+      void main(){
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        vAlpha = aAlpha * smoothstep(95.0, 45.0, -mv.z); // melt into the distance like the fog
+        gl_PointSize = clamp(aSize * uScale / max(-mv.z, 0.1), 0.0, 110.0);
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: `uniform vec3 uColor; varying float vAlpha;
+      void main(){
+        float r = length(gl_PointCoord - 0.5) * 2.0;
+        if (r > 1.0) discard;
+        float core = smoothstep(0.3, 0.0, r);
+        float halo = pow(1.0 - r, 2.6) * 0.5;
+        gl_FragColor = vec4(mix(uColor, vec3(1.0, 0.97, 0.88), core) * (core * 1.5 + halo), vAlpha);
+      }`,
+  });
+}
+
 function beaconMaterial() {
   return new THREE.ShaderMaterial({
     transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, toneMapped: false,
     uniforms: { uColor: { value: new THREE.Color(GOLD) }, uT: { value: 0 }, uFade: { value: 1 } },
-    vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-    fragmentShader: `varying vec2 vUv; uniform vec3 uColor; uniform float uT; uniform float uFade;
+    vertexShader: `varying vec2 vUv; varying vec3 vN; varying vec3 vV;
+      void main(){
+        vUv = uv;
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz);
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: `varying vec2 vUv; varying vec3 vN; varying vec3 vV; uniform vec3 uColor; uniform float uT; uniform float uFade;
       void main(){
         float up = pow(1.0 - vUv.y, 1.7);
         float band = 0.75 + 0.25 * sin(vUv.y * 22.0 - uT * 3.0);
-        gl_FragColor = vec4(uColor * 1.6, up * band * 0.55 * uFade);
+        float soft = pow(abs(dot(vN, vV)), 1.6); // silhouette edges melt away: a shaft, not a tube
+        gl_FragColor = vec4(uColor * 1.6, up * band * soft * 0.5 * uFade);
       }`,
   });
 }
@@ -246,13 +277,16 @@ export function createGuide(world) {
   group.visible = false;
   scene.add(group);
 
-  const orbGeo = new THREE.IcosahedronGeometry(0.12, 1);
-  const orbMat = new THREE.MeshBasicMaterial({ color: GOLD, toneMapped: false });
-  const orbs = new THREE.InstancedMesh(orbGeo, orbMat, MAX_ORBS);
-  const haloGeo = new THREE.IcosahedronGeometry(0.34, 1);
-  const haloMat = new THREE.MeshBasicMaterial({ color: 0xffc35a, transparent: true, opacity: 0.2, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false });
-  const halos = new THREE.InstancedMesh(haloGeo, haloMat, MAX_ORBS);
-  for (const m of [orbs, halos]) { m.frustumCulled = false; m.renderOrder = 5; m.count = 0; group.add(m); }
+  const moteGeo = new THREE.BufferGeometry();
+  const mPos = new Float32Array(MAX_ORBS * 3), mSize = new Float32Array(MAX_ORBS), mAlpha = new Float32Array(MAX_ORBS);
+  moteGeo.setAttribute('position', new THREE.BufferAttribute(mPos, 3).setUsage(THREE.DynamicDrawUsage));
+  moteGeo.setAttribute('aSize', new THREE.BufferAttribute(mSize, 1).setUsage(THREE.DynamicDrawUsage));
+  moteGeo.setAttribute('aAlpha', new THREE.BufferAttribute(mAlpha, 1).setUsage(THREE.DynamicDrawUsage));
+  moteGeo.setDrawRange(0, 0);
+  const moteMat = moteMaterial();
+  const motes = new THREE.Points(moteGeo, moteMat);
+  motes.frustumCulled = false; motes.renderOrder = 5;
+  group.add(motes);
 
   const beaconGeo = new THREE.CylinderGeometry(0.5, 0.95, 18, 24, 1, true);
   beaconGeo.translate(0, 9, 0);
@@ -265,10 +299,11 @@ export function createGuide(world) {
   const ring = new THREE.Mesh(ringGeo, ringMat);
   ring.renderOrder = 4;
   const beaconGroup = new THREE.Group();
+  beaconGroup.name = 'guideBeacon';
   beaconGroup.add(beacon, ring);
   group.add(beaconGroup);
 
-  const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _p = new THREE.Vector3(), _s = new THREE.Vector3();
+  const _buf = new THREE.Vector2();
 
   let active = false;
   let nav = null;
@@ -276,11 +311,12 @@ export function createGuide(world) {
   let goalKey = '';
   let trail = [];         // [[x, y, z], ...] resampled, nearest-first
   let lastPlan = -1e9, clock = 0, checkT = 0, arrivedSaid = false;
+  let lit = 0;            // motes drawn this frame
 
   function setActive(v) {
     active = v;
     group.visible = v;
-    if (!v) { trail = []; orbs.count = halos.count = 0; }
+    if (!v) { trail = []; lit = 0; moteGeo.setDrawRange(0, 0); }
     bus.emit('guide:state', { active: v });
   }
 
@@ -355,7 +391,8 @@ export function createGuide(world) {
   }
 
   function canToggle() {
-    return world.game?.mode === 'overworld' && !world.game?._paused && !!world.player && !world._transferring;
+    return world.game?.mode === 'overworld' && !world.game?._paused && !!world.player
+      && !world._transferring && !world.player.isFrozen?.();
   }
   const offAction = input.onAction?.('hint', () => { if (canToggle()) toggle(); });
   const offBus = bus.on('guide:toggle', () => { if (canToggle()) toggle(); });
@@ -406,7 +443,7 @@ export function createGuide(world) {
       }
     }
 
-    // animate the trail: lights bob, a pulse runs toward the goal, the ones
+    // animate the trail: motes bob, a pulse runs toward the goal, the ones
     // right at the Warden's feet stay out of the way
     const count = Math.min(trail.length, MAX_ORBS);
     for (let k = 0; k < count; k++) {
@@ -414,19 +451,19 @@ export function createGuide(world) {
       const near = Math.hypot(x - p.x, z - p.z);
       const fadeIn = Math.min(1, Math.max(0, (near - 1.4) / 1.6));
       const fadeOut = k > count - 6 ? (count - k) / 6 : 1;
-      const pulse = 1 + 0.55 * Math.max(0, Math.cos(k * 0.55 - clock * 4.2));
-      const sc = fadeIn * fadeOut * pulse;
-      _p.set(x, y + Math.sin(clock * 2.1 + k * 0.7) * 0.07, z);
-      _s.setScalar(sc);
-      _m.compose(_p, _q, _s);
-      orbs.setMatrixAt(k, _m);
-      _s.setScalar(sc * (0.85 + 0.15 * Math.sin(clock * 3 + k)));
-      _m.compose(_p, _q, _s);
-      halos.setMatrixAt(k, _m);
+      const wave = Math.max(0, Math.cos(k * 0.55 - clock * 4.2)); // 0..1, travels goal-ward
+      mPos[k * 3] = x;
+      mPos[k * 3 + 1] = y + Math.sin(clock * 2.1 + k * 0.7) * 0.07;
+      mPos[k * 3 + 2] = z;
+      mSize[k] = 0.95 * (1 + 0.45 * wave) * Math.min(1, 0.4 + fadeIn);
+      mAlpha[k] = fadeIn * fadeOut * (0.7 + 0.3 * wave);
     }
-    orbs.count = halos.count = count;
-    orbs.instanceMatrix.needsUpdate = true;
-    halos.instanceMatrix.needsUpdate = true;
+    lit = count;
+    moteGeo.setDrawRange(0, count);
+    for (const a of ['position', 'aSize', 'aAlpha']) moteGeo.attributes[a].needsUpdate = true;
+    // world-size points: pixels per metre at unit distance for this camera + canvas
+    const cam = world.camera, r = world.game?.renderer;
+    if (cam && r) moteMat.uniforms.uScale.value = r.getDrawingBufferSize(_buf).y / (2 * Math.tan((cam.fov * Math.PI) / 360));
 
     const showBeacon = target?.x != null;
     beaconGroup.visible = showBeacon;
@@ -443,8 +480,8 @@ export function createGuide(world) {
   function dispose() {
     offAction?.(); offBus?.();
     scene.remove(group);
-    for (const o of [orbGeo, orbMat, haloGeo, haloMat, beaconGeo, bMat, ringGeo, ringMat]) o.dispose?.();
+    for (const o of [moteGeo, moteMat, beaconGeo, bMat, ringGeo, ringMat]) o.dispose?.();
   }
 
-  return { onZone, update, dispose, toggle, get active() { return active; } };
+  return { onZone, update, dispose, toggle, get active() { return active; }, get lit() { return lit; } };
 }

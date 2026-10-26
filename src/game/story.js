@@ -433,6 +433,7 @@ function isNear(world, near) {
 let nearBusy = false;
 export async function checkNearTriggers(world) {
   if (nearBusy || !world?.player || world.game?.mode !== 'overworld' || world._transferring) return;
+  if (world.player.isFrozen?.() || world.game?._paused) return; // mid-dialogue / menu: never overlap a scene
   const zoneId = world.zone?.id;
   for (const t of STORY_TRIGGERS) {
     if (!t.near || t.zone !== zoneId) continue;

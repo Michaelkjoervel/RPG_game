@@ -107,6 +107,30 @@
 .hq-chip.side { background: rgba(255, 255, 255, .08); color: var(--ink-dim); }
 .hq-name { font-family: var(--font-display); color: var(--ink); font-size: 15px; margin: 2px 0 4px; }
 .hq-step { font-size: 12.5px; color: var(--ink-dim); line-height: 1.35; }
+/* "Guide me" — toggles the trail of lights to the quest (world/guide.js) */
+.hq-guide {
+  pointer-events: auto; cursor: pointer; margin-top: 9px;
+  display: inline-flex; align-items: center; gap: 7px; padding: 4px 6px 4px 10px;
+  border-radius: 999px; border: 1px solid rgba(255,233,176,.32);
+  background: rgba(255,233,176,.08); color: var(--gold);
+  font: 600 11.5px/1 var(--font-body); letter-spacing: .04em;
+  transition: background 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+}
+.hq-guide:hover { background: rgba(255,233,176,.16); border-color: rgba(255,233,176,.55); }
+.hq-guide.on {
+  background: rgba(255,223,150,.2); border-color: rgba(255,223,150,.75); color: #fff3d2;
+  box-shadow: 0 0 14px rgba(255,210,120,.35);
+}
+.hq-guide-ico { font-size: 12px; }
+.hq-guide.on .hq-guide-ico { animation: guide-glint 1.6s ease-in-out infinite; }
+@keyframes guide-glint { 0%, 100% { opacity: .65; } 50% { opacity: 1; text-shadow: 0 0 8px rgba(255,223,150,.9); } }
+.hq-guide .key {
+  min-width: 18px; height: 18px; padding: 0 4px; border-radius: 5px;
+  background: linear-gradient(180deg, #3a3d52, #232534); border: 1px solid rgba(255,233,176,.35);
+  color: var(--gold); font-size: 10.5px; font-weight: 700;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.hud-quest.done .hq-guide { display: none; }
 
 /* ---- Zone title card (upper-center, letter-spread reveal) -------------- */
 .hud-zone-title {

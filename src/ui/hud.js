@@ -200,6 +200,9 @@ export function initHud() {
       <div class="hq-tag">Quest</div>
       <div class="hq-name"></div>
       <div class="hq-step"></div>
+      <button class="hq-guide" type="button" tabindex="-1" title="Show the way to this quest">
+        <span class="hq-guide-ico">✦</span><span class="hq-guide-txt">Guide me</span><span class="key">H</span>
+      </button>
     </div>
     <div class="hud-zone-title"><div class="zt-name"></div><div class="zt-rule"></div><div class="zt-sub"></div></div>
     <div class="hud-toasts"></div>
@@ -219,6 +222,7 @@ export function initHud() {
     hqName: root.querySelector('.hq-name'),
     hqStep: root.querySelector('.hq-step'),
     hqTag: root.querySelector('.hq-tag'),
+    hqGuide: root.querySelector('.hq-guide'),
     zt: root.querySelector('.hud-zone-title'),
     ztName: root.querySelector('.zt-name'),
     ztSub: root.querySelector('.zt-sub'),
@@ -349,6 +353,18 @@ export function initHud() {
   bus.on('game:loaded', () => renderQuest(false));
   bus.on('flag:set', () => renderQuest(false));
   renderQuest(false);
+
+  // "Guide me" — world/guide.js draws the trail; the button (or H / pad Y)
+  // only asks it to toggle. Never takes focus, so Enter/Space can't re-click it.
+  el.hqGuide.addEventListener('mousedown', (e) => e.preventDefault());
+  el.hqGuide.addEventListener('click', (e) => { e.stopPropagation(); bus.emit('guide:toggle'); });
+  bus.on('guide:state', ({ active } = {}) => {
+    el.hqGuide.classList.toggle('on', !!active);
+    el.hqGuide.querySelector('.hq-guide-txt').textContent = active ? 'Guiding…' : 'Guide me';
+    positionToasts();
+  });
+  const syncGuideKey = () => { el.hqGuide.querySelector('.key').textContent = input.lastDevice === 'gp' ? 'Y' : 'H'; };
+  setInterval(syncGuideKey, 1500);
 
   // ---- Zone title card --------------------------------------------------
   let ztTimer = 0;
