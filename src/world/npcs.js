@@ -1155,5 +1155,11 @@ export function createNpcs(zone, world) {
     colliders.length = 0;
   }
 
-  return { update, tryInteract, nearestPrompt, colliders, dispose, ready: readyPromise };
+  /** Where an NPC stands right now (they wander a little), for the quest guide. */
+  function positionOf(id) {
+    const rec = records.find((r) => r.def?.id === id);
+    return rec ? { x: rec.group.position.x, z: rec.group.position.z } : null;
+  }
+
+  return { update, tryInteract, nearestPrompt, positionOf, colliders, dispose, ready: readyPromise };
 }

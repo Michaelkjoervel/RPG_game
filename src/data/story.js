@@ -3,8 +3,10 @@
 // staging (dialogue, battles, camera-adjacent nudges) lives in game/story.js's SCENES registry
 // — this file only says WHEN a scene is eligible to run.
 //
-// Schema: { id, zone, scene, condition?(G) -> bool }
+// Schema: { id, zone, scene, condition?(G) -> bool, near?: [x, z, r] }
 //   zone      — only checked when the player enters this zone.
+//   near      — instead fire when the player walks within r metres of (x, z)
+//               (game/story.js checkNearTriggers, polled by world.js).
 //   scene     — key into game/story.js's SCENES registry.
 //   condition — optional extra gate (defaults to always-true). Evaluated fresh on every entry.
 // There is deliberately NO `once` flag auto-managed here: each SCENE is responsible for
@@ -19,7 +21,7 @@ export const STORY_TRIGGERS = [
     condition: (G) => !!G.flags.ww_hollowed_seen && !!G.sigils[1] && !G.flags.shard_stolen },
   { id: 'gloam_ambush', zone: 'gloamcavern', scene: 'gloamAmbush', condition: (G) => !!G.flags.shard_stolen && !G.flags.gloam_ambush_done },
   { id: 'bryn_vess_glimpse', zone: 'gloamcavern', scene: 'brynVessGlimpse', condition: (G) => !!G.flags.gloam_ambush_done && !G.flags.bryn_vess_seen },
-  { id: 'liora_dapplyn_found', zone: 'whisperwood', scene: 'lioraDapplynFound',
+  { id: 'liora_dapplyn_found', zone: 'whisperwood', scene: 'lioraDapplynFound', near: [-76, -70, 12],
     condition: (G) => !!G.quests.sq_liora_dapplyn && !G.quests.sq_liora_dapplyn.done && !G.flags.liora_dapplyn_found },
 
   // -------------------------------------------------------------------------- Bryn (rival) — one per zone, gated by the BRYN_STAGES flags npcs.js already tracks
@@ -30,9 +32,9 @@ export const STORY_TRIGGERS = [
   { id: 'bryn_stage_5', zone: 'hollowspire', scene: 'brynStage5', condition: (G) => !!G.flags.ruins_cleared && !G.flags.bryn_5 },
 
   // ------------------------------------------------------------------------------- Skyreach
-  { id: 'sq_climber_battle1', zone: 'skyreach', scene: 'climberBattle1',
+  { id: 'sq_climber_battle1', zone: 'skyreach', scene: 'climberBattle1', near: [2, -36, 8],
     condition: (G) => !!G.quests.sq_climber && !G.quests.sq_climber.done && !G.flags.sq_climber_b1 },
-  { id: 'sq_climber_battle2', zone: 'skyreach', scene: 'climberBattle2',
+  { id: 'sq_climber_battle2', zone: 'skyreach', scene: 'climberBattle2', near: [38, -15, 8],
     condition: (G) => !!G.quests.sq_climber && !G.quests.sq_climber.done && !!G.flags.sq_climber_b1 && !G.flags.sq_climber_b2 },
 
   // --------------------------------------------------------------------------- Sunken Ruins

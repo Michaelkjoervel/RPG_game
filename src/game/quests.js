@@ -24,6 +24,21 @@ function finishQuest(id) {
   state.step = q.steps.length;
   try { q.onComplete?.(G); } catch (e) { console.error(`[quests] onComplete threw for ${id}`, e); }
   bus.emit('quest:completed', { id });
+  if (q.next) startQuest(q.next); // the main line carries straight on
+}
+
+/** The main line in order. A save from before `next` existed can have
+ *  finished one main quest without the following one ever starting — the
+ *  tracker then fell back to a side quest and the story seemed to stop. */
+const MAIN_CHAIN = ['q_main_1', 'q_main_2', 'q_main_3', 'q_main_4', 'q_main_5', 'q_main_6', 'q_main_7', 'q_main_final'];
+export function ensureMainChain() {
+  if (!G.quests || !G.quests.q_main_1) return; // a new game starts it from story.js
+  for (const id of MAIN_CHAIN) {
+    const st = G.quests[id];
+    if (st?.done) continue;
+    if (!st) startQuest(id); // completes on the spot (and cascades) if already satisfied
+    return;
+  }
 }
 
 export function startQuest(id) {
@@ -85,3 +100,4 @@ export function getTrackedStep() {
 for (const evName of ['flag:set', 'codex:updated', 'battle:end', 'zone:enter', 'item:gained']) {
   bus.on(evName, () => updateQuests(G));
 }
+bus.on('game:loaded', () => { ensureMainChain(); updateQuests(G); });

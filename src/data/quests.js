@@ -1,5 +1,9 @@
 // LUMENFALL — quest definitions. See docs/ARCHITECTURE.md §NPCs/dialogue/quests:
-//   Quest: { id, name, steps: [{text, isDone(G)}], onComplete(G), rewards {glim,items,xp} }
+//   Quest: { id, name, steps: [{text, isDone(G), goal, hint}], next?, onComplete(G), rewards {glim,items,xp} }
+// `next` chains the main line: finishing a main quest starts the next one.
+// `goal` (object, or function of G) is where the quest guide leads:
+//   { zone, npc? | at?: [x, z] } — zone only means "get to that zone".
+// `hint` is the one-line direction the guide shows when the player asks.
 // `rewards` is advertised to the tracker/UI as flavor metadata; the actual granting happens
 // in onComplete(G) (single source of truth — no double-granting between the two).
 // game/quests.js evaluates isDone reactively and drives {step,done} in G.quests.
@@ -20,55 +24,87 @@ export const QUESTS = {
   // ============================================================================= Main chain
   q_main_1: {
     id: 'q_main_1', main: true, name: "The Warden's Oath",
-    steps: [{ text: 'Find Keeper Bramwell in Dawnmeadow and earn the first Sigil.', isDone: (G) => !!G.sigils[0] }],
+    steps: [{ text: 'Find Keeper Bramwell in Dawnmeadow and earn the first Sigil.', isDone: (G) => !!G.sigils[0],
+      goal: { zone: 'dawnmeadow', npc: 'keeper_bramwell' },
+      hint: 'Keeper Bramwell keeps the ring of standing stones in south-west Dawnmeadow, the meadow just east of Brighthollow.' }],
+    next: 'q_main_2',
     rewards: { glim: 100 },
     onComplete: (G) => { gainGlim(100); notify('The Warden\'s Oath complete.', '✦'); },
   },
   q_main_2: {
     id: 'q_main_2', main: true, name: 'The Quiet Rot',
     steps: [
-      { text: 'Journey north into Whisperwood.', isDone: (G) => G.pos.zone === 'whisperwood' || !!G.flags.ww_hollowed_seen },
-      { text: 'Earn the second Sigil from Keeper Liora.', isDone: (G) => !!G.sigils[1] && !!G.flags.ww_hollowed_seen },
+      { text: 'Journey north into Whisperwood.', isDone: (G) => G.pos.zone === 'whisperwood' || !!G.flags.ww_hollowed_seen,
+        goal: { zone: 'whisperwood' },
+        hint: "Whisperwood begins at Dawnmeadow's north gate." },
+      { text: 'Earn the second Sigil from Keeper Liora.', isDone: (G) => !!G.sigils[1] && !!G.flags.ww_hollowed_seen,
+        goal: { zone: 'whisperwood', npc: 'keeper_liora' },
+        hint: 'Keeper Liora tends the glade of glowing trees in north-east Whisperwood.' },
     ],
+    next: 'q_main_3',
     rewards: { glim: 140 },
     onComplete: (G) => { gainGlim(140); notify('The Quiet Rot complete.', '✦'); },
   },
   q_main_3: {
     id: 'q_main_3', main: true, name: 'What the Order Took',
-    steps: [{ text: 'Follow the trail into Gloamcavern and recover the shrine-shard.', isDone: (G) => !!G.flags.gloam_ambush_done }],
+    steps: [
+      { text: 'Something is wrong at the Brighthollow shrine — return home.', isDone: (G) => !!G.flags.shard_stolen,
+        goal: { zone: 'brighthollow' },
+        hint: 'Head back to Brighthollow: south through Dawnmeadow, then west.' },
+      { text: 'Follow the trail into Gloamcavern and recover the shrine-shard.', isDone: (G) => !!G.flags.gloam_ambush_done,
+        goal: { zone: 'gloamcavern' },
+        hint: "The thieves fled into Gloamcavern, through Whisperwood's east gate." },
+    ],
+    next: 'q_main_4',
     rewards: { glim: 160, items: [{ id: 'remedy', qty: 2 }] },
     onComplete: (G) => { gainGlim(160); gainItem('remedy', 2); notify('What the Order Took complete.', '✦'); },
   },
   q_main_4: {
     id: 'q_main_4', main: true, name: 'Currents of Sigil',
-    steps: [{ text: 'Earn the third Sigil from Keeper Maro at Mirrorlake.', isDone: (G) => !!G.sigils[2] }],
+    steps: [{ text: 'Earn the third Sigil from Keeper Maro at Mirrorlake.', isDone: (G) => !!G.sigils[2],
+      goal: { zone: 'mirrorlake', npc: 'keeper_maro' },
+      hint: "Keeper Maro keeps the lakeside shrine on Mirrorlake's north shore — east through Gloamcavern." }],
+    next: 'q_main_5',
     rewards: { glim: 200 },
     onComplete: (G) => { gainGlim(200); notify('Currents of Sigil complete.', '✦'); },
   },
   q_main_5: {
     id: 'q_main_5', main: true, name: 'Into the Storm',
-    steps: [{ text: 'Earn the fourth Sigil from Keeper Sera atop Skyreach.', isDone: (G) => !!G.sigils[3] && !!G.flags.storm_calmed }],
+    steps: [{ text: 'Earn the fourth Sigil from Keeper Sera atop Skyreach.', isDone: (G) => !!G.sigils[3] && !!G.flags.storm_calmed,
+      goal: { zone: 'skyreach', npc: 'keeper_sera' },
+      hint: "Keeper Sera waits in the summit ring at the top of Skyreach Pass, north of Mirrorlake." }],
+    next: 'q_main_6',
     rewards: { glim: 260 },
     onComplete: (G) => { gainGlim(260); notify('Into the Storm complete.', '✦'); },
   },
   q_main_6: {
     id: 'q_main_6', main: true, name: 'What the Ruins Remember',
-    steps: [{ text: "Face Sancturne's trial in the Sunken Ruins and earn the fifth Sigil.", isDone: (G) => !!G.sigils[4] && !!G.flags.ruins_cleared }],
+    steps: [{ text: "Face Sancturne's trial in the Sunken Ruins and earn the fifth Sigil.", isDone: (G) => !!G.sigils[4] && !!G.flags.ruins_cleared,
+      goal: { zone: 'sunkenruins' },
+      hint: "Sancturne's trial begins as you enter the Sunken Ruins, past the top of Skyreach Pass." }],
+    next: 'q_main_7',
     rewards: { glim: 320, items: [{ id: 'grand_tonic', qty: 2 }] },
     onComplete: (G) => { gainGlim(320); gainItem('grand_tonic', 2); notify('What the Ruins Remember complete.', '✦'); },
   },
   q_main_7: {
     id: 'q_main_7', main: true, name: 'The Hollow Spire',
     steps: [
-      { text: 'Defeat Lieutenant Vess.', isDone: (G) => !!G.flags.vess_beat },
-      { text: 'Defeat Lieutenant Dorn.', isDone: (G) => !!G.flags.dorn_beat },
+      { text: 'Defeat Lieutenant Vess.', isDone: (G) => !!G.flags.vess_beat,
+        goal: { zone: 'hollowspire', npc: 'lt_vess' },
+        hint: "Lieutenant Vess guards the Hollow Spire's lower hall, beyond the Sunken Ruins." },
+      { text: 'Defeat Lieutenant Dorn.', isDone: (G) => !!G.flags.dorn_beat,
+        goal: { zone: 'hollowspire', npc: 'lt_dorn' },
+        hint: "Lieutenant Dorn holds the spire's upper hall." },
     ],
+    next: 'q_main_final',
     rewards: { glim: 400 },
     onComplete: (G) => { gainGlim(400); notify('The Hollow Spire complete.', '✦'); },
   },
   q_main_final: {
     id: 'q_main_final', main: true, name: 'Where Shardlight Pools',
-    steps: [{ text: 'Confront Archon Sol and liberate Thalassyr.', isDone: (G) => !!G.flags.postgame }],
+    steps: [{ text: 'Confront Archon Sol and liberate Thalassyr.', isDone: (G) => !!G.flags.postgame,
+      goal: { zone: 'hollowspire', npc: 'archon_sol' },
+      hint: 'Archon Sol waits at the very top of the Hollow Spire.' }],
     rewards: { glim: 1000, items: [{ id: 'starwoven_charm', qty: 2 }] },
     onComplete: (G) => { gainGlim(1000); gainItem('starwoven_charm', 2); notify('The Duskmere Reach breathes easier.', '✦'); },
   },
@@ -76,7 +112,9 @@ export const QUESTS = {
   // ============================================================================== Side quests
   sq_herbalist: {
     id: 'sq_herbalist', name: "Herbalist Syl's Remedy",
-    steps: [{ text: 'Bring Herbalist Syl 3 Tonics for her patients.', isDone: (G) => (G.bag.tonic ?? 0) >= 3 }],
+    steps: [{ text: 'Bring Herbalist Syl 3 Tonics for her patients.', isDone: (G) => (G.bag.tonic ?? 0) >= 3,
+      goal: (G) => ((G.bag.tonic ?? 0) >= 3 ? { zone: 'whisperwood', npc: 'herbalist_syl' } : { zone: 'brighthollow', npc: 'merchant_pip' }),
+      hint: "Pip sells Tonics in Brighthollow's market; Herbalist Syl's hut is in east Whisperwood." }],
     rewards: { glim: 60, items: [{ id: 'honey_drop', qty: 2 }] },
     onComplete: (G) => {
       spendItem('tonic', 3);
@@ -85,7 +123,9 @@ export const QUESTS = {
   },
   sq_deserter_finn: {
     id: 'sq_deserter_finn', name: 'The Deserter',
-    steps: [{ text: 'Decide what to do about Finn, hiding in Gloamcavern.', isDone: (G) => !!(G.flags.finn_helped || G.flags.finn_reported) }],
+    steps: [{ text: 'Decide what to do about Finn, hiding in Gloamcavern.', isDone: (G) => !!(G.flags.finn_helped || G.flags.finn_reported),
+      goal: { zone: 'gloamcavern', npc: 'deserter_finn' },
+      hint: 'Finn hides in the far south-west corner of Gloamcavern.' }],
     rewards: { glim: 80 },
     onComplete: (G) => {
       gainGlim(80);
@@ -94,7 +134,9 @@ export const QUESTS = {
   },
   sq_lantern: {
     id: 'sq_lantern', name: "Lanternkeeper's Oil",
-    steps: [{ text: 'Buy Lantern Oil from Pip and bring it to Lanternkeeper Ode.', isDone: (G) => !!G.flags.lantern_lit || (G.bag.lantern_oil ?? 0) >= 1 }],
+    steps: [{ text: 'Buy Lantern Oil from Pip and bring it to Lanternkeeper Ode.', isDone: (G) => !!G.flags.lantern_lit || (G.bag.lantern_oil ?? 0) >= 1,
+      goal: (G) => ((G.bag.lantern_oil ?? 0) >= 1 ? { zone: 'gloamcavern', npc: 'lanternkeeper_ode' } : { zone: 'brighthollow', npc: 'merchant_pip' }),
+      hint: "Pip in Brighthollow's market sells Lantern Oil; Lanternkeeper Ode tends the lamps in Gloamcavern." }],
     rewards: { glim: 70, items: [{ id: 'super_tonic', qty: 1 }] },
     onComplete: (G) => {
       if ((G.bag.lantern_oil ?? 0) >= 1) spendItem('lantern_oil', 1);
@@ -104,7 +146,9 @@ export const QUESTS = {
   },
   sq_ferry: {
     id: 'sq_ferry', name: "Juno's Ferry",
-    steps: [{ text: 'Find the lost Ferry Gear in Gloamcavern and bring it to Ferryman Juno.', isDone: (G) => !!(G.flags.gc_chest_ferrygear || (G.bag.ferry_gear ?? 0) >= 1) }],
+    steps: [{ text: 'Find the lost Ferry Gear in Gloamcavern and bring it to Ferryman Juno.', isDone: (G) => !!(G.flags.gc_chest_ferrygear || (G.bag.ferry_gear ?? 0) >= 1),
+      goal: (G) => ((G.flags.gc_chest_ferrygear || (G.bag.ferry_gear ?? 0) >= 1) ? { zone: 'mirrorlake', npc: 'ferryman_juno' } : { zone: 'gloamcavern', at: [-72, -34] }),
+      hint: "The Ferry Gear lies in a chest in Gloamcavern's west; Ferryman Juno waits on Mirrorlake's west shore." }],
     rewards: { glim: 90, items: [{ id: 'tidestone', qty: 1 }] },
     onComplete: (G) => {
       if ((G.bag.ferry_gear ?? 0) >= 1) spendItem('ferry_gear', 1);
@@ -113,25 +157,33 @@ export const QUESTS = {
   },
   sq_liora_dapplyn: {
     id: 'sq_liora_dapplyn', name: "Liora's Lost Companion",
-    steps: [{ text: 'Search the falls in Whisperwood for her missing dapplyn.', isDone: (G) => !!G.flags.liora_dapplyn_found }],
+    steps: [{ text: 'Search the falls in Whisperwood for her missing dapplyn.', isDone: (G) => !!G.flags.liora_dapplyn_found,
+      goal: { zone: 'whisperwood', at: [-76, -70] },
+      hint: "Follow the faint trail to the hidden falls in Whisperwood's far north-west." }],
     rewards: { glim: 50, items: [{ id: 'lumenstone', qty: 1 }] },
     onComplete: (G) => { gainGlim(50); gainItem('lumenstone', 1); notify('Reunited at last.', '✦'); },
   },
   sq_climber: {
     id: 'sq_climber', name: "Bo's Ledge Rescue",
-    steps: [{ text: 'Drive the panicked stratovane pair from the high ledge — twice.', isDone: (G) => !!G.flags.sq_climber_b1 && !!G.flags.sq_climber_b2 }],
+    steps: [{ text: 'Drive the panicked stratovane pair from the high ledge — twice.', isDone: (G) => !!G.flags.sq_climber_b1 && !!G.flags.sq_climber_b2,
+      goal: (G) => (G.flags.sq_climber_b1 ? { zone: 'skyreach', at: [38, -15] } : { zone: 'skyreach', at: [2, -36] }),
+      hint: "The first pair circles the path just above Bo's camp; the second roosts on the narrow ledge east of it." }],
     rewards: { glim: 110, items: [{ id: 'haste_feather', qty: 1 }] },
     onComplete: (G) => { gainGlim(110); gainItem('haste_feather', 1); notify('The stratovane settle, safe.', '✦'); },
   },
   sq_scholar: {
     id: 'sq_scholar', name: "Imre's Murals",
-    steps: [{ text: 'Discuss the ruin murals with Scholar Imre three times.', isDone: (G) => (G.flags.sq_scholar_step ?? 0) >= 3 }],
+    steps: [{ text: 'Discuss the ruin murals with Scholar Imre three times.', isDone: (G) => (G.flags.sq_scholar_step ?? 0) >= 3,
+      goal: { zone: 'sunkenruins', npc: 'scholar_imre' },
+      hint: 'Scholar Imre studies the murals on the west side of the Sunken Ruins.' }],
     rewards: { glim: 100, items: [{ id: 'umbrastone', qty: 1 }] },
     onComplete: (G) => { gainGlim(100); gainItem('umbrastone', 1); notify('Imre\'s theory is complete — for now.', '✦'); },
   },
   sq_gleam: {
     id: 'sq_gleam', name: "Wren's Gleaming Offer",
-    steps: [{ text: 'Show a gleaming Kindred to Wren in Driftmoor.', isDone: (G) => !!G.flags.sq_gleam_sold || [...G.party, ...G.reserve].some((m) => m?.shiny) }],
+    steps: [{ text: 'Show a gleaming Kindred to Wren in Driftmoor.', isDone: (G) => !!G.flags.sq_gleam_sold || [...G.party, ...G.reserve].some((m) => m?.shiny),
+      goal: { zone: 'mirrorlake', npc: 'merchant_wren' },
+      hint: "Wren keeps a market stall on the plank deck of Driftmoor, out on Mirrorlake's south shore." }],
     rewards: { glim: 1500 },
     onComplete: (G) => { gainGlim(1500); notify('Wren pays out, thrilled.', '✦'); },
   },

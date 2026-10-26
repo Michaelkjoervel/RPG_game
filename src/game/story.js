@@ -12,7 +12,7 @@ import { game } from './game.js';
 import { STORY_TRIGGERS } from '../data/story.js';
 import { NPCS, BRYN_COUNTER_LINE, SQ_SCHOLAR_MURALS } from '../data/npcs.js';
 import { QUESTS } from '../data/quests.js';
-import { startQuest, completeQuest, updateQuests } from './quests.js';
+import { startQuest, completeQuest, updateQuests, ensureMainChain } from './quests.js';
 
 // --------------------------------------------------------------------------------- utilities
 const creaturesMod = () => import('./creatures.js'); // combat-engine's module (see header note)
@@ -419,14 +419,45 @@ SCENES.thalassyrReturn = async (world) => {
 };
 
 // ============================================================================= Zone entry glue
+function isNear(world, near) {
+  const p = world?.player?.pos;
+  if (!p || !near) return false;
+  const [x, z, r] = near;
+  return (p.x - x) ** 2 + (p.z - z) ** 2 <= r * r;
+}
+
+// Triggers with `near: [x, z, r]` happen where the story is, not on zone
+// entry: they fire when the player walks within r metres while the condition
+// holds — so a quest accepted inside a zone can still be finished there.
+// world.js polls this about once a second.
+let nearBusy = false;
+export async function checkNearTriggers(world) {
+  if (nearBusy || !world?.player || world.game?.mode !== 'overworld' || world._transferring) return;
+  const zoneId = world.zone?.id;
+  for (const t of STORY_TRIGGERS) {
+    if (!t.near || t.zone !== zoneId) continue;
+    if (t.condition && !t.condition(G)) continue;
+    if (!isNear(world, t.near)) continue;
+    const scene = SCENES[t.scene];
+    if (!scene) continue;
+    nearBusy = true;
+    try { await scene(world); } catch (e) { console.error(`[story] scene "${t.id}" threw`, e); }
+    finally { nearBusy = false; }
+    updateQuests(G);
+    return; // one beat per check
+  }
+}
+
 export async function onZoneEnter(zoneId, world) {
   for (const t of STORY_TRIGGERS) {
     if (t.zone !== zoneId) continue;
     if (t.condition && !t.condition(G)) continue;
+    if (t.near && !isNear(world, t.near)) continue; // fires where it happens
     const scene = SCENES[t.scene];
     if (!scene) { console.warn(`[story] STORY_TRIGGERS references missing scene "${t.scene}"`); continue; }
     try { await scene(world); } catch (e) { console.error(`[story] scene "${t.id}" threw`, e); }
   }
+  ensureMainChain();
   updateQuests(G);
 }
 
