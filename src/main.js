@@ -3,12 +3,27 @@ import { game } from './game/game.js';
 import { bus } from './core/events.js';
 
 async function boot() {
+  // Saves and settings first: inside claude.ai they come from the player's
+  // private cloud save, which answers asynchronously (bounded wait).
+  const { storage } = await import('./core/storage.js');
+  const sub = document.querySelector('#boot-screen .boot-sub');
+  const subText = sub?.textContent;
+  const slow = setTimeout(() => { if (sub) sub.textContent = 'gathering your saves…'; }, 600);
+  await storage.init();
+  clearTimeout(slow);
+  if (sub && subText != null) sub.textContent = subText;
+  const { reloadSettings } = await import('./core/settings.js');
+  reloadSettings();
+
   game.start();
   // Audio engine subscribes to bus events; must init before any UI.
   const { initAudio } = await import('./audio/audio.js');
   initAudio();
   const { initHud } = await import('./ui/hud.js');
   initHud();
+  const { initSaveIndicator } = await import('./ui/saveIndicator.js');
+  initSaveIndicator();
+  storage.announce();
   const { showTitle } = await import('./ui/titleUI.js');
 
   document.getElementById('boot-screen')?.classList.add('hidden');

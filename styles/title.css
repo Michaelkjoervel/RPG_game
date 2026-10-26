@@ -68,6 +68,11 @@
   position: absolute; right: 18px; bottom: 14px; font-size: 11px; color: rgba(185, 178, 163, 0.5);
   letter-spacing: 0.08em;
 }
+.title-savenote {
+  position: absolute; left: 18px; bottom: 14px; max-width: 70vw; font-size: 11.5px;
+  color: rgba(255, 233, 176, 0.6); letter-spacing: 0.04em;
+}
+.title-savenote.warn { color: var(--amber); }
 
 /* ---------------------------------------------------------------- Shared modal shell */
 .modal-scrim {

@@ -257,3 +257,13 @@
   .dlg-portrait, .dlg-portrait canvas { width: 62px; height: 62px; }
   .dlg-panel { padding: 14px 16px 16px; gap: 12px; }
 }
+
+/* ---- Cloud save pill (bottom-right; src/ui/saveIndicator.js) ------------ */
+.save-pill {
+  position: fixed; right: 18px; bottom: 18px; z-index: 7; pointer-events: none !important;
+  padding: 5px 13px; border-radius: 999px; font-size: 12px; letter-spacing: .03em;
+  color: var(--gold); background: var(--slate-soft); border: 1px solid var(--slate-line);
+  box-shadow: var(--shadow); opacity: 0; transform: translateY(6px);
+  transition: opacity 260ms ease, transform 260ms ease;
+}
+.save-pill.show { opacity: .92; transform: none; }

@@ -8,6 +8,7 @@ import { bus } from '../core/events.js';
 import { G } from '../core/state.js';
 import { input } from '../core/input.js';
 import { hasAnySave } from '../core/save.js';
+import { storage } from '../core/storage.js';
 import { TAU } from '../core/math.js';
 import { hashStr, seededRandom } from '../core/rng.js';
 import { pushLayer } from './uiStack.js';
@@ -322,8 +323,20 @@ export function showTitle(game) {
         <nav class="title-menu"></nav>
       </div>
       <div class="title-version">v1.0</div>
+      <div class="title-savenote"></div>
     `;
     document.getElementById('ui-root').appendChild(root);
+    // Where progress goes — said once, quietly, before the player commits time.
+    {
+      const note = root.querySelector('.title-savenote');
+      const text = {
+        cloud: '✦ Progress saves to your Claude account',
+        local: '✦ Progress saves in this browser',
+        memory: "Progress can't be saved in this view — it lasts until you close the page",
+      }[storage.mode];
+      note.textContent = text ?? '';
+      note.classList.toggle('warn', storage.mode === 'memory');
+    }
     // A lighter frame than the stylesheet's: the hero shot must read to the
     // corners, with just enough dusk behind the logo and menu for the gold.
     const vig = root.querySelector('.title-vignette');

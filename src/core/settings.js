@@ -1,5 +1,6 @@
-// Persisted user settings, independent of save slots.
+// Persisted user settings, independent of save slots (kept by core/storage.js).
 import { bus } from './events.js';
+import { storage } from './storage.js';
 
 const KEY = 'lumenfall_settings';
 const DEFAULTS = {
@@ -8,13 +9,19 @@ const DEFAULTS = {
 };
 
 export const settings = { ...DEFAULTS };
-try {
-  const raw = localStorage.getItem(KEY);
-  if (raw) Object.assign(settings, JSON.parse(raw));
-} catch (e) { /* private mode etc. — keep defaults */ }
+reloadSettings();
+
+/** Re-read the stored settings (main.js calls it once cloud storage has
+ *  connected, before the renderer starts). */
+export function reloadSettings() {
+  try {
+    const raw = storage.getItem(KEY);
+    if (raw) Object.assign(settings, JSON.parse(raw));
+  } catch (e) { /* unreadable — keep what we have */ }
+}
 
 export function updateSetting(key, value) {
   settings[key] = value;
-  try { localStorage.setItem(KEY, JSON.stringify(settings)); } catch (e) { /* ignore */ }
+  try { storage.setItem(KEY, JSON.stringify(settings)); } catch (e) { /* ignore */ }
   bus.emit('settings:changed', { key, value });
 }

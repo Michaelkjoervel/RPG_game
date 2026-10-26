@@ -102,6 +102,7 @@ class Game {
     this.initRenderer();
     this._initDiagnostics();
     this._initQualityGovernor();
+    this._initAutosave();
     this._loop();
   }
 
@@ -304,6 +305,42 @@ class Game {
   }
 
   autosave() { if (G.starter) saveGame(0); }
+
+  // Autosave follows real progress — battles won, Kindred caught, items,
+  // Glim, quests, party changes — not only zone changes and story beats: a
+  // couple of seconds after the last change, once the player is back in the
+  // overworld (battle:end fires while the battle still owns the screen).
+  // Hiding or closing the tab saves too, if anything (position included)
+  // changed, so closing the page never costs more than a few seconds.
+  _initAutosave() {
+    const PROGRESS = ['battle:end', 'item:gained', 'glim:changed', 'codex:updated', 'party:changed',
+      'quest:started', 'quest:updated', 'quest:completed', 'flag:set'];
+    let dirty = false, timer = null, lastPos = null;
+    const safe = () => this.mode === 'overworld' && !!G.starter && !this.overworld?._transferring;
+    const save = () => {
+      dirty = false;
+      lastPos = { zone: G.pos?.zone, x: G.pos?.x ?? 0, z: G.pos?.z ?? 0 };
+      this.autosave();
+    };
+    const flush = () => {
+      timer = null;
+      if (!dirty) return;
+      if (!safe()) { timer = setTimeout(flush, 2000); return; }
+      save();
+    };
+    const mark = () => { dirty = true; if (!timer) timer = setTimeout(flush, 2500); };
+    for (const ev of PROGRESS) bus.on(ev, mark);
+    bus.on('game:saved', ({ slot }) => {
+      if (slot !== 0) return;
+      dirty = false;
+      lastPos = { zone: G.pos?.zone, x: G.pos?.x ?? 0, z: G.pos?.z ?? 0 };
+    });
+    const moved = () => !lastPos || lastPos.zone !== G.pos?.zone
+      || Math.hypot((G.pos?.x ?? 0) - lastPos.x, (G.pos?.z ?? 0) - lastPos.z) > 3;
+    const lastChance = () => { if (safe() && (dirty || moved())) save(); };
+    document.addEventListener('visibilitychange', () => { if (document.hidden) lastChance(); });
+    window.addEventListener('pagehide', lastChance);
+  }
 }
 
 export const game = new Game();
