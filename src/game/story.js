@@ -505,6 +505,7 @@ export async function startNewGame(gameRef) {
   await say('dlg_intro_3');
   bus.emit('letterbox', { on: false });
 
+  setFlag('guide_tip_shown'); // the quest guide's own one-time tip joins the sequence below instead
   g.autosave();
   await g.enterOverworld('brighthollow');
 
@@ -515,6 +516,7 @@ export async function startNewGame(gameRef) {
     'Hold Shift, or the run button, to sprint.',
     'Press E near people or things of interest to interact.',
     'Press Esc or Tab any time to open your menu.',
+    'Not sure where to go? Press H (or Y) — a trail of lights shows the way to your quest.',
   ];
   hints.forEach((text, i) => setTimeout(() => notify(text, '✦', 6500), 900 + i * 6800));
 }
