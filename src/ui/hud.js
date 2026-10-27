@@ -408,7 +408,7 @@ export function initHud() {
   // ---- Interact prompt --------------------------------------------------
   bus.on('prompt:show', ({ text } = {}) => {
     el.promptTxt.textContent = text ?? 'Interact';
-    el.promptKey.textContent = input.lastDevice === 'gp' ? 'A' : 'E';
+    el.promptKey.textContent = input.lastDevice === 'gp' ? 'X' : 'E'; // pad interact is button 2 (core/input.js)
     el.prompt.classList.add('show');
   });
   bus.on('prompt:hide', () => el.prompt.classList.remove('show'));

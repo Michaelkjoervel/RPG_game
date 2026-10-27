@@ -242,11 +242,12 @@ export class World {
   }
 
   // ================================================================ interaction
-  /** Priority: npcs -> interactables -> portal (per the addendum). */
+  /** Priority: npcs -> interactables -> wild Kindred (challenge) -> portal. */
   interact() {
     if (!this.zone) return false;
     if (this.npcs?.tryInteract?.(this._playerPos(), this._playerFace())) return true;
     if (this.interactables?.tryInteract?.(this._playerPos(), this._playerFace())) return true;
+    if (this.wildlife?.tryInteract?.(this._playerPos())) return true;
     return this._tryPortal();
   }
 
@@ -254,6 +255,7 @@ export class World {
   nearestPrompt(pos) {
     return this.npcs?.nearestPrompt?.(pos)
       ?? this.interactables?.nearestPrompt?.(pos)
+      ?? this.wildlife?.nearestPrompt?.(pos)
       ?? this._portalPrompt(pos);
   }
 
