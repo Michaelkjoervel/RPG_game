@@ -513,7 +513,7 @@ export async function startNewGame(gameRef) {
   // load hitch would otherwise eat them), each lingering long enough to read.
   const hints = [
     'Move with WASD, or the left stick.',
-    'Hold Shift, or the run button, to sprint.',
+    'Hold Shift to run, or Space (right trigger) to sprint flat out.',
     'Press E near people or things of interest to interact.',
     'Press Esc or Tab any time to open your menu.',
     'Not sure where to go? Press H (or Y) — a trail of lights shows the way to your quest.',

@@ -35,6 +35,9 @@ const GROUND_CLEARANCE = 0.4;       // contract value: camera y >= heightAt(x,z)
 /* -------------------------------- fov tuning -------------------------------- */
 const BASE_FOV = 55;
 const RUN_FOV_KICK = 6;             // contract value
+const SPRINT_FOV_KICK = 5;          // extra widening on top of it at a full sprint
+const SPRINT_SPEED_REF = 11.0;      // player.js SPRINT_SPEED
+const LOOKAHEAD_CAP = 2.4;          // a sprint leads further, but never off the frame
 const FOV_LAMBDA = 6.5;
 
 /* ------------------------------ manual orbit input --------------------------- */
@@ -242,8 +245,10 @@ export function createCameraRig(world) {
 
     /* --- look-ahead focus point --- */
     const lookScale = LOOKAHEAD_MAX / LOOKAHEAD_SPEED_REF;
-    lookAheadX = damp(lookAheadX, pvx * lookScale, LOOKAHEAD_LAMBDA, dt);
-    lookAheadZ = damp(lookAheadZ, pvz * lookScale, LOOKAHEAD_LAMBDA, dt);
+    const leadLen = Math.hypot(pvx, pvz) * lookScale;
+    const leadK = leadLen > LOOKAHEAD_CAP ? LOOKAHEAD_CAP / leadLen : 1;
+    lookAheadX = damp(lookAheadX, pvx * lookScale * leadK, LOOKAHEAD_LAMBDA, dt);
+    lookAheadZ = damp(lookAheadZ, pvz * lookScale * leadK, LOOKAHEAD_LAMBDA, dt);
     const groundY = world.heightAt ? world.heightAt(px, pz) : 0;
     const targetX = px + lookAheadX;
     const targetY = groundY + EYE_HEIGHT;
@@ -343,7 +348,10 @@ export function createCameraRig(world) {
     camera.lookAt(_lookScratch);
 
     /* --- run fov kick --- */
-    const runKick = moving ? RUN_FOV_KICK * clamp01(speed / LOOKAHEAD_SPEED_REF) : 0;
+    const runKick = moving
+      ? RUN_FOV_KICK * clamp01(speed / LOOKAHEAD_SPEED_REF)
+        + SPRINT_FOV_KICK * clamp01((speed - LOOKAHEAD_SPEED_REF) / (SPRINT_SPEED_REF - LOOKAHEAD_SPEED_REF))
+      : 0;
     const targetFov = BASE_FOV + runKick;
     const newFov = damp(fov, targetFov, FOV_LAMBDA, dt);
     if (Math.abs(newFov - fov) > 0.01) { fov = newFov; camera.fov = fov; camera.updateProjectionMatrix(); }

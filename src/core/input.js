@@ -6,6 +6,9 @@ const KEYMAP = {
   Escape: 'menu', Tab: 'menu', KeyC: 'codex', KeyQ: 'cancel', Backspace: 'cancel',
   KeyH: 'hint', ShiftLeft: 'run', ShiftRight: 'run',
 };
+// Held-only actions that share a key with a press action: Space confirms in
+// menus and dialogue, and held while walking about it sprints.
+const HOLD_KEYMAP = { Space: 'sprint' };
 
 class Input {
   constructor() {
@@ -26,6 +29,7 @@ class Input {
       if (e.repeat) return;
       const action = KEYMAP[e.code];
       this.keys.add(e.code);
+      if (HOLD_KEYMAP[e.code]) this.actions.add(HOLD_KEYMAP[e.code]);
       this.lastDevice = 'kb';
       if (action) {
         if (['confirm', 'cancel', 'menu', 'interact'].includes(action)) e.preventDefault();
@@ -38,6 +42,7 @@ class Input {
       this.keys.delete(e.code);
       const action = KEYMAP[e.code];
       if (action) this.actions.delete(action);
+      if (HOLD_KEYMAP[e.code]) this.actions.delete(HOLD_KEYMAP[e.code]);
     });
     window.addEventListener('blur', () => { this.keys.clear(); this.actions.clear(); });
   }
@@ -96,6 +101,8 @@ class Input {
       }
       if (gp.buttons[10]?.pressed || gp.buttons[5]?.pressed) this.actions.add('run');
       else if (this.lastDevice === 'gp') this.actions.delete('run');
+      if (gp.buttons[7]?.pressed) { this.actions.add('sprint'); this.lastDevice = 'gp'; } // right trigger
+      else if (this.lastDevice === 'gp') this.actions.delete('sprint');
       // Left-stick pulse-to-nav: menu navigation from the stick without
       // flooding — see _stickPulse for the fire/re-arm/repeat rules.
       this._stickPulse('x', gx, 'left', 'right');

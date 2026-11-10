@@ -14,6 +14,7 @@ import { bus } from '../core/events.js';
 import { G } from '../core/state.js';
 import { input } from '../core/input.js';
 import { clamp, clamp01, lerp, damp, dampAngle, shortAngle, TAU } from '../core/math.js';
+import { Particles } from '../gfx/particles.js';
 import {
   disposeGroup, applyVertexGradient, contactShadow, applyLook, addOutline, smoothGeometry, sphericalNormals,
   taperCapsule, lumpify, ribbonGeo, drapeShell, bakeParts, solidColor, hairShell, bentLimb,
@@ -24,6 +25,8 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 /* ----------------------------- movement tuning ----------------------------- */
 const WALK_SPEED = 3.2;        // u/s — contract value
 const RUN_SPEED = 6.0;         // u/s — contract value
+const SPRINT_SPEED = 11.0;     // u/s — hold Space / right trigger: flat-out dash
+const MOVE_SUBSTEP = 0.25;     // max metres per collision pass, so a sprint never tunnels through a prop
 const ACCEL_LAMBDA = 11.0;     // gaining speed: snappy start
 const DECEL_LAMBDA = 5.2;      // losing speed: soft, weighty stop
 const TURN_LAMBDA_WALK = 9.0;  // model turn damping at walk
@@ -40,9 +43,11 @@ const LAND_DIP_VY = -5.0;      // downward speed that earns a landing dip
 /* ----------------------------- animation tuning ---------------------------- */
 const STRIDE_WALK = 0.95;      // meters per half-step at walk
 const STRIDE_RUN = 1.55;       // meters per half-step at run
+const STRIDE_SPRINT = 2.3;     // long bounding strides, so the legs don't blur at full sprint
 const BOB_WALK = 0.030;
 const BOB_RUN = 0.062;
-const LEAN_RUN = 0.17;         // forward pitch at full sprint
+const LEAN_RUN = 0.17;         // forward pitch at a run
+const LEAN_SPRINT = 0.32;      // ...and flat out
 const IDLE_LOOK_MIN = 4.0;     // seconds between idle look-arounds
 const IDLE_LOOK_MAX = 8.5;
 const SNOWLINE_Y = 12;         // mountain terrain above this = snow footsteps
@@ -884,6 +889,21 @@ export function createPlayer(world) {
   }
 
   /* -------- footsteps -------- */
+  /* -------- sprint dust: a puff kicked up behind each flat-out stride -------- */
+  const dust = new Particles(world.scene, { capacity: 140 });
+  const DUST_COLORS = {
+    grass: [0xdcc8a0, 0xbfa77e], stone: [0xc9c4bc, 0x9d978e], snow: [0xffffff, 0xe4eef8],
+    sand: [0xe8d9b0, 0xd2bf90], water: [0xe8f6ff, 0xcfe8f5], wood: [0xc9b08a, 0xa58a68],
+  };
+  function kickDust(k) {
+    const [c1, c2] = DUST_COLORS[surfaceAt(group.position.x, group.position.z, group.position.y)] ?? DUST_COLORS.grass;
+    dust.emitBurst({
+      at: { x: group.position.x - Math.sin(face) * 0.35, y: group.position.y + 0.08, z: group.position.z - Math.cos(face) * 0.35 },
+      count: Math.round(3 + 3 * k), color: c1, color2: c2, size: 0.16, sizeEnd: 0.42,
+      speed: 1.1, spread: 0.6, up: 0.9, gravity: 0.6, drag: 3.2, life: 0.55, additive: false,
+    });
+  }
+
   function emitStep() {
     const surface = surfaceAt(group.position.x, group.position.z, group.position.y);
     bus.emit('sfx:footstep', { surface });
@@ -912,28 +932,31 @@ export function createPlayer(world) {
     const r = refs;
     const speedNorm = clamp01(speed / RUN_SPEED);
     const runBlend = clamp01((speed - WALK_SPEED * 0.9) / (RUN_SPEED - WALK_SPEED * 0.9));
+    const sprintBlend = clamp01((speed - RUN_SPEED) / (SPRINT_SPEED - RUN_SPEED));
     const moveBlend = clamp01(speed / 1.1);
     const idleBlend = 1 - moveBlend;
 
     /* stride phase drives legs, arms, bob, and footstep timing */
-    const strideLen = lerp(STRIDE_WALK, STRIDE_RUN, runBlend);
+    const strideLen = lerp(lerp(STRIDE_WALK, STRIDE_RUN, runBlend), STRIDE_SPRINT, sprintBlend);
     phase += dt * (speed / strideLen);
     const stepIndex = Math.floor(phase * 2);
     if (stepIndex !== prevPhaseStep) {
       prevPhaseStep = stepIndex;
       if (speed > 0.7) emitStep();
+      if (sprintBlend > 0.45) kickDust(sprintBlend);
     }
     const swing = Math.sin(phase * TAU);
     const swingB = Math.sin(phase * TAU + Math.PI);
-    const amp = lerp(0.52, 0.95, runBlend) * moveBlend * (skidT > 0 ? 0.35 : 1);
+    const amp = lerp(lerp(0.52, 0.95, runBlend), 1.15, sprintBlend) * moveBlend * (skidT > 0 ? 0.35 : 1);
 
     r.legL.thigh.rotation.x = swing * amp;
     r.legR.thigh.rotation.x = swingB * amp;
-    r.legL.shin.rotation.x = (0.08 + Math.max(0, -Math.sin(phase * TAU + 0.7)) * lerp(0.55, 1.15, runBlend)) * moveBlend;
-    r.legR.shin.rotation.x = (0.08 + Math.max(0, -Math.sin(phase * TAU + Math.PI + 0.7)) * lerp(0.55, 1.15, runBlend)) * moveBlend;
+    const shinAmp = lerp(lerp(0.55, 1.15, runBlend), 1.45, sprintBlend);
+    r.legL.shin.rotation.x = (0.08 + Math.max(0, -Math.sin(phase * TAU + 0.7)) * shinAmp) * moveBlend;
+    r.legR.shin.rotation.x = (0.08 + Math.max(0, -Math.sin(phase * TAU + Math.PI + 0.7)) * shinAmp) * moveBlend;
 
     const armAmp = amp * 0.6;
-    const runRaise = runBlend * 0.42; // arms pump bent when sprinting
+    const runRaise = runBlend * 0.42 + sprintBlend * 0.22; // arms pump bent when running, higher flat out
     r.armL.rotation.x = swingB * armAmp - runRaise + Math.sin(time * 1.15) * 0.03 * idleBlend;
     r.armR.rotation.x = swing * armAmp - runRaise + Math.sin(time * 1.15 + 1.4) * 0.03 * idleBlend;
 
@@ -944,7 +967,7 @@ export function createPlayer(world) {
 
     /* lean into speed & acceleration; bank + skid on sharp turns */
     leanAccelSm = damp(leanAccelSm, clamp((speed - prevSpeed) / Math.max(dt, 1e-4), -8, 8) * 0.016, 6, dt);
-    r.torso.rotation.x = speedNorm * LEAN_RUN + leanAccelSm + (skidT > 0 ? -0.08 : 0) + (dip !== 0 ? dip * 0.9 : 0);
+    r.torso.rotation.x = lerp(speedNorm * LEAN_RUN, LEAN_SPRINT, sprintBlend) + leanAccelSm + (skidT > 0 ? -0.08 : 0) + (dip !== 0 ? dip * 0.9 : 0);
     bankSm = damp(bankSm, -angVel * 0.055 * moveBlend, 8, dt);
     r.rig.rotation.z = bankSm + (skidT > 0 ? bankSm * 1.6 : 0);
     r.hips.rotation.z = Math.sin(phase * TAU) * 0.045 * moveBlend + Math.sin(time * 0.45) * 0.02 * idleBlend;
@@ -976,7 +999,7 @@ export function createPlayer(world) {
     r.head.rotation.x = Math.sin(time * 1.7 + 0.5) * 0.015 * idleBlend + speedNorm * -0.06;
 
     /* cloak: springy lagged chain — lifts with speed, sways with time & turning */
-    const lift = speedNorm * 0.55;
+    const lift = speedNorm * 0.55 + sprintBlend * 0.4; // the cloak streams out behind a sprint
     for (let i = 0; i < 3; i++) {
       const sway = Math.sin(time * 2.0 + i * 0.9) * (0.045 + speedNorm * 0.05);
       const targetX = 0.14 + lift * (0.55 + i * 0.22) + sway;
@@ -987,7 +1010,7 @@ export function createPlayer(world) {
       refs.cloakSegs[i].rotation.z = cloakZ[i];
     }
     /* hair tuft: little spring opposing motion */
-    tuftX = damp(tuftX, speedNorm * 0.5 + Math.sin(time * 2.6) * 0.06, 7, dt);
+    tuftX = damp(tuftX, speedNorm * 0.5 + sprintBlend * 0.35 + Math.sin(time * 2.6) * 0.06, 7, dt);
     tuftZ = damp(tuftZ, clamp(-angVel * 0.1, -0.5, 0.5), 7, dt);
     r.hairTuft.rotation.x = tuftX;
     r.hairTuft.rotation.z = 0.0 + tuftZ;
@@ -1040,8 +1063,8 @@ export function createPlayer(world) {
     }
 
     /* --- velocity with snappy-in / soft-out damping --- */
-    const running = input.pressed('run');
-    const targetSpeed = mag * (running ? RUN_SPEED : WALK_SPEED) * slopeFactor * (skidT > 0 ? 0.35 : 1);
+    const pace = input.pressed('sprint') ? SPRINT_SPEED : input.pressed('run') ? RUN_SPEED : WALK_SPEED;
+    const targetSpeed = mag * pace * slopeFactor * (skidT > 0 ? 0.35 : 1);
     const tvx = ax * targetSpeed, tvz = az * targetSpeed;
     const speeding = (tvx * tvx + tvz * tvz) > (vx * vx + vz * vz);
     const lambda = speeding ? ACCEL_LAMBDA : DECEL_LAMBDA;
@@ -1052,9 +1075,14 @@ export function createPlayer(world) {
 
     /* --- integrate + resolve --- */
     const oldX = group.position.x, oldZ = group.position.z;
-    group.position.x += vx * dt;
-    group.position.z += vz * dt;
-    resolveColliders();
+    // a sprinting frame can cover more ground than a fence post is wide:
+    // move in short steps and resolve collisions after each
+    const steps = Math.max(1, Math.ceil((speed * dt) / MOVE_SUBSTEP));
+    for (let i = 0; i < steps; i++) {
+      group.position.x += (vx * dt) / steps;
+      group.position.z += (vz * dt) / steps;
+      resolveColliders();
+    }
     clampToBounds();
     updateStuckWatchdog(dt, targetSpeed > 0);
     /* deep water blocks (slide along the shore if one axis is passable) */
@@ -1103,6 +1131,7 @@ export function createPlayer(world) {
 
     /* --- animation, prompts, wading splash, follower, save-state mirror --- */
     animate(dt);
+    dust.update(dt);
     pollPrompt(dt);
     pollWading(dt);
     pushTrailPoint(group.position.x, group.position.z);
@@ -1177,6 +1206,7 @@ export function createPlayer(world) {
       offParty?.();
       followerToken++; // cancel any in-flight follower build
       detachFollower();
+      dust.dispose();
       world.scene?.remove(group);
       disposeGroup(group); // warden geometries/materials are built per-instance
       if (promptText) bus.emit('prompt:hide');
