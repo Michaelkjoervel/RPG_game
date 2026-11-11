@@ -27,6 +27,11 @@ const WALK_SPEED = 3.2;        // u/s — contract value
 const RUN_SPEED = 6.0;         // u/s — contract value
 const SPRINT_SPEED = 11.0;     // u/s — hold Space / right trigger: flat-out dash
 const MOVE_SUBSTEP = 0.25;     // max metres per collision pass, so a sprint never tunnels through a prop
+/* ------------------------------ sprint stamina ----------------------------- */
+const STAMINA_DRAIN = 1 / 4.5; // a full bar lasts 4.5 s of sprinting
+const STAMINA_REGEN = 1 / 3.2; // ...and refills in 3.2 s of easy walking (half as fast while running)
+const STAMINA_REGEN_DELAY = 0.6; // breather after a sprint before it starts to refill
+const WINDED_UNTIL = 0.35;     // run it dry and you can't sprint again until it is back to this
 const ACCEL_LAMBDA = 11.0;     // gaining speed: snappy start
 const DECEL_LAMBDA = 5.2;      // losing speed: soft, weighty stop
 const TURN_LAMBDA_WALK = 9.0;  // model turn damping at walk
@@ -527,6 +532,7 @@ export function createPlayer(world) {
   let phase = 0, prevPhaseStep = 0; // stride phase; step index for footsteps
   let time = 0;
   let idleTime = 0;
+  let stamina = 1, winded = false, staminaRest = 0, windedSm = 0, breathPuffT = 0, breathPhase = 0;
   let angVel = 0;                // yaw rate, drives cloak/bank secondary motion
   let bankSm = 0, leanAccelSm = 0;
   let skidT = 0, skidCooldown = 0;
@@ -967,13 +973,15 @@ export function createPlayer(world) {
 
     /* lean into speed & acceleration; bank + skid on sharp turns */
     leanAccelSm = damp(leanAccelSm, clamp((speed - prevSpeed) / Math.max(dt, 1e-4), -8, 8) * 0.016, 6, dt);
-    r.torso.rotation.x = lerp(speedNorm * LEAN_RUN, LEAN_SPRINT, sprintBlend) + leanAccelSm + (skidT > 0 ? -0.08 : 0) + (dip !== 0 ? dip * 0.9 : 0);
+    r.torso.rotation.x = lerp(speedNorm * LEAN_RUN, LEAN_SPRINT, sprintBlend) + windedSm * 0.16 * (1 - runBlend * 0.5) + leanAccelSm + (skidT > 0 ? -0.08 : 0) + (dip !== 0 ? dip * 0.9 : 0);
     bankSm = damp(bankSm, -angVel * 0.055 * moveBlend, 8, dt);
     r.rig.rotation.z = bankSm + (skidT > 0 ? bankSm * 1.6 : 0);
     r.hips.rotation.z = Math.sin(phase * TAU) * 0.045 * moveBlend + Math.sin(time * 0.45) * 0.02 * idleBlend;
 
     /* idle life: breathing, blinks, look-arounds */
-    const breath = 1 + Math.sin(time * 2.1) * 0.02 * lerp(1, 0.4, moveBlend);
+    windedSm = damp(windedSm, winded ? 1 : 0, 4, dt);
+    breathPhase += dt * (2.1 + windedSm * 5.5); // winded: quick, heaving breaths
+    const breath = 1 + Math.sin(breathPhase) * (0.02 * lerp(1, 0.4, moveBlend) + windedSm * 0.035);
     r.chest.scale.set(1.15 * breath, 1, 0.92 * breath);
     r.torso.position.y = Math.sin(time * 2.1) * 0.006 * idleBlend;
 
@@ -1063,7 +1071,24 @@ export function createPlayer(world) {
     }
 
     /* --- velocity with snappy-in / soft-out damping --- */
-    const pace = input.pressed('sprint') ? SPRINT_SPEED : input.pressed('run') ? RUN_SPEED : WALK_SPEED;
+    /* --- sprint stamina: drains while sprinting, refills after a breather;
+       run it dry and the Warden is winded — a held sprint becomes a run —
+       until it is back to WINDED_UNTIL --- */
+    const wantSprint = input.pressed('sprint');
+    const sprinting = wantSprint && !winded && mag > 0.01;
+    const running = input.pressed('run') || (wantSprint && winded);
+    if (sprinting) {
+      stamina = Math.max(0, stamina - STAMINA_DRAIN * dt);
+      staminaRest = 0;
+      if (stamina === 0) { winded = true; breathPuffT = 0; bus.emit('player:winded'); }
+    } else {
+      staminaRest += dt;
+      if (staminaRest > STAMINA_REGEN_DELAY) {
+        stamina = Math.min(1, stamina + STAMINA_REGEN * (running && mag > 0.01 ? 0.5 : 1) * dt);
+      }
+      if (winded && stamina >= WINDED_UNTIL) winded = false;
+    }
+    const pace = sprinting ? SPRINT_SPEED : running ? RUN_SPEED : WALK_SPEED;
     const targetSpeed = mag * pace * slopeFactor * (skidT > 0 ? 0.35 : 1);
     const tvx = ax * targetSpeed, tvz = az * targetSpeed;
     const speeding = (tvx * tvx + tvz * tvz) > (vx * vx + vz * vz);
@@ -1131,6 +1156,15 @@ export function createPlayer(world) {
 
     /* --- animation, prompts, wading splash, follower, save-state mirror --- */
     animate(dt);
+    if (winded && (breathPuffT -= dt) <= 0) {
+      // out of breath: little puffs at the mouth
+      breathPuffT = 0.5;
+      dust.emitBurst({
+        at: { x: group.position.x + Math.sin(face) * 0.28, y: group.position.y + 1.5, z: group.position.z + Math.cos(face) * 0.28 },
+        count: 3, color: 0xffffff, color2: 0xe6eef7, size: 0.07, sizeEnd: 0.22, speed: 0.5, spread: 0.4,
+        up: 0.5, gravity: -0.15, drag: 2.6, life: 0.7, additive: false,
+      });
+    }
     dust.update(dt);
     pollPrompt(dt);
     pollWading(dt);
@@ -1149,6 +1183,8 @@ export function createPlayer(world) {
     set face(v) { face = v; group.rotation.y = v; },
     vel: { x: 0, z: 0 }, // updated for the camera rig's look-ahead
     get speed() { return speed; },
+    get stamina() { return stamina; }, // 0..1 sprint stamina (HUD ring)
+    get winded() { return winded; },
     update(dt) {
       update(dt);
       api.vel.x = vx; api.vel.z = vz;

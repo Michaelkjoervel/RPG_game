@@ -7,6 +7,7 @@
 // Exports beyond initHud():
 //   creaturePortraitCanvas(speciesId, size) -> HTMLCanvasElement  (shared with battleUI)
 //   hpColorFor(frac) -> css color string
+import { Vector3 } from 'three';
 import { bus } from '../core/events.js';
 import { G } from '../core/state.js';
 import { input } from '../core/input.js';
@@ -207,6 +208,7 @@ export function initHud() {
     <div class="hud-zone-title"><div class="zt-name"></div><div class="zt-rule"></div><div class="zt-sub"></div></div>
     <div class="hud-toasts"></div>
     <div class="hud-prompt"><span class="key">E</span><span class="txt"></span></div>
+    <div class="hud-stamina"><svg viewBox="0 0 40 40"><circle class="st-track" cx="20" cy="20" r="15"/><circle class="st-fill" cx="20" cy="20" r="15"/></svg></div>
   `;
   uiRoot.appendChild(root);
 
@@ -231,6 +233,8 @@ export function initHud() {
     promptKey: root.querySelector('.hud-prompt .key'),
     promptTxt: root.querySelector('.hud-prompt .txt'),
     lbRoot: root.querySelector('.hud-letterbox'),
+    stamina: root.querySelector('.hud-stamina'),
+    stFill: root.querySelector('.hud-stamina .st-fill'),
   };
 
   // ---- Party pips + lead medallion --------------------------------------
@@ -462,5 +466,32 @@ export function initHud() {
     if (Math.abs(b - lastBearing) < 0.005) return;
     lastBearing = b;
     el.compassDisc.style.transform = `rotate(${-b}rad)`;
+  })();
+
+  // ---- Sprint stamina ring (beside the Warden; world/player.js) ---------
+  // Shows while the bar isn't full and a moment after it refills; amber when
+  // low, ember-red and pulsing while the Warden is winded.
+  const ST_CIRC = 2 * Math.PI * 15;
+  const _stV = new Vector3();
+  let stSeenAt = -1e9, lastSt = -1;
+  (function tickStamina() {
+    requestAnimationFrame(tickStamina);
+    const cam = game?.activeScene?.camera;
+    const p = game?.mode === 'overworld' && cam && !lbOn && !root.classList.contains('battle-dim') ? game.overworld?.player : null;
+    const st = p?.stamina ?? 1, winded = !!p?.winded;
+    const now = performance.now();
+    if (p && (st < 0.999 || winded)) stSeenAt = now;
+    const show = !!p && now - stSeenAt < 700;
+    el.stamina.classList.toggle('show', show);
+    if (!show) return;
+    _stV.set(p.pos.x, p.pos.y + 1.15, p.pos.z).project(cam);
+    if (_stV.z > 1) return; // behind the lens
+    const h = window.innerHeight;
+    const x = (_stV.x * 0.5 + 0.5) * window.innerWidth + h * 0.075; // to the Warden's right
+    const y = (-_stV.y * 0.5 + 0.5) * h;
+    el.stamina.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) translate(-50%, -50%)`;
+    if (Math.abs(st - lastSt) > 0.002) { lastSt = st; el.stFill.style.strokeDashoffset = (ST_CIRC * (1 - st)).toFixed(2); }
+    el.stamina.classList.toggle('winded', winded);
+    el.stamina.classList.toggle('low', !winded && st < 0.3);
   })();
 }

@@ -1,7 +1,9 @@
 // Sprint check: on Dawnmeadow's north road, hold W alone, W+Shift and
 // W+Space and read the Warden's top speed (walk ≈ 3.2, run ≈ 6, sprint ≈ 11);
-// screenshot mid-sprint (lean, dust, wider view); then sprint straight at a
-// prop and make sure the Warden stops against it instead of passing through.
+// screenshot mid-sprint (lean, dust, wider view); sprint straight at a prop and
+// make sure the Warden stops against it instead of passing through; then run
+// the stamina dry: winded after ~4.5 s (red ring, sprint drops to a run) and
+// back to sprinting shape after a breather.
 //   node tools/shoot.mjs tools/drivers/sprint-test.mjs <outDir>
 import { loadIn } from './integration-a.mjs';
 
@@ -73,5 +75,32 @@ export async function run(page, h) {
     if (d < c.r + 0.3 || passed) ok = false;
     await h.shot('against-prop');
   } else console.log('SPRINT (no suitable prop found for the collision check)');
+
+  // stamina: a full bar lasts ~4.5 s; run it dry and the Warden is winded
+  // (ring turns red, the held sprint drops to a run) until it refills a bit
+  await stand(page, h, 0, -95, 0); // facing +Z, back down the road
+  await gameWait(page, h, 4.5);    // refill
+  const full = await page.evaluate(`${W}.player.stamina`);
+  for (const k of ['Space', 'KeyW']) await page.keyboard.down(k);
+  const t0 = await page.evaluate(`${W}._time`);
+  let windedAt = null, after = 0, ring = null;
+  for (;;) {
+    const [t, v, w] = await page.evaluate(`[${W}._time, ${W}.player.speed, ${W}.player.winded]`);
+    if (w && windedAt == null) windedAt = t - t0;
+    if (windedAt != null && t - t0 > windedAt + 0.6) {
+      after = Math.max(after, v);
+      if (!ring) {
+        ring = await page.evaluate(`document.querySelector('.hud-stamina')?.className`);
+        await h.shot('winded');
+      }
+    }
+    if (t > t0 + 6.5) break;
+    await h.sleep(150);
+  }
+  for (const k of ['Space', 'KeyW']) await page.keyboard.up(k);
+  await gameWait(page, h, 3.6);
+  const rec = await page.evaluate(`JSON.stringify({ st: ${W}.player.stamina, winded: ${W}.player.winded })`).then(JSON.parse);
+  console.log(`SPRINT stamina: full ${full.toFixed(2)} -> winded after ${windedAt?.toFixed(2)} s of sprinting; top speed while winded ${after.toFixed(2)}; ring "${ring}"; 3.6 s later stamina ${rec.st.toFixed(2)}, winded ${rec.winded}`);
+  if (!(full > 0.99) || windedAt == null || windedAt < 3.8 || windedAt > 5.2 || after > 6.5 || !/winded/.test(ring ?? '') || rec.winded || rec.st < 0.8) ok = false;
   console.log('SPRINT RESULT:', ok ? 'PASS' : 'FAIL');
 }
